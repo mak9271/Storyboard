@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#0b0b0c" />
+  <title>Storyboard Shot Builder</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <div class="eyebrow">PRE-PRODUCTION TOOL</div>
+      <h1>Storyboard Shot Builder</h1>
+      <p>شات‌به‌شات مشخصات دکوپاژ را انتخاب و ذخیره کن.</p>
+    </div>
+    <div class="top-actions">
+      <button id="newProjectBtn" class="btn ghost">پروژه جدید</button>
+      <button id="exportBtn" class="btn ghost">خروجی JSON</button>
+      <label class="btn ghost file-label">ورود JSON<input id="importInput" type="file" accept=".json,application/json" hidden></label>
+      <button id="printBtn" class="btn">پرینت / PDF</button>
+    </div>
+  </header>
+
+  <main class="app-shell">
+    <aside class="sidebar">
+      <div class="project-card">
+        <label>نام پروژه</label>
+        <input id="projectName" value="روزنه" />
+        <div class="grid-2">
+          <div>
+            <label>نسبت قاب</label>
+            <select id="projectAspect">
+              <option selected>3:4 عمودی</option>
+              <option>9:16 عمودی</option>
+              <option>4:3</option>
+              <option>16:9</option>
+              <option>2.39:1</option>
+            </select>
+          </div>
+          <div>
+            <label>سبک</label>
+            <select id="projectStyle">
+              <option selected>Storyboard B&W</option>
+              <option>Pencil</option>
+              <option>Ink</option>
+              <option>Photoreal Reference</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="shot-header">
+        <span>پلان‌ها</span>
+        <button id="addShotBtn" class="icon-btn" title="پلان جدید">＋</button>
+      </div>
+
+      <div id="shotList" class="shot-list"></div>
+    </aside>
+
+    <section class="workspace">
+      <div class="workspace-head">
+        <div>
+          <div id="shotKicker" class="eyebrow">SCENE 01 · SHOT 01</div>
+          <h2 id="shotTitle">پلان ۱</h2>
+        </div>
+        <div class="shot-nav">
+          <button id="duplicateShotBtn" class="btn ghost">کپی پلان</button>
+          <button id="deleteShotBtn" class="btn danger">حذف</button>
+        </div>
+      </div>
+
+      <div class="hero-grid">
+        <section class="frame-card">
+          <div class="frame-toolbar">
+            <span>Storyboard Frame</span>
+            <span id="frameMeta">3:4 · CU · Eye Level</span>
+          </div>
+          <div id="storyFrame" class="story-frame aspect-3-4">
+            <div class="frame-placeholder">
+              <div class="frame-icon">▧</div>
+              <strong>فریم استوری‌بورد</strong>
+              <span>در نسخه رایگان اولیه، تصویر را اینجا به‌صورت دستی اضافه می‌کنیم.</span>
+              <label class="btn small">انتخاب تصویر<input id="frameImageInput" type="file" accept="image/*" hidden></label>
+            </div>
+            <img id="frameImage" alt="" hidden />
+          </div>
+          <button id="removeImageBtn" class="text-btn" hidden>حذف تصویر پلان</button>
+        </section>
+
+        <section class="quick-card">
+          <h3>مشخصات اصلی</h3>
+          <div class="chip-grid">
+            <button class="pick-card" data-focus="shotSize"><small>اندازه قاب</small><strong id="quickSize">CU</strong></button>
+            <button class="pick-card" data-focus="angle"><small>زاویه</small><strong id="quickAngle">Eye Level</strong></button>
+            <button class="pick-card" data-focus="lens"><small>لنز</small><strong id="quickLens">50mm</strong></button>
+            <button class="pick-card" data-focus="movement"><small>حرکت</small><strong id="quickMove">Static</strong></button>
+          </div>
+          <label>شرح یک‌خطی پلان</label>
+          <textarea id="summary" rows="6" placeholder="مثلاً: شهرزاد در نور شمع به شهریار نگاه می‌کند..."></textarea>
+        </section>
+      </div>
+
+      <div class="accordion">
+        <details open>
+          <summary>FRAME · قاب و دوربین</summary>
+          <div class="form-grid">
+            <div><label>شماره سکانس</label><input id="sceneNo" type="number" min="1" /></div>
+            <div><label>شماره پلان</label><input id="shotNo" type="number" min="1" /></div>
+            <div><label>مدت پلان</label><input id="duration" placeholder="مثلاً 2 ثانیه" /></div>
+            <div><label>اندازه قاب</label><select id="shotSize"></select></div>
+            <div><label>زاویه دوربین</label><select id="angle"></select></div>
+            <div><label>ارتفاع دوربین</label><select id="cameraHeight"></select></div>
+            <div><label>لنز</label><select id="lens"></select></div>
+            <div><label>عمق میدان / فوکوس</label><select id="focus"></select></div>
+            <div><label>حرکت دوربین</label><select id="movement"></select></div>
+            <div class="span-2"><label>شروع قاب → پایان قاب</label><input id="startEnd" placeholder="مثلاً ECU دست → Dolly Out → MS شهرزاد" /></div>
+            <div class="span-2"><label>ترکیب‌بندی</label><select id="composition"></select></div>
+          </div>
+        </details>
+
+        <details>
+          <summary>SUBJECT · شخصیت و اکشن</summary>
+          <div class="form-grid">
+            <div class="span-2"><label>سوژه اصلی</label><input id="subject" /></div>
+            <div class="span-2"><label>شرح دقیق تصویر</label><textarea id="description" rows="4"></textarea></div>
+            <div class="span-2"><label>حالت / بازی شخصیت</label><textarea id="performance" rows="3"></textarea></div>
+            <div class="span-2"><label>حرکت شخصیت / سوژه</label><textarea id="subjectMovement" rows="3"></textarea></div>
+            <div class="span-2"><label>لباس / ظاهر شخصیت</label><textarea id="costume" rows="3"></textarea></div>
+          </div>
+        </details>
+
+        <details>
+          <summary>LIGHT & SPACE · نور، زمان و دکور</summary>
+          <div class="form-grid">
+            <div><label>زمان</label><select id="timeOfDay"></select></div>
+            <div><label>لوکیشن / فضا</label><input id="location" /></div>
+            <div><label>منبع نور</label><select id="lightSource"></select></div>
+            <div><label>جهت نور</label><select id="lightDirection"></select></div>
+            <div><label>کیفیت نور</label><select id="lightQuality"></select></div>
+            <div class="span-2"><label>توضیح نور</label><textarea id="lighting" rows="3"></textarea></div>
+            <div class="span-2"><label>دکور و عناصر مهم</label><textarea id="props" rows="3"></textarea></div>
+          </div>
+        </details>
+
+        <details>
+          <summary>AUDIO · دیالوگ و صدا</summary>
+          <div class="form-grid">
+            <div class="span-2"><label>دیالوگ</label><textarea id="dialogue" rows="3"></textarea></div>
+            <div class="span-2"><label>نریشن / VO</label><textarea id="voiceOver" rows="3"></textarea></div>
+            <div><label>SFX</label><input id="sfx" /></div>
+            <div><label>موسیقی</label><input id="music" /></div>
+          </div>
+        </details>
+
+        <details>
+          <summary>EDIT & NOTES · تدوین و یادداشت</summary>
+          <div class="form-grid">
+            <div><label>ترنزیشن ورود</label><select id="transitionIn"></select></div>
+            <div><label>ترنزیشن خروج</label><select id="transitionOut"></select></div>
+            <div class="span-2"><label>نکته مهم برای طراحی استوری‌بورد</label><textarea id="notes" rows="5"></textarea></div>
+          </div>
+        </details>
+      </div>
+
+      <footer class="bottom-nav">
+        <button id="prevShotBtn" class="btn ghost">→ پلان قبلی</button>
+        <span id="saveState">ذخیره خودکار فعال است</span>
+        <button id="nextShotBtn" class="btn ghost">پلان بعدی ←</button>
+      </footer>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
