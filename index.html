@@ -2,198 +2,386 @@
 <html lang="en" dir="ltr">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <meta name="theme-color" content="#0b0b0c" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#050607" />
+  <meta name="description" content="Storyboard Shot Builder — collaborative pre-production planning." />
   <title>Storyboard Shot Builder</title>
+
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  <link rel="manifest" href="manifest.webmanifest" />
+
   <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
 </head>
 <body>
-  <header class="topbar">
-    <div>
-      <div class="eyebrow">PRE-PRODUCTION TOOL</div>
-      <h1>Storyboard Shot Builder</h1>
-      <p>Plan, organize and review your storyboard shot by shot.</p>
-    </div>
-    <div class="top-actions">
-      <button id="builderTabBtn" class="btn active-tab">Shot Builder</button>
-      <button id="sheetTabBtn" class="btn ghost">Storyboard Sheet</button>
-      <button id="newProjectBtn" class="btn ghost">New Project</button>
-      <button id="exportBtn" class="btn ghost">Export JSON</button>
-      <label class="btn ghost file-label">Import JSON<input id="importInput" type="file" accept=".json,application/json" hidden></label>
-    </div>
-  </header>
 
-  <main id="builderView" class="app-shell">
-    <aside class="sidebar">
-      <div class="project-card">
-        <label>Project Name</label>
-        <input id="projectName" value="Roozaneh" />
-        <div class="grid-2">
-          <div>
-            <label>Aspect Ratio</label>
-            <select id="projectAspect">
-              <option selected>3:4 Portrait</option>
-              <option>9:16 Portrait</option>
-              <option>4:3</option>
-              <option>16:9</option>
-              <option>2.39:1</option>
-            </select>
-          </div>
-          <div>
-            <label>Storyboard Style</label>
-            <select id="projectStyle">
-              <option selected>Storyboard B&W</option>
-              <option>Pencil</option>
-              <option>Ink</option>
-              <option>Photoreal Reference</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      <div class="shot-header">
-        <span>Shots</span>
-        <button id="addShotBtn" class="icon-btn" title="Add shot">＋</button>
-      </div>
-
-      <div id="shotList" class="shot-list"></div>
-    </aside>
-
-    <section class="workspace">
-      <div class="workspace-head">
+  <!-- AUTH -->
+  <section id="authView" class="auth-view" hidden>
+    <div class="auth-shell">
+      <div class="auth-brand">
+        <div class="s-logo">S</div>
         <div>
-          <div id="shotKicker" class="eyebrow">SCENE 01 · SHOT 01</div>
-          <h2 id="shotTitle">Shot 1</h2>
-        </div>
-        <div class="shot-nav">
-          <button id="duplicateShotBtn" class="btn ghost">Duplicate</button>
-          <button id="deleteShotBtn" class="btn danger">Delete</button>
+          <div class="eyebrow">STORYBOARD</div>
+          <h1>Storyboard Shot Builder</h1>
+          <p>Build, save and collaborate on shot-by-shot storyboards.</p>
         </div>
       </div>
 
-      <div class="hero-grid">
-        <section class="frame-card">
-          <div class="frame-toolbar">
-            <span>Storyboard Frame</span>
-            <span id="frameMeta">3:4 · CU · Eye Level</span>
+      <div class="auth-card">
+        <div class="auth-tabs">
+          <button id="loginTabBtn" class="seg active">Sign In</button>
+          <button id="signupTabBtn" class="seg">Create Account</button>
+        </div>
+
+        <form id="loginForm">
+          <div class="login-method">
+            <button type="button" id="loginEmailMode" class="mini-seg active">Email</button>
+            <button type="button" id="loginUsernameMode" class="mini-seg">Username</button>
           </div>
-          <div id="storyFrame" class="story-frame aspect-3-4">
-            <div class="frame-placeholder">
-              <div class="frame-icon">▧</div>
-              <strong>Storyboard Frame</strong>
-              <span>Add an image manually for now. AI generation comes next.</span>
-              <label class="btn small">Choose Image<input id="frameImageInput" type="file" accept="image/*" hidden></label>
+          <label id="loginIdentityLabel">Email</label>
+          <input id="loginIdentity" autocomplete="username" placeholder="you@example.com" required />
+          <label>Password</label>
+          <input id="loginPassword" type="password" autocomplete="current-password" required />
+          <button class="btn wide" type="submit">Sign In</button>
+          <button id="forgotPasswordBtn" class="text-btn center" type="button">Forgot password?</button>
+        </form>
+
+        <form id="signupForm" hidden>
+          <label>Username</label>
+          <input id="signupUsername" autocomplete="username" placeholder="yourname" minlength="3" maxlength="30" required />
+          <small class="field-help">3–30 characters: letters, numbers, dot, underscore or hyphen.</small>
+          <label>Display Name</label>
+          <input id="signupDisplayName" autocomplete="name" placeholder="Your name" />
+          <label>Email</label>
+          <input id="signupEmail" type="email" autocomplete="email" placeholder="you@example.com" required />
+          <label>Password</label>
+          <input id="signupPassword" type="password" autocomplete="new-password" minlength="8" required />
+          <button class="btn wide" type="submit">Create Account</button>
+        </form>
+
+        <div id="authMessage" class="notice" hidden></div>
+        <div id="cloudNotConfigured" class="notice warning" hidden>
+          Cloud accounts are not configured yet. The editor can still run in offline mode.
+        </div>
+        <button id="continueOfflineBtn" class="btn ghost wide">Continue Offline</button>
+      </div>
+      <div class="creator-credit">© 2026 <a href="https://aminkhorsandi.com" target="_blank" rel="noopener">Amin Khorsandi</a></div>
+    </div>
+  </section>
+
+  <!-- PROJECT DASHBOARD -->
+  <section id="projectsView" class="projects-view" hidden>
+    <header class="dashboard-head">
+      <div class="brand-row">
+        <div class="s-logo small-logo">S</div>
+        <div>
+          <div class="eyebrow">MY STORYBOARDS</div>
+          <h1>Projects</h1>
+        </div>
+      </div>
+      <div class="top-actions">
+        <button id="newCloudProjectBtn" class="btn">＋ New Project</button>
+        <button id="accountBtn" class="btn ghost">Account</button>
+        <button id="logoutBtn" class="btn ghost">Log Out</button>
+      </div>
+    </header>
+
+    <main class="projects-main">
+      <div id="inviteNotice" class="notice" hidden></div>
+      <div id="projectsGrid" class="projects-grid"></div>
+      <div id="projectsEmpty" class="empty-state" hidden>
+        <div class="s-logo empty-logo">S</div>
+        <h2>No projects yet</h2>
+        <p>Create your first storyboard project.</p>
+        <button id="emptyNewProjectBtn" class="btn">Create Project</button>
+      </div>
+    </main>
+    <div class="creator-credit dashboard-credit">© 2026 <a href="https://aminkhorsandi.com" target="_blank" rel="noopener">Amin Khorsandi</a></div>
+  </section>
+
+  <!-- EDITOR -->
+  <section id="editorView" hidden>
+    <header class="topbar">
+      <div class="editor-brand">
+        <button id="backProjectsBtn" class="icon-btn back-btn" title="Projects">←</button>
+        <div>
+          <div class="eyebrow">PRE-PRODUCTION TOOL</div>
+          <h1>Storyboard Shot Builder</h1>
+        </div>
+      </div>
+
+      <div class="top-actions editor-actions">
+        <button id="sheetToggleBtn" class="btn ghost sheet-toggle">Storyboard Sheet</button>
+        <button id="collaborateBtn" class="btn ghost">Collaborate</button>
+        <button id="exportBtn" class="btn ghost">Export JSON</button>
+        <label class="btn ghost file-label">Import JSON<input id="importInput" type="file" accept=".json,application/json" hidden></label>
+      </div>
+    </header>
+
+    <!-- SHEET IS ALWAYS ABOVE THE EDITOR WHEN TOGGLED ON -->
+    <section id="sheetPanel" class="sheet-panel" hidden>
+      <div class="sheet-toolbar">
+        <div>
+          <div class="eyebrow cyan-text">STORYBOARD OVERVIEW</div>
+          <h2 id="sheetProjectTitle">Storyboard Sheet</h2>
+        </div>
+        <div class="sheet-controls">
+          <label class="inline-control">Shots per page
+            <select id="shotsPerPage">
+              <option value="4">4</option>
+              <option value="6" selected>6</option>
+              <option value="8">8</option>
+              <option value="9">9</option>
+              <option value="12">12</option>
+            </select>
+          </label>
+          <button id="printSheetBtn" class="btn">Print / Save PDF</button>
+          <button id="closeSheetBtn" class="icon-btn" title="Close sheet">×</button>
+        </div>
+      </div>
+      <div id="sheetPages" class="sheet-pages"></div>
+    </section>
+
+    <main class="app-shell">
+      <aside class="sidebar">
+        <div class="project-card">
+          <label>Project Name</label>
+          <input id="projectName" />
+          <div class="grid-2">
+            <div>
+              <label>Aspect Ratio</label>
+              <select id="projectAspect">
+                <option>3:4 Portrait</option>
+                <option>9:16 Portrait</option>
+                <option>4:3</option>
+                <option>16:9</option>
+                <option>2.39:1</option>
+                <option>Custom</option>
+              </select>
             </div>
-            <img id="frameImage" alt="" hidden />
+            <div>
+              <label>Storyboard Style</label>
+              <select id="projectStyle">
+                <option>Storyboard B&W</option>
+                <option>Pencil</option>
+                <option>Ink</option>
+                <option>Photoreal Reference</option>
+              </select>
+            </div>
           </div>
-          <button id="removeImageBtn" class="text-btn" hidden>Remove Shot Image</button>
-        </section>
+          <div id="customAspectFields" class="custom-aspect" hidden>
+            <div>
+              <label>Width</label>
+              <input id="aspectWidth" type="number" min="0.1" step="0.1" value="3" />
+            </div>
+            <span>:</span>
+            <div>
+              <label>Height</label>
+              <input id="aspectHeight" type="number" min="0.1" step="0.1" value="4" />
+            </div>
+          </div>
+        </div>
 
-        <section class="quick-card">
-          <h3>Primary Settings</h3>
-          <div class="chip-grid">
-            <button class="pick-card" data-focus="shotSize"><small>Shot Size</small><strong id="quickSize">CU</strong></button>
-            <button class="pick-card" data-focus="angle"><small>Camera Angle</small><strong id="quickAngle">Eye Level</strong></button>
-            <button class="pick-card" data-focus="lens"><small>Lens</small><strong id="quickLens">50mm</strong></button>
-            <button class="pick-card" data-focus="movement"><small>Movement</small><strong id="quickMove">Static</strong></button>
+        <div class="scene-header">
+          <span>Scenes</span>
+          <button id="addSceneBtn" class="icon-btn" title="Add scene">＋</button>
+        </div>
+        <div id="sceneList" class="scene-list"></div>
+
+        <div id="sceneEditor" class="scene-editor-card">
+          <div class="scene-editor-title">
+            <strong>Scene Settings</strong>
+            <button id="deleteSceneBtn" class="text-btn danger-text" type="button">Delete Scene</button>
           </div>
-          <label>One-line Shot Summary</label>
-          <textarea id="summary" rows="5" placeholder="Example: Shahrzad looks toward the king in candlelight..."></textarea>
-        </section>
+          <div class="grid-2">
+            <div><label>Scene Number</label><input id="sceneNumber" type="number" min="1" /></div>
+            <div><label>Scene Title</label><input id="sceneTitle" placeholder="Scene title" /></div>
+          </div>
+          <label>Description</label>
+          <textarea id="sceneDescription" rows="3" placeholder="Scene notes, location, story beat..."></textarea>
+        </div>
+      </aside>
+
+      <section class="workspace">
+        <div class="workspace-head">
+          <div>
+            <div id="shotKicker" class="eyebrow">SCENE 01 · SHOT 01</div>
+            <h2 id="shotTitle">Shot 1</h2>
+          </div>
+          <div class="shot-nav">
+            <button id="addShotBtn" class="btn ghost">＋ Shot</button>
+            <button id="duplicateShotBtn" class="btn ghost">Duplicate</button>
+            <button id="deleteShotBtn" class="btn danger">Delete</button>
+          </div>
+        </div>
+
+        <div class="hero-grid">
+          <section class="frame-card">
+            <div class="frame-toolbar">
+              <span>Storyboard Frame</span>
+              <span id="frameMeta">3:4 · CU · Eye Level</span>
+            </div>
+            <div id="storyFrame" class="story-frame">
+              <div class="frame-placeholder">
+                <div class="frame-icon">▧</div>
+                <strong>Storyboard Frame</strong>
+                <span>Add an image manually. AI generation is the next phase.</span>
+                <label id="chooseImageLabel" class="btn small">Choose Image<input id="frameImageInput" type="file" accept="image/*" hidden></label>
+              </div>
+              <img id="frameImage" alt="" hidden />
+            </div>
+            <button id="removeImageBtn" class="text-btn" hidden>Remove Shot Image</button>
+          </section>
+
+          <section class="quick-card">
+            <h3>Primary Settings</h3>
+            <div class="chip-grid">
+              <button class="pick-card" data-focus="shotSize"><small>Shot Size</small><strong id="quickSize">CU</strong></button>
+              <button class="pick-card" data-focus="angle"><small>Camera Angle</small><strong id="quickAngle">Eye Level</strong></button>
+              <button class="pick-card" data-focus="lens"><small>Lens</small><strong id="quickLens">50mm</strong></button>
+              <button class="pick-card" data-focus="movement"><small>Movement</small><strong id="quickMove">Static</strong></button>
+            </div>
+            <label>One-line Shot Summary</label>
+            <textarea id="summary" rows="5" placeholder="Example: Shahrzad looks toward the king in candlelight..."></textarea>
+          </section>
+        </div>
+
+        <div class="accordion">
+          <details open>
+            <summary>FRAME · Camera & Composition</summary>
+            <div class="form-grid">
+              <div><label>Shot Number</label><input id="shotNo" type="number" min="1" /></div>
+              <div><label>Duration</label><input id="duration" placeholder="e.g. 2 sec" /></div>
+              <div><label>Shot Size</label><select id="shotSize"></select></div>
+              <div><label>Camera Angle</label><select id="angle"></select></div>
+              <div><label>Camera Height</label><select id="cameraHeight"></select></div>
+              <div><label>Lens</label><select id="lens"></select></div>
+              <div><label>Focus / Depth of Field</label><select id="focus"></select></div>
+              <div><label>Camera Movement</label><select id="movement"></select></div>
+              <div class="span-2"><label>Start Frame → End Frame</label><input id="startEnd" placeholder="e.g. ECU hand → Dolly Out → MS Shahrzad" /></div>
+              <div class="span-2"><label>Composition</label><select id="composition"></select></div>
+            </div>
+          </details>
+
+          <details>
+            <summary>SUBJECT · Character & Action</summary>
+            <div class="form-grid">
+              <div class="span-2"><label>Main Subject</label><input id="subject" /></div>
+              <div class="span-2"><label>Detailed Visual Description</label><textarea id="description" rows="4"></textarea></div>
+              <div class="span-2"><label>Performance / Emotion</label><textarea id="performance" rows="3"></textarea></div>
+              <div class="span-2"><label>Subject Movement</label><textarea id="subjectMovement" rows="3"></textarea></div>
+              <div class="span-2"><label>Costume / Appearance</label><textarea id="costume" rows="3"></textarea></div>
+            </div>
+          </details>
+
+          <details>
+            <summary>LIGHT & SPACE · Lighting, Time & Set</summary>
+            <div class="form-grid">
+              <div><label>Time of Day</label><select id="timeOfDay"></select></div>
+              <div><label>Location / Space</label><input id="location" /></div>
+              <div><label>Light Source</label><select id="lightSource"></select></div>
+              <div><label>Light Direction</label><select id="lightDirection"></select></div>
+              <div><label>Light Quality</label><select id="lightQuality"></select></div>
+              <div class="span-2"><label>Lighting Notes</label><textarea id="lighting" rows="3"></textarea></div>
+              <div class="span-2"><label>Props / Set Elements</label><textarea id="props" rows="3"></textarea></div>
+            </div>
+          </details>
+
+          <details>
+            <summary>AUDIO · Dialogue & Sound</summary>
+            <div class="form-grid">
+              <div class="span-2"><label>Dialogue</label><textarea id="dialogue" rows="3"></textarea></div>
+              <div class="span-2"><label>Voice Over / Narration</label><textarea id="voiceOver" rows="3"></textarea></div>
+              <div><label>SFX</label><input id="sfx" /></div>
+              <div><label>Music</label><input id="music" /></div>
+            </div>
+          </details>
+
+          <details>
+            <summary>EDIT & NOTES · Transition & Storyboard Notes</summary>
+            <div class="form-grid">
+              <div><label>Transition In</label><select id="transitionIn"></select></div>
+              <div><label>Transition Out</label><select id="transitionOut"></select></div>
+              <div class="span-2"><label>Important Storyboard Notes</label><textarea id="notes" rows="5"></textarea></div>
+            </div>
+          </details>
+        </div>
+
+        <div class="creator-credit editor-credit">© 2026 <a href="https://aminkhorsandi.com" target="_blank" rel="noopener">Amin Khorsandi</a></div>
+      </section>
+    </main>
+
+    <nav class="mobile-nav">
+      <button id="prevShotBtn">← Prev</button>
+      <button id="mobileAddShotBtn">＋ Shot</button>
+      <button id="mobileSheetBtn" class="mobile-sheet-toggle">Sheet</button>
+      <button id="nextShotBtn">Next →</button>
+    </nav>
+  </section>
+
+  <!-- COLLABORATION MODAL -->
+  <dialog id="collabModal" class="modal">
+    <form method="dialog" class="modal-card" id="collabDialogForm">
+      <div class="modal-head">
+        <div>
+          <div class="eyebrow">PROJECT ACCESS</div>
+          <h2>Collaborate</h2>
+        </div>
+        <button class="icon-btn" value="cancel">×</button>
       </div>
 
-      <div class="accordion">
-        <details open>
-          <summary>FRAME · Camera & Composition</summary>
-          <div class="form-grid">
-            <div><label>Scene Number</label><input id="sceneNo" type="number" min="1" /></div>
-            <div><label>Shot Number</label><input id="shotNo" type="number" min="1" /></div>
-            <div><label>Duration</label><input id="duration" placeholder="e.g. 2 sec" /></div>
-            <div><label>Shot Size</label><select id="shotSize"></select></div>
-            <div><label>Camera Angle</label><select id="angle"></select></div>
-            <div><label>Camera Height</label><select id="cameraHeight"></select></div>
-            <div><label>Lens</label><select id="lens"></select></div>
-            <div><label>Focus / Depth of Field</label><select id="focus"></select></div>
-            <div><label>Camera Movement</label><select id="movement"></select></div>
-            <div class="span-2"><label>Start Frame → End Frame</label><input id="startEnd" placeholder="e.g. ECU hand → Dolly Out → MS Shahrzad" /></div>
-            <div class="span-2"><label>Composition</label><select id="composition"></select></div>
-          </div>
-        </details>
+      <div id="collabOwnerTools">
+        <label>Invite an existing user by username</label>
+        <div class="inline-row">
+          <input id="inviteUsername" placeholder="username" />
+          <button id="addMemberBtn" type="button" class="btn">Add User</button>
+        </div>
 
-        <details>
-          <summary>SUBJECT · Character & Action</summary>
-          <div class="form-grid">
-            <div class="span-2"><label>Main Subject</label><input id="subject" /></div>
-            <div class="span-2"><label>Detailed Visual Description</label><textarea id="description" rows="4"></textarea></div>
-            <div class="span-2"><label>Performance / Emotion</label><textarea id="performance" rows="3"></textarea></div>
-            <div class="span-2"><label>Subject Movement</label><textarea id="subjectMovement" rows="3"></textarea></div>
-            <div class="span-2"><label>Costume / Appearance</label><textarea id="costume" rows="3"></textarea></div>
-          </div>
-        </details>
+        <label>Optional email restriction for share link</label>
+        <input id="inviteEmail" type="email" placeholder="someone@example.com (optional)" />
 
-        <details>
-          <summary>LIGHT & SPACE · Lighting, Time & Set</summary>
-          <div class="form-grid">
-            <div><label>Time of Day</label><select id="timeOfDay"></select></div>
-            <div><label>Location / Space</label><input id="location" /></div>
-            <div><label>Light Source</label><select id="lightSource"></select></div>
-            <div><label>Light Direction</label><select id="lightDirection"></select></div>
-            <div><label>Light Quality</label><select id="lightQuality"></select></div>
-            <div class="span-2"><label>Lighting Notes</label><textarea id="lighting" rows="3"></textarea></div>
-            <div class="span-2"><label>Props / Set Elements</label><textarea id="props" rows="3"></textarea></div>
+        <div class="permission-box">
+          <div class="permission-top">
+            <strong>Access</strong>
+            <select id="permissionPreset">
+              <option value="viewer">Viewer</option>
+              <option value="editor" selected>Editor</option>
+              <option value="custom">Custom</option>
+            </select>
           </div>
-        </details>
+          <label class="check-row"><input id="permProject" type="checkbox" /> Project settings</label>
+          <label class="check-row"><input id="permScenes" type="checkbox" checked /> Scenes</label>
+          <label class="check-row"><input id="permShots" type="checkbox" checked /> Shot details</label>
+          <label class="check-row"><input id="permMedia" type="checkbox" checked /> Storyboard images / media</label>
+          <label class="check-row"><input id="permMembers" type="checkbox" /> Manage collaborators</label>
+        </div>
 
-        <details>
-          <summary>AUDIO · Dialogue & Sound</summary>
-          <div class="form-grid">
-            <div class="span-2"><label>Dialogue</label><textarea id="dialogue" rows="3"></textarea></div>
-            <div class="span-2"><label>Voice Over / Narration</label><textarea id="voiceOver" rows="3"></textarea></div>
-            <div><label>SFX</label><input id="sfx" /></div>
-            <div><label>Music</label><input id="music" /></div>
-          </div>
-        </details>
-
-        <details>
-          <summary>EDIT & NOTES · Transition & Storyboard Notes</summary>
-          <div class="form-grid">
-            <div><label>Transition In</label><select id="transitionIn"></select></div>
-            <div><label>Transition Out</label><select id="transitionOut"></select></div>
-            <div class="span-2"><label>Important Storyboard Notes</label><textarea id="notes" rows="5"></textarea></div>
-          </div>
-        </details>
+        <button id="createShareLinkBtn" type="button" class="btn ghost wide">Create Invite Link</button>
+        <div id="shareLinkBox" class="share-link-box" hidden>
+          <input id="shareLinkOutput" readonly />
+          <button id="copyShareLinkBtn" type="button" class="btn">Copy</button>
+        </div>
       </div>
-    </section>
-  </main>
 
-  <main id="sheetView" class="sheet-view" hidden>
-    <section class="sheet-toolbar">
-      <div>
-        <div class="eyebrow">STORYBOARD OVERVIEW</div>
-        <h2 id="sheetProjectTitle">Storyboard Sheet</h2>
-      </div>
-      <div class="sheet-controls">
-        <label class="inline-control">Shots per page
-          <select id="shotsPerPage">
-            <option value="4">4</option>
-            <option value="6" selected>6</option>
-            <option value="8">8</option>
-            <option value="9">9</option>
-            <option value="12">12</option>
-          </select>
-        </label>
-        <button id="printSheetBtn" class="btn">Print / Save PDF</button>
-      </div>
-    </section>
-    <section id="sheetPages" class="sheet-pages"></section>
-  </main>
+      <div class="members-head"><strong>Project members</strong></div>
+      <div id="membersList" class="members-list"></div>
+      <div id="collabMessage" class="notice" hidden></div>
+    </form>
+  </dialog>
 
-  <nav class="mobile-nav">
-    <button id="prevShotBtn">← Prev</button>
-    <button id="mobileAddBtn">＋ Shot</button>
-    <button id="mobileSheetBtn">Sheet</button>
-    <button id="nextShotBtn">Next →</button>
-  </nav>
+  <!-- ACCOUNT MODAL -->
+  <dialog id="accountModal" class="modal">
+    <div class="modal-card compact-modal">
+      <div class="modal-head">
+        <div><div class="eyebrow">ACCOUNT</div><h2 id="accountDisplayName">Account</h2></div>
+        <button id="closeAccountBtn" class="icon-btn">×</button>
+      </div>
+      <p id="accountUsername"></p>
+      <p id="accountEmail" class="muted"></p>
+    </div>
+  </dialog>
 
   <script src="app.js"></script>
 </body>

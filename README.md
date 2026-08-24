@@ -1,39 +1,38 @@
-# Storyboard Shot Builder v2
+# Storyboard Shot Builder v3
 
-Version 2 includes:
+## New in v3
+1. **Storyboard Sheet is a persistent toggle**
+   - Opens above the editor, not below it.
+   - Stays ON while you continue editing.
+   - Active state uses a blue-heavy cyan gradient.
+2. **Custom aspect ratio**
+   - Choose Custom and enter Width + Height manually.
+3. **Scenes**
+   - Shots are now nested inside Scenes.
+   - Each Scene has number, title and description.
+4. **Account architecture**
+   - Email/password signup.
+   - Username + email stored as separate identity/profile data.
+   - Sign in by either Email OR Username (username uses a Supabase Edge Function).
+   - Each user sees their own projects plus projects shared with them.
+5. **Site icon**
+   - Black square, bold white “S”.
+   - favicon + Apple touch icons + web manifest.
+6. **Collaboration**
+   - Add an existing user by username.
+   - Create share/invite links.
+   - Viewer / Editor / Custom access.
+   - Granular access: project settings, scenes, shot details, media, collaborators.
+   - Simple Realtime refresh for collaborative changes.
+7. **Creator credit**
+   - Small `© 2026 Amin Khorsandi` linked to https://aminkhorsandi.com
 
-- Full English interface
-- Mobile-friendly shot builder
-- Dedicated **Storyboard Sheet** view
-- View all shots as paginated storyboard sheets
-- Select **4 / 6 / 8 / 9 / 12 shots per page**
-- Print / Save storyboard sheets as PDF
-- Shot images, metadata and one-line descriptions included in each storyboard card
-- JSON export/import
-- Automatic browser storage
-- Mobile bottom navigation
-- Ready for the next phase: AI storyboard generation
+## Important: Account/collaboration setup
+The UI and backend code are included, but cloud accounts will stay in Offline mode until a free Supabase project is connected.
 
-## Updating the existing Cloudflare deployment
+Use the separate `storyboard-v3-supabase-setup.zip`:
+- Run `supabase-schema.sql` in Supabase SQL Editor.
+- Deploy the `username-login` Edge Function.
+- Put the project's public URL and anon/publishable key into `config.js`.
 
-Upload these three replacement files to the same Cloudflare Worker static deployment:
-
-- `index.html`
-- `styles.css`
-- `app.js`
-
-`README.md` is optional.
-
-If Cloudflare's direct static upload creates a new deployment, use the same Worker name (`storyboard`) so the public URL remains associated with that Worker.
-
-## AI phase
-The next step is to add an AI generation layer that turns shot settings + description into a storyboard image while preserving:
-- character consistency
-- costume consistency
-- aspect ratio
-- shot size
-- camera angle
-- lighting
-- recurring location/set style
-
-For a zero-owner-cost architecture, the safest approach is a **Bring Your Own API Key** mode or a local/open-source generation option.
+Never put the Supabase service-role key in `config.js`.
