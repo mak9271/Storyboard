@@ -154,3 +154,25 @@ summary{padding:16px 17px;font-weight:850;cursor:pointer;list-style:none}summary
   .sheet-toolbar{display:none!important}.sheet-pages{gap:0}.sheet-page{box-shadow:none;border-radius:0;margin:0;padding:10mm;background:#fff;min-height:100vh}
   .sheet-shot{break-inside:avoid}.sheet-grid.cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}.sheet-grid.cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
+
+
+/* AI */
+.ai-card{margin-top:0}
+.ai-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:8px}
+.ai-head h3{margin:4px 0 0}
+.ai-copy{margin:0 0 10px;font-size:13px;line-height:1.55}
+.ai-badge{border:1px solid var(--line);padding:7px 10px;border-radius:999px;font-size:11px;font-weight:850;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.ai-badge.generating{color:#04151c;border-color:#2cd3ff;background:linear-gradient(135deg,var(--cyan),var(--cyan2))}
+.ai-badge.done{color:#b9ffd2;border-color:#2e6a46;background:#0f2418}
+.ai-badge.failed{color:#ffd0d2;border-color:#6c2d32;background:#241013}
+.ai-badge.idle{background:#0b0d0f}
+.prompt-preview{min-height:94px;max-height:200px;overflow:auto;background:#0b0d0f;border:1px solid var(--line);border-radius:12px;padding:12px;color:#e8ecef;font-size:12px;line-height:1.6;white-space:pre-wrap}
+.ai-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.variations-head{display:flex;justify-content:space-between;align-items:center;margin:16px 0 10px;gap:10px}
+.ai-variations-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.ai-var-card{background:#0b0d0f;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.ai-var-card img{display:block;width:100%;aspect-ratio:3/4;object-fit:cover;background:#060708}
+.ai-var-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:8px}
+.ai-var-actions button{font-size:11px;padding:8px}
+@media(max-width:950px){.ai-variations-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.ai-variations-grid{grid-template-columns:1fr}}

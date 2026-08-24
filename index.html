@@ -227,7 +227,7 @@
               <div class="frame-placeholder">
                 <div class="frame-icon">▧</div>
                 <strong>Storyboard Frame</strong>
-                <span>Add an image manually. AI generation is the next phase.</span>
+                <span>Upload an image manually or let AI generate a storyboard sketch below.</span>
                 <label id="chooseImageLabel" class="btn small">Choose Image<input id="frameImageInput" type="file" accept="image/*" hidden></label>
               </div>
               <img id="frameImage" alt="" hidden />
@@ -245,6 +245,34 @@
             </div>
             <label>One-line Shot Summary</label>
             <textarea id="summary" rows="5" placeholder="Example: Shahrzad looks toward the king in candlelight..."></textarea>
+          </section>
+
+          <section class="quick-card ai-card">
+            <div class="ai-head">
+              <div>
+                <div class="eyebrow cyan-text">AI STORYBOARD</div>
+                <h3>Storyboard Sketch B&W</h3>
+              </div>
+              <div id="aiStatusBadge" class="ai-badge">Idle</div>
+            </div>
+            <p class="muted ai-copy">AI uses your shot description and camera details to generate a black-and-white storyboard frame.</p>
+            <label>Prompt Override (optional)</label>
+            <textarea id="aiPromptOverride" rows="4" placeholder="Optional custom prompt. Leave blank to use the automatic prompt builder."></textarea>
+            <label>Prompt Preview</label>
+            <div id="aiPromptPreview" class="prompt-preview"></div>
+            <div class="ai-actions">
+              <button id="generateAiBtn" class="btn">Generate Storyboard</button>
+              <button id="generateAiVarsBtn" class="btn ghost">Generate 3 Variations</button>
+              <button id="clearAiVarsBtn" class="btn ghost">Clear Variations</button>
+            </div>
+            <div id="aiErrorBox" class="notice warning" hidden></div>
+            <div id="aiVariationsWrap" hidden>
+              <div class="variations-head">
+                <strong>Variations</strong>
+                <span class="muted">Choose one as the final shot image.</span>
+              </div>
+              <div id="aiVariationsGrid" class="ai-variations-grid"></div>
+            </div>
           </section>
         </div>
 

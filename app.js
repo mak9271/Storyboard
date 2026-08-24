@@ -40,7 +40,7 @@ function fullPermissions(){return {project_settings:true,scenes:true,shots:true,
 function blankPermissions(){return {project_settings:false,scenes:false,shots:false,media:false,members:false}}
 function editorPermissions(){return {project_settings:false,scenes:true,shots:true,media:true,members:false}}
 function permissionPreset(name){return name==="viewer"?blankPermissions():name==="editor"?editorPermissions():readPermissionUI()}
-function blankShot(no=1){return {id:uid(),shotNo:no,duration:"",shotSize:"CU · Close Up",angle:"Eye Level",cameraHeight:"Eye Level",lens:"50mm",focus:"Shallow Focus",movement:"Static",startEnd:"",composition:"Centered / Symmetrical",summary:"",subject:"",description:"",performance:"",subjectMovement:"",costume:"",timeOfDay:"Night",location:"",lightSource:"Candle",lightDirection:"Camera Left",lightQuality:"Low Key",lighting:"",props:"",dialogue:"",voiceOver:"",sfx:"",music:"",transitionIn:"Cut",transitionOut:"Cut",notes:"",image:null,imagePath:null,position:no}}
+function blankShot(no=1){return {id:uid(),shotNo:no,duration:"",shotSize:"CU · Close Up",angle:"Eye Level",cameraHeight:"Eye Level",lens:"50mm",focus:"Shallow Focus",movement:"Static",startEnd:"",composition:"Centered / Symmetrical",summary:"",subject:"",description:"",performance:"",subjectMovement:"",costume:"",timeOfDay:"Night",location:"",lightSource:"Candle",lightDirection:"Camera Left",lightQuality:"Low Key",lighting:"",props:"",dialogue:"",voiceOver:"",sfx:"",music:"",transitionIn:"Cut",transitionOut:"Cut",notes:"",aiPromptOverride:"",aiStatus:"idle",aiError:"",aiMode:"storyboard_sketch_bw",aiVariations:[],aiLastPrompt:"",aiLastGeneratedAt:"",image:null,imagePath:null,position:no}}
 function blankScene(no=1){return {id:uid(),number:no,title:`Scene ${no}`,description:"",position:no,shots:[blankShot(1)]}}
 function blankProject(name="Untitled Storyboard"){return {id:uid(),name,aspect:"3:4 Portrait",aspectWidth:3,aspectHeight:4,style:"Storyboard B&W",owner_id:null,role:"owner",scenes:[blankScene(1)],updated_at:new Date().toISOString()}}
 function currentScene(){return app.current?.scenes.find(s=>s.id===app.activeSceneId) || app.current?.scenes[0] || null}
@@ -210,7 +210,14 @@ async function openCloudProject(id){
   const {data:shots,error:sh}=await sb.from("shots").select("*").eq("project_id",id).order("position");if(sh){alert(sh.message);return}
   const signed=await Promise.all((shots||[]).map(async row=>{
     let image=null;if(row.image_path){const {data}=await sb.storage.from("storyboards").createSignedUrl(row.image_path,604800);image=data?.signedUrl||null}
-    return {...blankShot(row.shot_number),...(row.data||{}),id:row.id,shotNo:row.shot_number,position:row.position,imagePath:row.image_path,image}
+    const shotData={...blankShot(row.shot_number),...(row.data||{})};
+    if(Array.isArray(shotData.aiVariations)){
+      shotData.aiVariations=await Promise.all(shotData.aiVariations.map(async v=>{
+        if(v?.path){const {data}=await sb.storage.from("storyboards").createSignedUrl(v.path,604800);return {...v,url:data?.signedUrl||v.url||null}}
+        return v
+      }))
+    }
+    return {...shotData,id:row.id,shotNo:row.shot_number,position:row.position,imagePath:row.image_path,image}
   }));
   const sceneObjects=(scenes||[]).map(s=>({id:s.id,number:s.scene_number,title:s.title||`Scene ${s.scene_number}`,description:s.description||"",position:s.position,shots:signed.filter(x=>(shots||[]).find(r=>r.id===x.id)?.scene_id===s.id)}));
   app.current={id:p.id,owner_id:p.owner_id,name:p.name,aspect:p.aspect||"3:4 Portrait",aspectWidth:Number(p.aspect_width||3),aspectHeight:Number(p.aspect_height||4),style:p.style||"Storyboard B&W",updated_at:p.updated_at,scenes:sceneObjects};
@@ -241,7 +248,7 @@ function renderEditor(){
   $("projectStyle").value=app.current.style||"Storyboard B&W";
   $("aspectWidth").value=app.current.aspectWidth||3;$("aspectHeight").value=app.current.aspectHeight||4;
   $("customAspectFields").hidden=$("projectAspect").value!=="Custom";
-  renderSceneList();renderSceneSettings();renderShot();renderSheet();updateSheetButtons();applyPermissionLocks()
+  renderSceneList();renderSceneSettings();renderShot();renderSheet();updateSheetButtons();applyPermissionLocks();renderAI()
 }
 function renderSceneList(){
   const wrap=$("sceneList");wrap.innerHTML="";
@@ -265,6 +272,7 @@ function renderSceneSettings(){
 function renderShot(){
   const s=currentShot(),sc=currentScene();if(!s||!sc)return;
   SHOT_FIELDS.forEach(id=>{if($(id))$(id).value=s[id]??""});
+  if($("aiPromptOverride"))$("aiPromptOverride").value=s.aiPromptOverride||"";
   $("shotKicker").textContent=`SCENE ${String(sc.number).padStart(2,"0")} · SHOT ${String(s.shotNo).padStart(2,"0")}`;
   $("shotTitle").textContent=`Shot ${s.shotNo}`;
   $("quickSize").textContent=shortValue(s.shotSize);$("quickAngle").textContent=s.angle;$("quickLens").textContent=s.lens;$("quickMove").textContent=s.movement;
@@ -272,6 +280,7 @@ function renderShot(){
   const f=$("storyFrame");f.style.aspectRatio=`${aspectNumbers(app.current).w}/${aspectNumbers(app.current).h}`;
   const img=$("frameImage"),ph=document.querySelector(".frame-placeholder");
   if(s.image){img.src=s.image;img.hidden=false;ph.hidden=true;$("removeImageBtn").hidden=false}else{img.hidden=true;img.removeAttribute("src");ph.hidden=false;$("removeImageBtn").hidden=true}
+  renderAI()
 }
 function projectAspectText(p){
   if((p.aspect||"")==="Custom")return `${cleanNum(p.aspectWidth||3)}:${cleanNum(p.aspectHeight||4)} Custom`;
@@ -282,6 +291,147 @@ function aspectNumbers(p){
   if(p.aspect==="Custom")return {w:Math.max(.1,Number(p.aspectWidth)||3),h:Math.max(.1,Number(p.aspectHeight)||4)};
   const m=String(p.aspect||"3:4").match(/([\d.]+)\s*:\s*([\d.]+)/);return m?{w:Number(m[1]),h:Number(m[2])}:{w:3,h:4}
 }
+function storyboardMediumText(){return app.current?.style||"Storyboard B&W"}
+function buildShotPrompt(shot=currentShot(), scene=currentScene(), project=app.current){
+  if(!shot||!scene||!project)return "";
+  if((shot.aiPromptOverride||"").trim())return shot.aiPromptOverride.trim();
+  const parts=[
+    "black and white storyboard sketch",
+    "clean cinematic line drawing",
+    "minimal shading",
+    `aspect ratio ${projectAspectText(project)}`,
+    `scene ${scene.number}: ${scene.title||""}`,
+    shot.summary && `shot summary: ${shot.summary}`,
+    `shot size ${shortValue(shot.shotSize)}`,
+    `camera angle ${shot.angle}`,
+    `lens ${shot.lens}`,
+    shot.composition && `composition ${shot.composition}`,
+    shot.focus && `focus ${shot.focus}`,
+    shot.movement && `camera movement ${shot.movement}`,
+    shot.subject && `subject ${shot.subject}`,
+    shot.description && `visual description: ${shot.description}`,
+    shot.performance && `emotion/performance: ${shot.performance}`,
+    shot.subjectMovement && `subject movement: ${shot.subjectMovement}`,
+    shot.costume && `costume/appearance: ${shot.costume}`,
+    shot.location && `location: ${shot.location}`,
+    shot.timeOfDay && `time of day: ${shot.timeOfDay}`,
+    shot.lightSource && `light source: ${shot.lightSource}`,
+    shot.lightDirection && `light direction: ${shot.lightDirection}`,
+    shot.lightQuality && `light quality: ${shot.lightQuality}`,
+    shot.lighting && `lighting notes: ${shot.lighting}`,
+    shot.props && `props/set elements: ${shot.props}`,
+    shot.notes && `important notes: ${shot.notes}`,
+    "single storyboard frame",
+    "no text labels inside image"
+  ].filter(Boolean);
+  return parts.join(", ")
+}
+function renderAI(){
+  const s=currentShot();if(!s||!$("aiStatusBadge"))return;
+  const status=(s.aiStatus||"idle").toLowerCase();
+  const badge=$("aiStatusBadge");
+  badge.textContent=status==="done"?"Done":status==="failed"?"Failed":status==="generating"?"Generating":"Idle";
+  badge.className=`ai-badge ${status}`;
+  const prompt=buildShotPrompt(s);
+  s.aiLastPrompt=prompt;
+  $("aiPromptPreview").textContent=prompt||"Prompt preview will appear here.";
+  const errBox=$("aiErrorBox");
+  if(s.aiError){errBox.hidden=false;errBox.textContent=s.aiError}else{errBox.hidden=true;errBox.textContent=""}
+  const wrap=$("aiVariationsWrap"), grid=$("aiVariationsGrid");
+  const vars=Array.isArray(s.aiVariations)?s.aiVariations:[];
+  wrap.hidden=!vars.length; grid.innerHTML="";
+  vars.forEach((v,i)=>{
+    const card=document.createElement("div");card.className="ai-var-card";
+    const safe=v?.url||"";
+    card.innerHTML=`<img src="${safe}" alt="Variation ${i+1}"><div class="ai-var-actions"><button type="button" class="btn">Use as Final</button><button type="button" class="btn ghost">Open</button></div>`;
+    const [useBtn, openBtn]=card.querySelectorAll("button");
+    useBtn.onclick=()=>useVariationAsFinal(i);
+    openBtn.onclick=()=>window.open(safe, '_blank');
+    grid.appendChild(card)
+  });
+  const isGenerating=status==="generating";
+  ["generateAiBtn","generateAiVarsBtn","clearAiVarsBtn","aiPromptOverride"].forEach(id=>{if($(id))$(id).disabled=isGenerating});
+}
+function dataUrlToBlob(dataUrl){
+  const parts=dataUrl.split(',');
+  const mime=(parts[0].match(/:(.*?);/)||[])[1]||'image/png';
+  const binary=atob(parts[1]);
+  const bytes=new Uint8Array(binary.length);
+  for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);
+  return new Blob([bytes],{type:mime})
+}
+function b64ToBlob(b64,mime='image/png'){
+  const binary=atob(b64); const bytes=new Uint8Array(binary.length);
+  for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);
+  return new Blob([bytes],{type:mime})
+}
+async function uploadGeneratedBlob(blob, makeFinal=false, existingIndex=null){
+  const s=currentShot();
+  if(app.mode==='local'){
+    const r=new FileReader();
+    return await new Promise(resolve=>{r.onload=()=>resolve({url:r.result,path:null});r.readAsDataURL(blob)})
+  }
+  const ext=(blob.type||'image/png').includes('jpeg')?'jpg':'png';
+  const kind=makeFinal?'final':'variation';
+  const path=`${app.current.id}/${s.id}/ai-${kind}-${Date.now()}${existingIndex!==null?'-'+existingIndex:''}.${ext}`;
+  const {error}=await sb.storage.from('storyboards').upload(path, blob, {upsert:true,contentType:blob.type||'image/png'});
+  if(error)throw error;
+  const {data}=await sb.storage.from('storyboards').createSignedUrl(path,604800);
+  return {path,url:data?.signedUrl||null}
+}
+async function persistShotAfterAi(){
+  const s=currentShot();
+  if(app.mode==='local'){saveLocal();renderEditor();return}
+  const data={...s};delete data.id;delete data.image;delete data.imagePath;
+  const {error}=await sb.from('shots').update({image_path:s.imagePath||null,data}).eq('id',s.id);
+  if(error)throw error;
+}
+async function generateStoryboard(mode='single'){
+  const s=currentShot(), sc=currentScene(); if(!s||!sc)return;
+  if(app.mode==='local'){alert('AI generation needs the cloud-connected version with Supabase Edge Functions.');return}
+  if(!can('media')){alert('You do not have permission to generate or store media in this project.');return}
+  s.aiStatus='generating'; s.aiError=''; renderAI();
+  try{
+    const prompt=buildShotPrompt(s,sc,app.current); s.aiLastPrompt=prompt;
+    const {data,error}=await sb.functions.invoke('generate-storyboard',{body:{prompt,aspectRatio:projectAspectText(app.current),mode:modelMode(mode)}});
+    if(error)throw error;
+    const images=Array.isArray(data?.images)?data.images:[];
+    if(!images.length)throw new Error('No images were returned by the AI function.');
+    const uploaded=[];
+    for(let i=0;i<images.length;i++){
+      const item=images[i];
+      const blob=item?.base64?b64ToBlob(item.base64,item.mimeType||'image/png'):item?.dataUrl?dataUrlToBlob(item.dataUrl):null;
+      if(!blob)continue;
+      const saved=await uploadGeneratedBlob(blob, false, i+1);
+      uploaded.push(saved)
+    }
+    s.aiVariations=uploaded;
+    if(uploaded[0]){
+      s.image=uploaded[0].url;
+      s.imagePath=uploaded[0].path;
+    }
+    s.aiStatus='done'; s.aiError=''; s.aiLastGeneratedAt=new Date().toISOString();
+    await persistShotAfterAi();
+    renderEditor()
+  }catch(err){
+    s.aiStatus='failed';
+    s.aiError=err?.message||'AI generation failed.';
+    renderAI()
+  }
+}
+function modelMode(mode){return mode==='variations'?'variations':'single'}
+async function useVariationAsFinal(index){
+  const s=currentShot(); if(!Array.isArray(s.aiVariations)||!s.aiVariations[index])return;
+  const chosen=s.aiVariations[index];
+  s.image=chosen.url||null; s.imagePath=chosen.path||null; s.aiStatus='done'; s.aiError='';
+  try{await persistShotAfterAi(); renderEditor()}catch(err){alert(err.message||'Could not set final image.')}
+}
+async function clearAiVariations(){
+  const s=currentShot(); if(!s)return; if(!confirm('Clear AI variations for this shot?'))return;
+  s.aiVariations=[]; s.aiStatus='idle'; s.aiError='';
+  try{await persistShotAfterAi(); renderEditor()}catch(err){alert(err.message||'Could not clear variations.')}
+}
+
 function applyPermissionLocks(){
   const projectLocked=!can("project_settings"),sceneLocked=!can("scenes"),shotLocked=!can("shots"),mediaLocked=!can("media");
   ["projectName","projectAspect","projectStyle","aspectWidth","aspectHeight"].forEach(id=>$(id).disabled=projectLocked);
@@ -454,6 +604,79 @@ async function importJSON(e){
   }catch(err){alert("Invalid storyboard JSON.")}};r.readAsText(file);e.target.value=""
 }
 
+
+/* ---------- ONLINE JSON IMPORT ---------- */
+async function createCloudProjectFromJSON(projectData){
+  if(!sb || !app.session) throw new Error("Cloud account required.");
+
+  const pName = projectData.name || projectData.project?.name || "Imported Storyboard";
+  const aspect = projectData.aspect || projectData.project?.aspect || "3:4 Portrait";
+
+  const {data:p,error:pe}=await sb.from("projects").insert({
+    name:pName,
+    aspect,
+    aspect_width:Number(projectData.aspectWidth||projectData.project?.aspectWidth||3),
+    aspect_height:Number(projectData.aspectHeight||projectData.project?.aspectHeight||4),
+    style:projectData.style||"Storyboard B&W",
+    owner_id:app.session.user.id
+  }).select().single();
+
+  if(pe) throw pe;
+
+  const scenes = projectData.scenes || [
+    {number:1,title:"Scene 1",shots:projectData.shots||[]}
+  ];
+
+  for(const sc of scenes){
+    const {data:s,error:se}=await sb.from("scenes").insert({
+      project_id:p.id,
+      scene_number:Number(sc.number||1),
+      title:sc.title||`Scene ${sc.number||1}`,
+      description:sc.description||"",
+      position:Number(sc.position||sc.number||1)
+    }).select().single();
+
+    if(se) throw se;
+
+    const shots = sc.shots || [];
+    for(let i=0;i<shots.length;i++){
+      const shot = {
+        ...blankShot(i+1),
+        ...shots[i]
+      };
+
+      await sb.from("shots").insert({
+        project_id:p.id,
+        scene_id:s.id,
+        shot_number:Number(shot.shotNo||i+1),
+        position:Number(shot.position||i+1),
+        data:shot
+      });
+    }
+  }
+
+  return p.id;
+}
+
+async function importJSONOnline(file){
+  const text=await file.text();
+  const data=JSON.parse(text);
+
+  if(app.mode==="cloud"){
+    const id=await createCloudProjectFromJSON(data);
+    await loadCloudProjects();
+    await openCloudProject(id);
+    alert("Storyboard imported successfully.");
+  }else{
+    const p={...blankProject(data.name||"Imported Storyboard"),...data};
+    app.current=p;
+    app.projects.push(p);
+    saveLocal();
+    renderEditor();
+    alert("Storyboard imported locally.");
+  }
+}
+
 /* ---------- EVENTS ---------- */
 function bind(){
   $("loginTabBtn").onclick=()=>toggleAuthTab("login");$("signupTabBtn").onclick=()=>toggleAuthTab("signup");$("loginEmailMode").onclick=()=>setLoginKind("email");$("loginUsernameMode").onclick=()=>setLoginKind("username");
@@ -468,7 +691,9 @@ function bind(){
   $("prevShotBtn").onclick=()=>adjacentShot(-1);$("nextShotBtn").onclick=()=>adjacentShot(1);
   $("frameImageInput").onchange=loadImage;$("removeImageBtn").onclick=removeImage;
   $("sheetToggleBtn").onclick=()=>toggleSheet();$("mobileSheetBtn").onclick=()=>toggleSheet();$("closeSheetBtn").onclick=()=>toggleSheet(false);$("shotsPerPage").onchange=renderSheet;$("printSheetBtn").onclick=()=>window.print();
-  $("exportBtn").onclick=exportJSON;$("importInput").onchange=importJSON;
+  $("exportBtn").onclick=exportJSON;$("importInput").onchange=e=>{const f=e.target.files[0];if(f)importJSONOnline(f).catch(err=>alert(err.message||"Import failed."));e.target.value="";};
+  $("generateAiBtn").onclick=()=>generateStoryboard("single");$("generateAiVarsBtn").onclick=()=>generateStoryboard("variations");$("clearAiVarsBtn").onclick=clearAiVariations;
+  $("aiPromptOverride").addEventListener("input",()=>{const s=currentShot(); if(!s)return; s.aiPromptOverride=$("aiPromptOverride").value; renderAI(); queueSave("shot")});
   document.querySelectorAll("[data-focus]").forEach(b=>b.onclick=()=>{$(b.dataset.focus).focus();$(b.dataset.focus).scrollIntoView({behavior:"smooth",block:"center"})});
   $("collaborateBtn").onclick=openCollab;$("addMemberBtn").onclick=addMemberByUsername;$("createShareLinkBtn").onclick=createShareLink;$("copyShareLinkBtn").onclick=async()=>{await navigator.clipboard.writeText($("shareLinkOutput").value);setMsg("collabMessage","Invite link copied.")};
   $("permissionPreset").onchange=e=>{if(e.target.value!=="custom")setPermissionPreset(e.target.value)}

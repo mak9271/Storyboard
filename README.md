@@ -36,3 +36,11 @@ Use the separate `storyboard-v3-supabase-setup.zip`:
 - Put the project's public URL and anon/publishable key into `config.js`.
 
 Never put the Supabase service-role key in `config.js`.
+
+
+## New in v4
+- AI Storyboard panel per shot
+- Automatic prompt builder for storyboard sketch generation
+- Generate single image or 3 variations
+- Choose a variation as the final shot frame
+- Ready for Supabase Edge Function `generate-storyboard`
