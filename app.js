@@ -889,9 +889,24 @@ async function renameProject(id){
   p.name=name;if(app.current?.id===id)app.current.name=name;renderProjects()
 }
 async function deleteProject(id){
-  const p=app.projects.find(x=>x.id===id);if(!p||!confirm(`Delete "${p.name}"? This cannot be undone.`))return;
-  if(app.mode==="cloud"){const {error}=await sb.from("projects").delete().eq("id",id);if(error)return alert(error.message)}
-  app.projects=app.projects.filter(x=>x.id!==id);if(app.current?.id===id)app.current=null;await persistProjectPositions();renderProjects()
+  const p=app.projects.find(x=>x.id===id);
+  if(!p||!confirm(`Delete "${p.name}"? This cannot be undone.`))return;
+
+  if(app.mode==="cloud"){
+    const {error}=await sb.rpc("delete_own_project",{p_project_id:id});
+    if(error){
+      console.error("Delete project failed:",error);
+      return alert(`Could not delete project: ${error.message}`);
+    }
+  }
+
+  app.projects=app.projects.filter(x=>x.id!==id);
+  if(app.current?.id===id){
+    unsubscribeRealtime();
+    app.current=null;
+  }
+  await persistProjectPositions();
+  renderProjects();
 }
 async function toggleFavorite(id){
   const p=app.projects.find(x=>x.id===id);if(!p||p.owner_id!==app.session?.user?.id)return;p.isFavorite=!p.isFavorite;

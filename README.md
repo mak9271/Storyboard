@@ -1,4 +1,4 @@
-# Storyboard Shot Builder v3.5 — Production Management
+# v3.5.1 Delete Fix\n\nRun `supabase-delete-fix.sql` once in Supabase SQL Editor before using Delete.\n\n# Storyboard Shot Builder v3.5 — Production Management
 
 This build intentionally starts from the pre-Roozaneh-image-import v3.2 codebase and does **not** include the temporary GitHub/Raw-URL image patches.
 
