@@ -176,3 +176,15 @@ summary{padding:16px 17px;font-weight:850;cursor:pointer;list-style:none}summary
 .ai-var-actions button{font-size:11px;padding:8px}
 @media(max-width:950px){.ai-variations-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:600px){.ai-variations-grid{grid-template-columns:1fr}}
+
+
+/* Project management */
+.project-list{display:flex;flex-direction:column;gap:12px}
+.project-card.dragging{opacity:.5}
+.project-card{cursor:grab}
+.project-card-head{display:flex;justify-content:space-between;gap:12px;align-items:center}
+.project-actions{display:flex;gap:6px;flex-wrap:wrap}
+.project-actions button{font-size:12px}
+.scene-row .collapse-btn{margin-right:8px;color:var(--cyan)}
+.scene-group.collapsed .scene-shots{display:none}
+.scene-group.collapsed .scene-row{border-bottom-left-radius:12px;border-bottom-right-radius:12px}

@@ -226,6 +226,7 @@ async function openCloudProject(id){
     const {data:m}=await sb.from("project_members").select("permissions").eq("project_id",id).eq("user_id",app.session.user.id).maybeSingle();app.permissions=m?.permissions||blankPermissions()
   }
   selectFirst();showEditor();subscribeRealtime()
+  reorderProjectDrag();
 }
 function subscribeRealtime(){
   if(!sb||app.mode!=="cloud"||!app.current)return;
@@ -254,9 +255,9 @@ function renderSceneList(){
   const wrap=$("sceneList");wrap.innerHTML="";
   (app.current.scenes||[]).sort((a,b)=>a.position-b.position).forEach(scene=>{
     const group=document.createElement("div");group.className="scene-group"+(scene.id===app.activeSceneId?" active":"");
-    const row=document.createElement("button");row.className="scene-row";row.innerHTML=`<span><strong>Scene ${scene.number}</strong><small>${escapeHtml(scene.title||"")}</small></span><span>${scene.shots.length} shots</span>`;
-    row.onclick=()=>{app.activeSceneId=scene.id;app.activeShotId=scene.shots[0]?.id||null;renderEditor()}
-    const shots=document.createElement("div");shots.className="scene-shots";
+    const row=document.createElement("button");row.className="scene-row";row.innerHTML=`<span><button class="collapse-btn" type="button">${scene.collapsed?"▶":"▼"}</button><strong>Scene ${scene.number}</strong><small>${escapeHtml(scene.title||"")}</small></span><span>${scene.shots.length} shots</span>`;
+    row.onclick=()=>{app.activeSceneId=scene.id;app.activeShotId=scene.shots[0]?.id||null;renderEditor()}; row.querySelector(".collapse-btn").onclick=(e)=>{e.stopPropagation();toggleSceneCollapse(scene.id)}
+    const shots=document.createElement("div");shots.className="scene-shots"; if(scene.collapsed) group.classList.add("collapsed");
     scene.shots.sort((a,b)=>a.position-b.position).forEach(shot=>{
       const b=document.createElement("button");b.className="shot-item"+(shot.id===app.activeShotId?" active":"");
       const th=document.createElement("span");th.className="shot-thumb";if(shot.image)th.style.backgroundImage=`url(${shot.image})`;
@@ -677,6 +678,84 @@ async function importJSONOnline(file){
   }
 }
 
+
+/* ---------- PROJECT MANAGEMENT ---------- */
+function saveProjectOrder(){
+  if(app.mode==="local"){
+    app.projects.forEach((p,i)=>p.position=i+1);
+    saveLocal();
+  }
+}
+async function renameProject(id){
+  const p=app.projects.find(x=>x.id===id);
+  if(!p)return;
+  const name=prompt("New project name:",p.name);
+  if(!name)return;
+  if(app.mode==="cloud"){
+    const {error}=await sb.from("projects").update({name}).eq("id",id);
+    if(error)return alert(error.message);
+  }
+  p.name=name;
+  if(app.current?.id===id)app.current.name=name;
+  renderProjects();
+}
+async function deleteProject(id){
+  const p=app.projects.find(x=>x.id===id);
+  if(!p || !confirm(`Delete "${p.name}"? This cannot be undone.`))return;
+  if(app.mode==="cloud"){
+    const {error}=await sb.from("projects").delete().eq("id",id);
+    if(error)return alert(error.message);
+  }
+  app.projects=app.projects.filter(x=>x.id!==id);
+  if(app.current?.id===id)app.current=null;
+  renderProjects();
+}
+async function moveProject(id,direction){
+  const index=app.projects.findIndex(p=>p.id===id);
+  const target=index+direction;
+  if(index<0 || target<0 || target>=app.projects.length)return;
+  [app.projects[index],app.projects[target]]=[app.projects[target],app.projects[index]];
+  saveProjectOrder();
+  renderProjects();
+  // Cloud order can be added later with project position column
+}
+function reorderProjectDrag(){
+  const list=$("projectList");
+  if(!list)return;
+  [...list.children].forEach((card,i)=>{
+    card.draggable=true;
+    card.ondragstart=()=>card.classList.add("dragging");
+    card.ondragend=()=>{
+      card.classList.remove("dragging");
+      const ids=[...list.children].map(x=>x.dataset.projectId);
+      const ordered=ids.map(id=>app.projects.find(p=>p.id===id)).filter(Boolean);
+      app.projects=ordered;
+      saveProjectOrder();
+    };
+    card.ondragover=e=>{
+      e.preventDefault();
+      const dragging=list.querySelector(".dragging");
+      if(dragging && dragging!==card){
+        list.insertBefore(dragging,card);
+      }
+    };
+  });
+}
+
+/* ---------- SCENE COLLAPSE ---------- */
+function toggleSceneCollapse(sceneId){
+  const sc=currentScene();
+  const scene=app.current?.scenes.find(s=>s.id===sceneId);
+  if(!scene)return;
+  scene.collapsed=!scene.collapsed;
+  renderSceneList();
+}
+function normalizeShotNumbers(scene){
+  scene.shots.forEach((shot,i)=>{
+    shot.shotNo=i+1;
+    shot.position=i+1;
+  });
+}
 /* ---------- EVENTS ---------- */
 function bind(){
   $("loginTabBtn").onclick=()=>toggleAuthTab("login");$("signupTabBtn").onclick=()=>toggleAuthTab("signup");$("loginEmailMode").onclick=()=>setLoginKind("email");$("loginUsernameMode").onclick=()=>setLoginKind("username");
