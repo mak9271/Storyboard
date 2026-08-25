@@ -640,6 +640,8 @@ async function createCloudProjectFromJSON(projectData){
     {number:1,title:"Scene 1",shots:projectData.shots||[]}
   ];
 
+  let imageImportFailures = 0;
+
   for(const sc of scenes){
     const {data:s,error:se}=await sb.from("scenes").insert({
       project_id:p.id,
@@ -689,13 +691,20 @@ async function createCloudProjectFromJSON(projectData){
 
           if(uploadError) throw uploadError;
         }catch(imgErr){
-          console.warn("Could not import image for shot", shot.shotNo||i+1, imgErr);
+          imageImportFailures++;
+          console.warn("Could not copy image to Supabase Storage for shot", shot.shotNo||i+1, imgErr);
         }
       }
 
-      const shotData={...shot};
-      delete shotData.image;
-      delete shotData.imagePath;
+      // IMPORTANT:
+      // Always preserve the original imported image URL in shot.data.image.
+      // If the Storage copy succeeds, image_path is used first.
+      // If Storage upload fails, the app still displays the original URL.
+      const shotData={
+        ...shot,
+        image: shot.image || null,
+        imagePath: importedImagePath || shot.imagePath || null
+      };
 
       const {error:shotInsertError}=await sb.from("shots").insert({
         project_id:p.id,
@@ -708,6 +717,10 @@ async function createCloudProjectFromJSON(projectData){
 
       if(shotInsertError) throw shotInsertError;
     }
+  }
+
+  if(imageImportFailures>0){
+    console.warn(`${imageImportFailures} image(s) could not be copied to Storage; original image URLs were preserved as fallback.`);
   }
 
   return p.id;
