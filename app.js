@@ -658,13 +658,55 @@ async function createCloudProjectFromJSON(projectData){
         ...shots[i]
       };
 
-      await sb.from("shots").insert({
+      let importedImagePath = null;
+
+      // If the imported JSON contains an image URL/data URL, copy it into
+      // this project's Supabase Storage so cloud reloads use image_path.
+      if(shot.image){
+        try{
+          let sourceUrl = shot.image;
+          if(sourceUrl.startsWith("/")){
+            sourceUrl = new URL(sourceUrl, window.location.origin).href;
+          }
+
+          const resp = await fetch(sourceUrl, {mode:"cors"});
+          if(!resp.ok) throw new Error(`Image fetch failed (${resp.status})`);
+
+          const blob = await resp.blob();
+          let ext = "png";
+          if((blob.type||"").includes("jpeg")) ext = "jpg";
+          else if((blob.type||"").includes("webp")) ext = "webp";
+
+          const shotNo = Number(shot.shotNo||i+1);
+          importedImagePath = `${p.id}/${s.id}/import-shot-${String(shotNo).padStart(2,"0")}.${ext}`;
+
+          const {error:uploadError}=await sb.storage
+            .from("storyboards")
+            .upload(importedImagePath, blob, {
+              upsert:true,
+              contentType:blob.type||"image/png"
+            });
+
+          if(uploadError) throw uploadError;
+        }catch(imgErr){
+          console.warn("Could not import image for shot", shot.shotNo||i+1, imgErr);
+        }
+      }
+
+      const shotData={...shot};
+      delete shotData.image;
+      delete shotData.imagePath;
+
+      const {error:shotInsertError}=await sb.from("shots").insert({
         project_id:p.id,
         scene_id:s.id,
         shot_number:Number(shot.shotNo||i+1),
         position:Number(shot.position||i+1),
-        data:shot
+        image_path: importedImagePath,
+        data:shotData
       });
+
+      if(shotInsertError) throw shotInsertError;
     }
   }
 
