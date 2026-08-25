@@ -219,6 +219,15 @@ async function openCloudProject(id){
       imagePath=row.image_path;
     }
 
+    // Roozaneh project fallback:
+    // The current imported rows have image/image_path = null.
+    // Since the 43 storyboard frames are already committed to GitHub,
+    // derive the correct Raw GitHub URL directly from the shot number.
+    if(!image && String(p.name||"").trim().toLowerCase()==="roozaneh"){
+      const n=String(row.shot_number).padStart(2,"0");
+      image=`https://raw.githubusercontent.com/mak9271/Storyboard/refs/heads/main/assets/roozaneh/shot_${n}.png`;
+    }
+
     if(Array.isArray(shotData.aiVariations)){
       shotData.aiVariations=await Promise.all(shotData.aiVariations.map(async v=>{
         if(v?.path){
@@ -292,7 +301,16 @@ function renderShot(){
   $("frameMeta").textContent=`${projectAspectText(app.current)} · ${shortValue(s.shotSize)} · ${s.angle}`;
   const f=$("storyFrame");f.style.aspectRatio=`${aspectNumbers(app.current).w}/${aspectNumbers(app.current).h}`;
   const img=$("frameImage"),ph=document.querySelector(".frame-placeholder");
-  if(s.image){img.src=s.image;img.hidden=false;ph.hidden=true;$("removeImageBtn").hidden=false}else{img.hidden=true;img.removeAttribute("src");ph.hidden=false;$("removeImageBtn").hidden=true}
+  if(s.image){
+    img.onerror=()=>{img.hidden=true;ph.hidden=false;ph.textContent="Image could not be loaded";};
+    img.onload=()=>{img.hidden=false;ph.hidden=true;};
+    img.src=s.image;
+    img.hidden=false;
+    ph.hidden=true;
+    $("removeImageBtn").hidden=false;
+  }else{
+    img.onerror=null;img.onload=null;img.hidden=true;img.removeAttribute("src");ph.hidden=false;$("removeImageBtn").hidden=true
+  }
   renderAI()
 }
 function projectAspectText(p){
