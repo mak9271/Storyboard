@@ -1,3 +1,4 @@
+// Storyboard Shot Builder v3.5 Production Management
 const OPTIONS = {
   shotSize:["ECU · Extreme Close Up","CU · Close Up","MCU · Medium Close Up","MS · Medium Shot","MLS · Medium Long Shot","WS · Wide Shot","EWS · Extreme Wide Shot","OTS · Over The Shoulder","POV · Point of View","Insert","Top Shot"],
   angle:["Eye Level","High Angle","Low Angle","Top / Bird's Eye","Dutch Angle","Ground Level","Overhead"],
@@ -31,7 +32,12 @@ let app = {
   realtimeChannel: null,
   permissions: fullPermissions(),
   isOwner: true,
-  pendingInvite: new URLSearchParams(location.search).get("invite")
+  pendingInvite: new URLSearchParams(location.search).get("invite"),
+  projectSearch: "",
+  projectFilter: "all",
+  projectFolder: "all",
+  detailsProjectId: null,
+  shotClipboard: null
 };
 let autosaveTimer = null;
 
@@ -41,8 +47,11 @@ function blankPermissions(){return {project_settings:false,scenes:false,shots:fa
 function editorPermissions(){return {project_settings:false,scenes:true,shots:true,media:true,members:false}}
 function permissionPreset(name){return name==="viewer"?blankPermissions():name==="editor"?editorPermissions():readPermissionUI()}
 function blankShot(no=1){return {id:uid(),shotNo:no,duration:"",shotSize:"CU · Close Up",angle:"Eye Level",cameraHeight:"Eye Level",lens:"50mm",focus:"Shallow Focus",movement:"Static",startEnd:"",composition:"Centered / Symmetrical",summary:"",subject:"",description:"",performance:"",subjectMovement:"",costume:"",timeOfDay:"Night",location:"",lightSource:"Candle",lightDirection:"Camera Left",lightQuality:"Low Key",lighting:"",props:"",dialogue:"",voiceOver:"",sfx:"",music:"",transitionIn:"Cut",transitionOut:"Cut",notes:"",aiPromptOverride:"",aiStatus:"idle",aiError:"",aiMode:"storyboard_sketch_bw",aiVariations:[],aiLastPrompt:"",aiLastGeneratedAt:"",image:null,imagePath:null,position:no}}
-function blankScene(no=1){return {id:uid(),number:no,title:`Scene ${no}`,description:"",position:no,shots:[blankShot(1)]}}
-function blankProject(name="Untitled Storyboard"){return {id:uid(),name,aspect:"3:4 Portrait",aspectWidth:3,aspectHeight:4,style:"Storyboard B&W",owner_id:null,role:"owner",scenes:[blankScene(1)],updated_at:new Date().toISOString()}}
+function blankScene(no=1){return {id:uid(),number:no,title:`Scene ${no}`,description:"",position:no,collapsed:false,shots:[blankShot(1)]}}
+function blankProject(name="Untitled Storyboard"){return {id:uid(),name,aspect:"3:4 Portrait",aspectWidth:3,aspectHeight:4,style:"Storyboard B&W",owner_id:null,role:"owner",position:0,isFavorite:false,folder:"General",tags:[],metadata:{director:"",writer:"",production:"",status:"Planning",notes:""},scenes:[blankScene(1)],updated_at:new Date().toISOString()}}
+function deepClone(x){return JSON.parse(JSON.stringify(x))}
+function projectMeta(p){return {director:"",writer:"",production:"",status:"Planning",notes:"",...(p?.metadata||{})}}
+function shotDbData(s){const data={...s};delete data.id;delete data.image;delete data.imagePath;return data}
 function currentScene(){return app.current?.scenes.find(s=>s.id===app.activeSceneId) || app.current?.scenes[0] || null}
 function currentShot(){const sc=currentScene(); return sc?.shots.find(s=>s.id===app.activeShotId) || sc?.shots[0] || null}
 function allShots(){return (app.current?.scenes||[]).flatMap(scene=>scene.shots.map(shot=>({scene,shot})))}
@@ -177,28 +186,99 @@ function continueOffline(){
 async function logout(){if(sb&&app.mode==="cloud")await sb.auth.signOut();else showAuth()}
 
 /* ---------- CLOUD PROJECTS ---------- */
+function normalizeProjectRecord(p){
+  return {...p,
+    aspectWidth:Number(p.aspect_width||p.aspectWidth||3),
+    aspectHeight:Number(p.aspect_height||p.aspectHeight||4),
+    position:Number(p.position||0),
+    isFavorite:!!(p.is_favorite??p.isFavorite),
+    folder:p.folder||"General",
+    tags:Array.isArray(p.tags)?p.tags:[],
+    metadata:projectMeta(p)
+  }
+}
 async function loadCloudProjects(){
-  const {data,error}=await sb.from("projects").select("id,owner_id,name,aspect,aspect_width,aspect_height,style,updated_at,created_at").order("updated_at",{ascending:false});
+  const {data,error}=await sb.from("projects").select("id,owner_id,name,aspect,aspect_width,aspect_height,style,updated_at,created_at,position,is_favorite,folder,tags,metadata");
   if(error){console.error(error);return}
-  app.projects=(data||[]).map(p=>({...p,aspectWidth:Number(p.aspect_width||3),aspectHeight:Number(p.aspect_height||4)}));
+  const mine=(data||[]).filter(p=>p.owner_id===app.session?.user?.id).sort((a,b)=>(Number(a.position||0)-Number(b.position||0)) || new Date(b.updated_at||0)-new Date(a.updated_at||0));
+  const shared=(data||[]).filter(p=>p.owner_id!==app.session?.user?.id).sort((a,b)=>new Date(b.updated_at||0)-new Date(a.updated_at||0));
+  app.projects=[...mine,...shared].map(normalizeProjectRecord);
   renderProjects();
 }
-function renderProjects(){
-  const grid=$("projectsGrid");grid.innerHTML="";
-  const list=app.projects||[];
-  $("projectsEmpty").hidden=list.length>0;
-  list.forEach(p=>{
-    const owner=p.owner_id===app.session?.user?.id;
-    const b=document.createElement("button");b.className="project-tile";
-    b.innerHTML=`<div class="project-role">${owner?"Owner":"Collaborator"}</div><h3>${escapeHtml(p.name)}</h3><p>${escapeHtml(projectAspectText(p))} · ${escapeHtml(p.style||"")}</p><p>Updated ${new Date(p.updated_at||Date.now()).toLocaleDateString()}</p>`;
-    b.onclick=()=>openCloudProject(p.id);grid.appendChild(b)
+function projectMatchesSearch(p){
+  const q=(app.projectSearch||"").trim().toLowerCase();
+  if(!q)return true;
+  const m=projectMeta(p);
+  return [p.name,p.folder,...(p.tags||[]),m.director,m.writer,m.production,m.status,m.notes].join(" ").toLowerCase().includes(q)
+}
+function filteredProjects(){
+  const now=Date.now(),recentMs=30*24*60*60*1000;
+  return (app.projects||[]).filter(p=>{
+    if(!projectMatchesSearch(p))return false;
+    if(app.projectFolder!=="all" && (p.folder||"General")!==app.projectFolder)return false;
+    if(app.projectFilter==="favorites" && !p.isFavorite)return false;
+    if(app.projectFilter==="recent" && now-new Date(p.updated_at||0).getTime()>recentMs)return false;
+    if(app.projectFilter==="shared" && p.owner_id===app.session?.user?.id)return false;
+    return true;
   })
+}
+function refreshFolderFilter(){
+  const el=$("projectFolderFilter"); if(!el)return;
+  const folders=[...new Set((app.projects||[]).map(p=>p.folder||"General"))].sort((a,b)=>a.localeCompare(b));
+  const keep=app.projectFolder;
+  el.innerHTML='<option value="all">All folders</option>'+folders.map(f=>`<option value="${escapeHtml(f)}">${escapeHtml(f)}</option>`).join("");
+  el.value=folders.includes(keep)?keep:"all"; app.projectFolder=el.value;
+}
+function renderProjects(){
+  refreshFolderFilter();
+  const grid=$("projectsGrid");grid.innerHTML="";
+  const list=filteredProjects();
+  const empty=$("projectsEmpty");empty.hidden=list.length>0;
+  if(!list.length){
+    $("projectsEmptyTitle").textContent=(app.projects||[]).length?"No matching projects":"No projects yet";
+    $("projectsEmptyCopy").textContent=(app.projects||[]).length?"Try another search or filter.":"Create your first storyboard project.";
+  }
+  list.forEach(p=>{
+    const owner=p.owner_id===app.session?.user?.id,m=projectMeta(p);
+    const card=document.createElement("article");card.className="project-tile project-manage-card";card.dataset.projectId=p.id;
+    const tags=(p.tags||[]).slice(0,3).map(t=>`<span class="tag-chip">${escapeHtml(t)}</span>`).join("");
+    card.innerHTML=`
+      <div class="project-tile-top">
+        <div class="project-role">${owner?"Owner":"Shared"}</div>
+        <button type="button" class="favorite-btn ${p.isFavorite?"active":""}" title="${owner?"Favorite":"Favorites are available for owned projects"}" ${owner?"":"disabled"}>${p.isFavorite?"★":"☆"}</button>
+      </div>
+      <button type="button" class="project-open-area">
+        <div class="project-folder-label">${escapeHtml(p.folder||"General")}</div>
+        <h3>${escapeHtml(p.name)}</h3>
+        <p>${escapeHtml(projectAspectText(p))} · ${escapeHtml(p.style||"")}</p>
+        ${m.status?`<div class="project-status">${escapeHtml(m.status)}</div>`:""}
+        ${tags?`<div class="tag-row">${tags}</div>`:""}
+        <p class="project-updated">Updated ${new Date(p.updated_at||Date.now()).toLocaleDateString()}</p>
+      </button>
+      <div class="project-card-actions">
+        <button type="button" class="mini-btn details">Details</button>
+        <button type="button" class="mini-btn duplicate">Duplicate</button>
+        ${owner?'<button type="button" class="mini-btn rename">Rename</button><button type="button" class="mini-btn danger-lite delete">Delete</button>':''}
+      </div>`;
+    card.querySelector(".project-open-area").onclick=()=>openCloudProject(p.id);
+    card.querySelector(".details").onclick=()=>openProjectDetails(p.id);
+    card.querySelector(".duplicate").onclick=()=>duplicateProject(p.id);
+    if(owner){
+      card.querySelector(".favorite-btn").onclick=()=>toggleFavorite(p.id);
+      card.querySelector(".rename").onclick=()=>renameProject(p.id);
+      card.querySelector(".delete").onclick=()=>deleteProject(p.id);
+    }
+    grid.appendChild(card)
+  });
+  setupProjectDrag();
 }
 async function createCloudProject(){
   const name=prompt("Project name:","Untitled Storyboard");if(!name)return;
-  const {data:p,error}=await sb.from("projects").insert({owner_id:app.session.user.id,name,aspect:"3:4 Portrait",aspect_width:3,aspect_height:4,style:"Storyboard B&W"}).select().single();
+  const myPositions=(app.projects||[]).filter(p=>p.owner_id===app.session.user.id).map(p=>Number(p.position||0));
+  const position=Math.max(0,...myPositions)+1;
+  const {data:p,error}=await sb.from("projects").insert({owner_id:app.session.user.id,name,aspect:"3:4 Portrait",aspect_width:3,aspect_height:4,style:"Storyboard B&W",position,is_favorite:false,folder:"General",tags:[],metadata:{director:"",writer:"",production:"",status:"Planning",notes:""}}).select().single();
   if(error){alert(error.message);return}
-  const {data:s,error:se}=await sb.from("scenes").insert({project_id:p.id,scene_number:1,title:"Scene 1",description:"",position:1}).select().single(); if(se){alert(se.message);return}
+  const {data:s,error:se}=await sb.from("scenes").insert({project_id:p.id,scene_number:1,title:"Scene 1",description:"",position:1,collapsed:false}).select().single(); if(se){alert(se.message);return}
   const shot=blankShot(1);
   const {error:shErr}=await sb.from("shots").insert({project_id:p.id,scene_id:s.id,shot_number:1,position:1,data:shot});if(shErr){alert(shErr.message);return}
   await loadCloudProjects();await openCloudProject(p.id)
@@ -209,45 +289,24 @@ async function openCloudProject(id){
   const {data:scenes,error:se}=await sb.from("scenes").select("*").eq("project_id",id).order("position");if(se){alert(se.message);return}
   const {data:shots,error:sh}=await sb.from("shots").select("*").eq("project_id",id).order("position");if(sh){alert(sh.message);return}
   const signed=await Promise.all((shots||[]).map(async row=>{
+    let image=null;if(row.image_path){const {data}=await sb.storage.from("storyboards").createSignedUrl(row.image_path,604800);image=data?.signedUrl||null}
     const shotData={...blankShot(row.shot_number),...(row.data||{})};
-    let image=shotData.image||null;
-    let imagePath=shotData.imagePath||null;
-
-    if(row.image_path){
-      const {data}=await sb.storage.from("storyboards").createSignedUrl(row.image_path,604800);
-      image=data?.signedUrl||image;
-      imagePath=row.image_path;
-    }
-
-    // Roozaneh project fallback:
-    // The current imported rows have image/image_path = null.
-    // Since the 43 storyboard frames are already committed to GitHub,
-    // derive the correct Raw GitHub URL directly from the shot number.
-    if(!image && String(p.name||"").trim().toLowerCase()==="roozaneh"){
-      const n=String(row.shot_number).padStart(2,"0");
-      image=`https://raw.githubusercontent.com/mak9271/Storyboard/refs/heads/main/assets/roozaneh/shot_${n}.png`;
-    }
-
     if(Array.isArray(shotData.aiVariations)){
       shotData.aiVariations=await Promise.all(shotData.aiVariations.map(async v=>{
-        if(v?.path){
-          const {data}=await sb.storage.from("storyboards").createSignedUrl(v.path,604800);
-          return {...v,url:data?.signedUrl||v.url||null}
-        }
+        if(v?.path){const {data}=await sb.storage.from("storyboards").createSignedUrl(v.path,604800);return {...v,url:data?.signedUrl||v.url||null}}
         return v
       }))
     }
-
-    return {...shotData,id:row.id,shotNo:row.shot_number,position:row.position,imagePath,image}
+    return {...shotData,id:row.id,shotNo:row.shot_number,position:row.position,imagePath:row.image_path,image}
   }));
-  const sceneObjects=(scenes||[]).map(s=>({id:s.id,number:s.scene_number,title:s.title||`Scene ${s.scene_number}`,description:s.description||"",position:s.position,shots:signed.filter(x=>(shots||[]).find(r=>r.id===x.id)?.scene_id===s.id)}));
-  app.current={id:p.id,owner_id:p.owner_id,name:p.name,aspect:p.aspect||"3:4 Portrait",aspectWidth:Number(p.aspect_width||3),aspectHeight:Number(p.aspect_height||4),style:p.style||"Storyboard B&W",updated_at:p.updated_at,scenes:sceneObjects};
+  const sceneObjects=(scenes||[]).map(s=>({id:s.id,number:s.scene_number,title:s.title||`Scene ${s.scene_number}`,description:s.description||"",position:Number(s.position||s.scene_number||1),collapsed:!!s.collapsed,shots:signed.filter(x=>(shots||[]).find(r=>r.id===x.id)?.scene_id===s.id)}));
+  const pp=normalizeProjectRecord(p);
+  app.current={id:p.id,owner_id:p.owner_id,name:p.name,aspect:p.aspect||"3:4 Portrait",aspectWidth:pp.aspectWidth,aspectHeight:pp.aspectHeight,style:p.style||"Storyboard B&W",position:pp.position,isFavorite:pp.isFavorite,folder:pp.folder,tags:pp.tags,metadata:pp.metadata,updated_at:p.updated_at,scenes:sceneObjects};
   app.isOwner=p.owner_id===app.session.user.id;
   if(app.isOwner){app.permissions=fullPermissions()}else{
     const {data:m}=await sb.from("project_members").select("permissions").eq("project_id",id).eq("user_id",app.session.user.id).maybeSingle();app.permissions=m?.permissions||blankPermissions()
   }
   selectFirst();showEditor();subscribeRealtime()
-  reorderProjectDrag();
 }
 function subscribeRealtime(){
   if(!sb||app.mode!=="cloud"||!app.current)return;
@@ -270,15 +329,35 @@ function renderEditor(){
   $("projectStyle").value=app.current.style||"Storyboard B&W";
   $("aspectWidth").value=app.current.aspectWidth||3;$("aspectHeight").value=app.current.aspectHeight||4;
   $("customAspectFields").hidden=$("projectAspect").value!=="Custom";
+  if($("projectFolderBadge"))$("projectFolderBadge").textContent=app.current.folder||"General";
   renderSceneList();renderSceneSettings();renderShot();renderSheet();updateSheetButtons();applyPermissionLocks();renderAI()
 }
 function renderSceneList(){
   const wrap=$("sceneList");wrap.innerHTML="";
-  (app.current.scenes||[]).sort((a,b)=>a.position-b.position).forEach(scene=>{
-    const group=document.createElement("div");group.className="scene-group"+(scene.id===app.activeSceneId?" active":"");
-    const row=document.createElement("button");row.className="scene-row";row.innerHTML=`<span><button class="collapse-btn" type="button">${scene.collapsed?"▶":"▼"}</button><strong>Scene ${scene.number}</strong><small>${escapeHtml(scene.title||"")}</small></span><span>${scene.shots.length} shots</span>`;
-    row.onclick=()=>{app.activeSceneId=scene.id;app.activeShotId=scene.shots[0]?.id||null;renderEditor()}; row.querySelector(".collapse-btn").onclick=(e)=>{e.stopPropagation();toggleSceneCollapse(scene.id)}
-    const shots=document.createElement("div");shots.className="scene-shots"; if(scene.collapsed) group.classList.add("collapsed");
+  const scenes=(app.current.scenes||[]).sort((a,b)=>a.position-b.position);
+  scenes.forEach((scene,sceneIndex)=>{
+    const group=document.createElement("div");group.className="scene-group"+(scene.id===app.activeSceneId?" active":"")+(scene.collapsed?" collapsed":"");
+    const row=document.createElement("div");row.className="scene-row";
+    row.innerHTML=`
+      <button class="scene-select" type="button">
+        <span class="scene-title-stack"><strong>Scene ${scene.number}</strong><small>${escapeHtml(scene.title||"")}</small></span>
+        <span class="scene-count">${scene.shots.length} shots</span>
+      </button>
+      <div class="scene-actions">
+        <button class="collapse-btn" type="button" title="Collapse / Expand">${scene.collapsed?"▶":"▼"}</button>
+        <button class="scene-mini rename-scene" type="button" title="Rename">✎</button>
+        <button class="scene-mini duplicate-scene" type="button" title="Duplicate">⧉</button>
+        <button class="scene-mini move-scene-up" type="button" title="Move up" ${sceneIndex===0?"disabled":""}>↑</button>
+        <button class="scene-mini move-scene-down" type="button" title="Move down" ${sceneIndex===scenes.length-1?"disabled":""}>↓</button>
+      </div>`;
+    row.querySelector(".scene-select").onclick=()=>{app.activeSceneId=scene.id;app.activeShotId=scene.shots[0]?.id||null;renderEditor()};
+    row.querySelector(".collapse-btn").onclick=()=>toggleSceneCollapse(scene.id);
+    row.querySelector(".rename-scene").onclick=()=>renameScene(scene.id);
+    row.querySelector(".duplicate-scene").onclick=()=>duplicateScene(scene.id);
+    row.querySelector(".move-scene-up").onclick=()=>moveScene(scene.id,-1);
+    row.querySelector(".move-scene-down").onclick=()=>moveScene(scene.id,1);
+    row.querySelectorAll(".rename-scene,.duplicate-scene,.move-scene-up,.move-scene-down").forEach(b=>b.disabled=b.disabled||!can("scenes"));
+    const shots=document.createElement("div");shots.className="scene-shots";
     scene.shots.sort((a,b)=>a.position-b.position).forEach(shot=>{
       const b=document.createElement("button");b.className="shot-item"+(shot.id===app.activeShotId?" active":"");
       const th=document.createElement("span");th.className="shot-thumb";if(shot.image)th.style.backgroundImage=`url(${shot.image})`;
@@ -301,16 +380,7 @@ function renderShot(){
   $("frameMeta").textContent=`${projectAspectText(app.current)} · ${shortValue(s.shotSize)} · ${s.angle}`;
   const f=$("storyFrame");f.style.aspectRatio=`${aspectNumbers(app.current).w}/${aspectNumbers(app.current).h}`;
   const img=$("frameImage"),ph=document.querySelector(".frame-placeholder");
-  if(s.image){
-    img.onerror=()=>{img.hidden=true;ph.hidden=false;ph.textContent="Image could not be loaded";};
-    img.onload=()=>{img.hidden=false;ph.hidden=true;};
-    img.src=s.image;
-    img.hidden=false;
-    ph.hidden=true;
-    $("removeImageBtn").hidden=false;
-  }else{
-    img.onerror=null;img.onload=null;img.hidden=true;img.removeAttribute("src");ph.hidden=false;$("removeImageBtn").hidden=true
-  }
+  if(s.image){img.src=s.image;img.hidden=false;ph.hidden=true;$("removeImageBtn").hidden=false}else{img.hidden=true;img.removeAttribute("src");ph.hidden=false;$("removeImageBtn").hidden=true}
   renderAI()
 }
 function projectAspectText(p){
@@ -466,9 +536,14 @@ async function clearAiVariations(){
 function applyPermissionLocks(){
   const projectLocked=!can("project_settings"),sceneLocked=!can("scenes"),shotLocked=!can("shots"),mediaLocked=!can("media");
   ["projectName","projectAspect","projectStyle","aspectWidth","aspectHeight"].forEach(id=>$(id).disabled=projectLocked);
-  ["sceneNumber","sceneTitle","sceneDescription"].forEach(id=>$(id).disabled=sceneLocked);
-  $("addSceneBtn").disabled=sceneLocked;$("deleteSceneBtn").disabled=sceneLocked;$("addShotBtn").disabled=shotLocked;$("mobileAddShotBtn").disabled=shotLocked;$("duplicateShotBtn").disabled=shotLocked;$("deleteShotBtn").disabled=shotLocked;
+  $("projectDetailsBtn").disabled=projectLocked;
+  $("sceneNumber").readOnly=true;$("sceneNumber").disabled=false;
+  ["sceneTitle","sceneDescription"].forEach(id=>$(id).disabled=sceneLocked);
+  ["addSceneBtn","deleteSceneBtn"].forEach(id=>$(id).disabled=sceneLocked);
+  ["addShotBtn","mobileAddShotBtn","duplicateShotBtn","pasteShotBtn","moveShotUpBtn","moveShotDownBtn","deleteShotBtn"].forEach(id=>$(id).disabled=shotLocked);
+  $("copyShotBtn").disabled=!currentShot();
   SHOT_FIELDS.forEach(id=>{if($(id))$(id).disabled=shotLocked});
+  $("shotNo").readOnly=true;$("shotNo").disabled=false;
   $("frameImageInput").disabled=mediaLocked;$("chooseImageLabel").classList.toggle("permission-locked",mediaLocked);$("removeImageBtn").disabled=mediaLocked;
   $("collaborateBtn").hidden=!(app.isOwner||can("members"));
 }
@@ -481,11 +556,11 @@ function queueSave(kind){
 async function saveCloud(kind){
   if(!sb||!app.current)return;
   if(kind==="project"&&can("project_settings")){
-    await sb.from("projects").update({name:app.current.name,aspect:app.current.aspect,aspect_width:app.current.aspectWidth,aspect_height:app.current.aspectHeight,style:app.current.style,updated_at:new Date().toISOString()}).eq("id",app.current.id)
+    await sb.from("projects").update({name:app.current.name,aspect:app.current.aspect,aspect_width:app.current.aspectWidth,aspect_height:app.current.aspectHeight,style:app.current.style,folder:app.current.folder||"General",tags:app.current.tags||[],metadata:projectMeta(app.current),is_favorite:!!app.current.isFavorite,updated_at:new Date().toISOString()}).eq("id",app.current.id)
   }else if(kind==="scene"&&can("scenes")){
-    const s=currentScene();await sb.from("scenes").update({scene_number:s.number,title:s.title,description:s.description,position:s.position}).eq("id",s.id)
+    const s=currentScene();await sb.from("scenes").update({scene_number:s.number,title:s.title,description:s.description,position:s.position,collapsed:!!s.collapsed}).eq("id",s.id)
   }else if(kind==="shot"&&can("shots")){
-    const s=currentShot();const data={...s};delete data.id;delete data.image;delete data.imagePath;
+    const s=currentShot();const data=shotDbData(s);
     await sb.from("shots").update({shot_number:Number(s.shotNo)||1,position:s.position,data}).eq("id",s.id)
   }
 }
@@ -495,44 +570,112 @@ function onProjectChange(){
   $("customAspectFields").hidden=app.current.aspect!=="Custom";renderShot();renderSheet();queueSave("project")
 }
 function onSceneChange(){
-  if(!can("scenes"))return;const s=currentScene();if(!s)return;s.number=Number($("sceneNumber").value)||1;s.title=$("sceneTitle").value;s.description=$("sceneDescription").value;renderSceneList();renderShot();renderSheet();queueSave("scene")
+  if(!can("scenes"))return;const s=currentScene();if(!s)return;s.title=$("sceneTitle").value;s.description=$("sceneDescription").value;renderSceneList();renderShot();renderSheet();queueSave("scene")
 }
 function onShotChange(id){
-  if(!can("shots"))return;const s=currentShot();if(!s)return;s[id]=$(id).value;if(id==="shotNo")s[id]=Number(s[id])||1;renderShot();renderSceneList();renderSheet();queueSave("shot")
+  if(!can("shots")||id==="shotNo")return;const s=currentShot();if(!s)return;s[id]=$(id).value;renderShot();renderSceneList();renderSheet();queueSave("shot")
 }
 
 /* ---------- SCENE / SHOT CRUD ---------- */
+function normalizeSceneOrder(){
+  app.current.scenes.sort((a,b)=>a.position-b.position).forEach((s,i)=>{s.position=i+1;s.number=i+1});
+}
+function normalizeShotNumbers(scene){
+  scene.shots.sort((a,b)=>a.position-b.position).forEach((shot,i)=>{shot.shotNo=i+1;shot.position=i+1});
+}
+async function persistSceneOrder(){
+  normalizeSceneOrder();
+  if(app.mode==="local"){saveLocal();renderEditor();return}
+  await Promise.all(app.current.scenes.map(s=>sb.from("scenes").update({scene_number:s.number,position:s.position,collapsed:!!s.collapsed}).eq("id",s.id)));
+  renderEditor();
+}
+async function persistShotOrder(scene){
+  normalizeShotNumbers(scene);
+  if(app.mode==="local"){saveLocal();renderEditor();return}
+  await Promise.all(scene.shots.map(s=>sb.from("shots").update({shot_number:s.shotNo,position:s.position,data:shotDbData(s)}).eq("id",s.id)));
+  renderEditor();
+}
 async function addScene(){
-  if(!can("scenes"))return;const no=Math.max(0,...app.current.scenes.map(s=>Number(s.number)||0))+1,pos=app.current.scenes.length+1;
+  if(!can("scenes"))return;const no=app.current.scenes.length+1,pos=no;
   if(app.mode==="local"){
-    const s=blankScene(no);s.position=pos;app.current.scenes.push(s);app.activeSceneId=s.id;app.activeShotId=s.shots[0].id;saveLocal();renderEditor();return
+    const s=blankScene(no);s.position=pos;app.current.scenes.push(s);normalizeSceneOrder();app.activeSceneId=s.id;app.activeShotId=s.shots[0].id;saveLocal();renderEditor();return
   }
-  const {data:s,error}=await sb.from("scenes").insert({project_id:app.current.id,scene_number:no,title:`Scene ${no}`,description:"",position:pos}).select().single();if(error){alert(error.message);return}
+  const {data:s,error}=await sb.from("scenes").insert({project_id:app.current.id,scene_number:no,title:`Scene ${no}`,description:"",position:pos,collapsed:false}).select().single();if(error){alert(error.message);return}
   const {data:sh,error:er}=await sb.from("shots").insert({project_id:app.current.id,scene_id:s.id,shot_number:1,position:1,data:blankShot(1)}).select().single();if(er){alert(er.message);return}
   await openCloudProject(app.current.id);app.activeSceneId=s.id;app.activeShotId=sh.id;renderEditor()
 }
+async function renameScene(sceneId){
+  if(!can("scenes"))return;const s=app.current.scenes.find(x=>x.id===sceneId);if(!s)return;
+  const title=prompt("Scene title:",s.title||`Scene ${s.number}`);if(title===null)return;s.title=title.trim()||`Scene ${s.number}`;
+  if(app.mode==="cloud"){const {error}=await sb.from("scenes").update({title:s.title}).eq("id",s.id);if(error)return alert(error.message)}else saveLocal();
+  renderEditor()
+}
+async function duplicateScene(sceneId){
+  if(!can("scenes"))return;const source=app.current.scenes.find(x=>x.id===sceneId);if(!source)return;
+  if(app.mode==="local"){
+    const clone=deepClone(source);clone.id=uid();clone.title=`${source.title||`Scene ${source.number}`} Copy`;clone.position=source.position+.5;clone.collapsed=false;
+    clone.shots=source.shots.map((s,i)=>({...deepClone(s),id:uid(),shotNo:i+1,position:i+1}));
+    app.current.scenes.push(clone);normalizeSceneOrder();app.activeSceneId=clone.id;app.activeShotId=clone.shots[0]?.id||null;saveLocal();renderEditor();return
+  }
+  const {data:newScene,error}=await sb.from("scenes").insert({project_id:app.current.id,scene_number:source.number+1,title:`${source.title||`Scene ${source.number}`} Copy`,description:source.description||"",position:source.position+.5,collapsed:false}).select().single();if(error)return alert(error.message);
+  for(const sh of source.shots.sort((a,b)=>a.position-b.position)){
+    const data=shotDbData(sh);
+    const {error:shotErr}=await sb.from("shots").insert({project_id:app.current.id,scene_id:newScene.id,shot_number:sh.shotNo,position:sh.position,image_path:sh.imagePath||null,data});
+    if(shotErr)return alert(shotErr.message)
+  }
+  await openCloudProject(app.current.id);normalizeSceneOrder();await Promise.all(app.current.scenes.map(s=>sb.from("scenes").update({scene_number:s.number,position:s.position}).eq("id",s.id)));await openCloudProject(app.current.id);app.activeSceneId=newScene.id;app.activeShotId=currentScene()?.shots?.[0]?.id||null;renderEditor()
+}
+async function moveScene(sceneId,delta){
+  if(!can("scenes"))return;const arr=app.current.scenes.sort((a,b)=>a.position-b.position),i=arr.findIndex(x=>x.id===sceneId),j=i+delta;if(i<0||j<0||j>=arr.length)return;
+  [arr[i],arr[j]]=[arr[j],arr[i]];arr.forEach((s,k)=>s.position=k+1);await persistSceneOrder();
+}
 async function deleteScene(){
   if(!can("scenes"))return;if(app.current.scenes.length===1){alert("At least one scene must remain.");return}const s=currentScene();if(!confirm(`Delete Scene ${s.number} and all of its shots?`))return;
-  if(app.mode==="local"){app.current.scenes=app.current.scenes.filter(x=>x.id!==s.id);selectFirst();saveLocal();renderEditor();return}
-  const {error}=await sb.from("scenes").delete().eq("id",s.id);if(error)alert(error.message);else await openCloudProject(app.current.id)
+  if(app.mode==="local"){app.current.scenes=app.current.scenes.filter(x=>x.id!==s.id);normalizeSceneOrder();selectFirst();saveLocal();renderEditor();return}
+  const {error}=await sb.from("scenes").delete().eq("id",s.id);if(error)return alert(error.message);
+  await openCloudProject(app.current.id);normalizeSceneOrder();await Promise.all(app.current.scenes.map(x=>sb.from("scenes").update({scene_number:x.number,position:x.position}).eq("id",x.id)));await openCloudProject(app.current.id)
+}
+async function toggleSceneCollapse(sceneId){
+  const scene=app.current?.scenes.find(s=>s.id===sceneId);if(!scene)return;scene.collapsed=!scene.collapsed;renderSceneList();
+  if(app.mode==="local")saveLocal();else if(can("scenes"))await sb.from("scenes").update({collapsed:scene.collapsed}).eq("id",scene.id)
+}
+async function setAllScenesCollapsed(collapsed){
+  (app.current?.scenes||[]).forEach(s=>s.collapsed=collapsed);renderSceneList();
+  if(app.mode==="local")saveLocal();else if(can("scenes"))await Promise.all(app.current.scenes.map(s=>sb.from("scenes").update({collapsed}).eq("id",s.id)))
 }
 async function addShot(){
-  if(!can("shots"))return;const sc=currentScene();if(!sc)return;const no=Math.max(0,...sc.shots.map(s=>Number(s.shotNo)||0))+1,pos=sc.shots.length+1;
+  if(!can("shots"))return;const sc=currentScene();if(!sc)return;const no=sc.shots.length+1,pos=no;
   if(app.mode==="local"){const sh=blankShot(no);sh.position=pos;sc.shots.push(sh);app.activeShotId=sh.id;saveLocal();renderEditor();return}
-  const sh=blankShot(no);const {data,error}=await sb.from("shots").insert({project_id:app.current.id,scene_id:sc.id,shot_number:no,position:pos,data:sh}).select().single();if(error){alert(error.message);return}
+  const sh=blankShot(no);const {data,error}=await sb.from("shots").insert({project_id:app.current.id,scene_id:sc.id,shot_number:no,position:pos,data:shotDbData(sh)}).select().single();if(error){alert(error.message);return}
   await openCloudProject(app.current.id);app.activeSceneId=sc.id;app.activeShotId=sh.id;renderEditor()
 }
+async function insertShotCopy(source,afterIndex){
+  const sc=currentScene();if(!sc||!source)return;
+  const copy=deepClone(source);copy.id=uid();copy.position=afterIndex+1.5;copy.shotNo=afterIndex+2;
+  if(app.mode==="local"){sc.shots.push(copy);normalizeShotNumbers(sc);app.activeShotId=copy.id;saveLocal();renderEditor();return}
+  const data=shotDbData(copy);
+  const {data:row,error}=await sb.from("shots").insert({project_id:app.current.id,scene_id:sc.id,shot_number:copy.shotNo,position:copy.position,image_path:source.imagePath||null,data}).select().single();if(error){alert(error.message);return}
+  await openCloudProject(app.current.id);const target=app.current.scenes.find(x=>x.id===sc.id);if(target){normalizeShotNumbers(target);await Promise.all(target.shots.map(s=>sb.from("shots").update({shot_number:s.shotNo,position:s.position,data:shotDbData(s)}).eq("id",s.id)))}await openCloudProject(app.current.id);app.activeSceneId=sc.id;app.activeShotId=row.id;renderEditor()
+}
 async function duplicateShot(){
-  if(!can("shots"))return;const s=currentShot(),sc=currentScene();if(!s)return;const no=Math.max(0,...sc.shots.map(x=>Number(x.shotNo)||0))+1;const copy={...s,id:uid(),shotNo:no,position:sc.shots.length+1,imagePath:null};
-  if(app.mode==="local"){sc.shots.push(copy);app.activeShotId=copy.id;saveLocal();renderEditor();return}
-  const data={...copy};delete data.id;delete data.image;delete data.imagePath;
-  const {data:row,error}=await sb.from("shots").insert({project_id:app.current.id,scene_id:sc.id,shot_number:no,position:copy.position,data}).select().single();if(error){alert(error.message);return}
-  await openCloudProject(app.current.id);app.activeSceneId=sc.id;app.activeShotId=row.id;renderEditor()
+  if(!can("shots"))return;const s=currentShot(),sc=currentScene();if(!s)return;const idx=sc.shots.sort((a,b)=>a.position-b.position).findIndex(x=>x.id===s.id);await insertShotCopy(s,idx)
+}
+function copyShot(){
+  const s=currentShot();if(!s)return;app.shotClipboard=deepClone(s);$("pasteShotBtn").disabled=!can("shots");setMsg("editorNotice",`Shot ${s.shotNo} copied.`)
+}
+async function pasteShot(){
+  if(!can("shots")||!app.shotClipboard)return;const sc=currentScene();const s=currentShot();const idx=Math.max(0,sc.shots.sort((a,b)=>a.position-b.position).findIndex(x=>x.id===s?.id));await insertShotCopy(app.shotClipboard,idx)
+}
+async function moveShot(delta){
+  if(!can("shots"))return;const sc=currentScene(),s=currentShot();if(!sc||!s)return;const arr=sc.shots.sort((a,b)=>a.position-b.position),i=arr.findIndex(x=>x.id===s.id),j=i+delta;if(i<0||j<0||j>=arr.length)return;
+  [arr[i],arr[j]]=[arr[j],arr[i]];arr.forEach((x,k)=>x.position=k+1);await persistShotOrder(sc)
 }
 async function deleteShot(){
   if(!can("shots"))return;const s=currentShot(),sc=currentScene();if(sc.shots.length===1){alert("Each scene needs at least one shot.");return}if(!confirm(`Delete Shot ${s.shotNo}?`))return;
-  if(app.mode==="local"){sc.shots=sc.shots.filter(x=>x.id!==s.id);app.activeShotId=sc.shots[0].id;saveLocal();renderEditor();return}
-  const {error}=await sb.from("shots").delete().eq("id",s.id);if(error)alert(error.message);else await openCloudProject(app.current.id)
+  if(app.mode==="local"){sc.shots=sc.shots.filter(x=>x.id!==s.id);normalizeShotNumbers(sc);app.activeShotId=sc.shots[0].id;saveLocal();renderEditor();return}
+  const remaining=sc.shots.filter(x=>x.id!==s.id);const {error}=await sb.from("shots").delete().eq("id",s.id);if(error)return alert(error.message);
+  remaining.sort((a,b)=>a.position-b.position).forEach((x,i)=>{x.position=i+1;x.shotNo=i+1});
+  await Promise.all(remaining.map(x=>sb.from("shots").update({shot_number:x.shotNo,position:x.position,data:shotDbData(x)}).eq("id",x.id)));await openCloudProject(app.current.id)
 }
 function adjacentShot(delta){
   const arr=allShots(),idx=arr.findIndex(x=>x.shot.id===app.activeShotId),target=arr[idx+delta];if(!target)return;app.activeSceneId=target.scene.id;app.activeShotId=target.shot.id;renderEditor();window.scrollTo({top:0,behavior:"smooth"})
@@ -649,7 +792,12 @@ async function createCloudProjectFromJSON(projectData){
     aspect_width:Number(projectData.aspectWidth||projectData.project?.aspectWidth||3),
     aspect_height:Number(projectData.aspectHeight||projectData.project?.aspectHeight||4),
     style:projectData.style||"Storyboard B&W",
-    owner_id:app.session.user.id
+    owner_id:app.session.user.id,
+    position:Math.max(0,...(app.projects||[]).filter(x=>x.owner_id===app.session.user.id).map(x=>Number(x.position||0)))+1,
+    is_favorite:!!(projectData.isFavorite??projectData.is_favorite),
+    folder:projectData.folder||"General",
+    tags:Array.isArray(projectData.tags)?projectData.tags:[],
+    metadata:projectMeta(projectData)
   }).select().single();
 
   if(pe) throw pe;
@@ -658,15 +806,14 @@ async function createCloudProjectFromJSON(projectData){
     {number:1,title:"Scene 1",shots:projectData.shots||[]}
   ];
 
-  let imageImportFailures = 0;
-
   for(const sc of scenes){
     const {data:s,error:se}=await sb.from("scenes").insert({
       project_id:p.id,
       scene_number:Number(sc.number||1),
       title:sc.title||`Scene ${sc.number||1}`,
       description:sc.description||"",
-      position:Number(sc.position||sc.number||1)
+      position:Number(sc.position||sc.number||1),
+      collapsed:!!sc.collapsed
     }).select().single();
 
     if(se) throw se;
@@ -678,67 +825,14 @@ async function createCloudProjectFromJSON(projectData){
         ...shots[i]
       };
 
-      let importedImagePath = null;
-
-      // If the imported JSON contains an image URL/data URL, copy it into
-      // this project's Supabase Storage so cloud reloads use image_path.
-      if(shot.image){
-        try{
-          let sourceUrl = shot.image;
-          if(sourceUrl.startsWith("/")){
-            sourceUrl = new URL(sourceUrl, window.location.origin).href;
-          }
-
-          const resp = await fetch(sourceUrl, {mode:"cors"});
-          if(!resp.ok) throw new Error(`Image fetch failed (${resp.status})`);
-
-          const blob = await resp.blob();
-          let ext = "png";
-          if((blob.type||"").includes("jpeg")) ext = "jpg";
-          else if((blob.type||"").includes("webp")) ext = "webp";
-
-          const shotNo = Number(shot.shotNo||i+1);
-          importedImagePath = `${p.id}/${s.id}/import-shot-${String(shotNo).padStart(2,"0")}.${ext}`;
-
-          const {error:uploadError}=await sb.storage
-            .from("storyboards")
-            .upload(importedImagePath, blob, {
-              upsert:true,
-              contentType:blob.type||"image/png"
-            });
-
-          if(uploadError) throw uploadError;
-        }catch(imgErr){
-          imageImportFailures++;
-          console.warn("Could not copy image to Supabase Storage for shot", shot.shotNo||i+1, imgErr);
-        }
-      }
-
-      // IMPORTANT:
-      // Always preserve the original imported image URL in shot.data.image.
-      // If the Storage copy succeeds, image_path is used first.
-      // If Storage upload fails, the app still displays the original URL.
-      const shotData={
-        ...shot,
-        image: shot.image || null,
-        imagePath: importedImagePath || shot.imagePath || null
-      };
-
-      const {error:shotInsertError}=await sb.from("shots").insert({
+      await sb.from("shots").insert({
         project_id:p.id,
         scene_id:s.id,
         shot_number:Number(shot.shotNo||i+1),
         position:Number(shot.position||i+1),
-        image_path: importedImagePath,
-        data:shotData
+        data:shot
       });
-
-      if(shotInsertError) throw shotInsertError;
     }
-  }
-
-  if(imageImportFailures>0){
-    console.warn(`${imageImportFailures} image(s) could not be copied to Storage; original image URLs were preserved as fallback.`);
   }
 
   return p.id;
@@ -765,82 +859,81 @@ async function importJSONOnline(file){
 
 
 /* ---------- PROJECT MANAGEMENT ---------- */
-function saveProjectOrder(){
-  if(app.mode==="local"){
-    app.projects.forEach((p,i)=>p.position=i+1);
-    saveLocal();
-  }
+function projectDragEnabled(){return app.projectFilter==="all" && !app.projectSearch.trim() && app.projectFolder==="all"}
+async function persistProjectPositions(){
+  const mine=app.projects.filter(p=>p.owner_id===app.session?.user?.id);
+  mine.forEach((p,i)=>p.position=i+1);
+  if(app.mode==="local"){saveLocal();return}
+  await Promise.all(mine.map(p=>sb.from("projects").update({position:p.position}).eq("id",p.id)))
+}
+function setupProjectDrag(){
+  if(!projectDragEnabled())return;
+  const grid=$("projectsGrid");
+  [...grid.children].forEach(card=>{
+    const p=app.projects.find(x=>x.id===card.dataset.projectId),owner=p?.owner_id===app.session?.user?.id;
+    if(!owner)return;card.draggable=true;
+    card.ondragstart=e=>{card.classList.add("dragging");e.dataTransfer.effectAllowed="move"};
+    card.ondragend=async()=>{
+      card.classList.remove("dragging");
+      const domIds=[...grid.children].map(x=>x.dataset.projectId);
+      const mineInDom=domIds.map(id=>app.projects.find(p=>p.id===id)).filter(p=>p?.owner_id===app.session?.user?.id);
+      const shared=app.projects.filter(p=>p.owner_id!==app.session?.user?.id);
+      app.projects=[...mineInDom,...shared];await persistProjectPositions();renderProjects()
+    };
+    card.ondragover=e=>{e.preventDefault();const d=grid.querySelector(".dragging");if(d&&d!==card)grid.insertBefore(d,card)}
+  })
 }
 async function renameProject(id){
-  const p=app.projects.find(x=>x.id===id);
-  if(!p)return;
-  const name=prompt("New project name:",p.name);
-  if(!name)return;
-  if(app.mode==="cloud"){
-    const {error}=await sb.from("projects").update({name}).eq("id",id);
-    if(error)return alert(error.message);
-  }
-  p.name=name;
-  if(app.current?.id===id)app.current.name=name;
-  renderProjects();
+  const p=app.projects.find(x=>x.id===id);if(!p)return;const name=prompt("New project name:",p.name);if(!name)return;
+  if(app.mode==="cloud"){const {error}=await sb.from("projects").update({name,updated_at:new Date().toISOString()}).eq("id",id);if(error)return alert(error.message)}
+  p.name=name;if(app.current?.id===id)app.current.name=name;renderProjects()
 }
 async function deleteProject(id){
-  const p=app.projects.find(x=>x.id===id);
-  if(!p || !confirm(`Delete "${p.name}"? This cannot be undone.`))return;
-  if(app.mode==="cloud"){
-    const {error}=await sb.from("projects").delete().eq("id",id);
-    if(error)return alert(error.message);
+  const p=app.projects.find(x=>x.id===id);if(!p||!confirm(`Delete "${p.name}"? This cannot be undone.`))return;
+  if(app.mode==="cloud"){const {error}=await sb.from("projects").delete().eq("id",id);if(error)return alert(error.message)}
+  app.projects=app.projects.filter(x=>x.id!==id);if(app.current?.id===id)app.current=null;await persistProjectPositions();renderProjects()
+}
+async function toggleFavorite(id){
+  const p=app.projects.find(x=>x.id===id);if(!p||p.owner_id!==app.session?.user?.id)return;p.isFavorite=!p.isFavorite;
+  const {error}=await sb.from("projects").update({is_favorite:p.isFavorite}).eq("id",id);if(error){p.isFavorite=!p.isFavorite;return alert(error.message)}renderProjects()
+}
+async function duplicateProject(id){
+  const source=app.projects.find(x=>x.id===id);if(!source)return;
+  if(app.mode==="local"){
+    const clone=deepClone(source);clone.id=uid();clone.name=`${source.name} Copy`;clone.owner_id=null;clone.position=app.projects.length+1;clone.isFavorite=false;clone.scenes=clone.scenes.map((sc,si)=>({...sc,id:uid(),number:si+1,position:si+1,shots:sc.shots.map((sh,ii)=>({...sh,id:uid(),shotNo:ii+1,position:ii+1}))}));app.projects.push(clone);saveLocal();renderProjects();return
   }
-  app.projects=app.projects.filter(x=>x.id!==id);
-  if(app.current?.id===id)app.current=null;
-  renderProjects();
+  const {data:p,error}=await sb.from("projects").select("*").eq("id",id).single();if(error)return alert(error.message);
+  const {data:scenes,error:se}=await sb.from("scenes").select("*").eq("project_id",id).order("position");if(se)return alert(se.message);
+  const {data:shots,error:shErr}=await sb.from("shots").select("*").eq("project_id",id).order("position");if(shErr)return alert(shErr.message);
+  const position=Math.max(0,...app.projects.filter(x=>x.owner_id===app.session.user.id).map(x=>Number(x.position||0)))+1;
+  const {data:newP,error:pe}=await sb.from("projects").insert({owner_id:app.session.user.id,name:`${p.name} Copy`,aspect:p.aspect,aspect_width:p.aspect_width,aspect_height:p.aspect_height,style:p.style,position,is_favorite:false,folder:p.folder||"General",tags:p.tags||[],metadata:p.metadata||{}}).select().single();if(pe)return alert(pe.message);
+  for(const sc of scenes||[]){
+    const {data:newSc,error:sce}=await sb.from("scenes").insert({project_id:newP.id,scene_number:sc.scene_number,title:sc.title,description:sc.description||"",position:sc.position,collapsed:false}).select().single();if(sce)return alert(sce.message);
+    for(const row of (shots||[]).filter(r=>r.scene_id===sc.id)){
+      const {error:e}=await sb.from("shots").insert({project_id:newP.id,scene_id:newSc.id,shot_number:row.shot_number,position:row.position,image_path:row.image_path||null,data:row.data||{}});if(e)return alert(e.message)
+    }
+  }
+  await loadCloudProjects();await openCloudProject(newP.id)
 }
-async function moveProject(id,direction){
-  const index=app.projects.findIndex(p=>p.id===id);
-  const target=index+direction;
-  if(index<0 || target<0 || target>=app.projects.length)return;
-  [app.projects[index],app.projects[target]]=[app.projects[target],app.projects[index]];
-  saveProjectOrder();
-  renderProjects();
-  // Cloud order can be added later with project position column
+function openProjectDetails(id){
+  const p=(app.current?.id===id?app.current:app.projects.find(x=>x.id===id));if(!p)return;app.detailsProjectId=id;const m=projectMeta(p);
+  $("detailProjectName").value=p.name||"";$("detailProjectFolder").value=p.folder||"General";$("detailProjectTags").value=(p.tags||[]).join(", ");
+  $("detailDirector").value=m.director||"";$("detailWriter").value=m.writer||"";$("detailProduction").value=m.production||"";$("detailStatus").value=m.status||"Planning";$("detailNotes").value=m.notes||"";$("detailFavorite").checked=!!p.isFavorite;
+  const owner=p.owner_id===app.session?.user?.id,editable=app.mode==="local"||owner||(app.current?.id===id&&can("project_settings"));
+  ["detailProjectName","detailProjectFolder","detailProjectTags","detailDirector","detailWriter","detailProduction","detailStatus","detailNotes","detailFavorite"].forEach(x=>$(x).disabled=!editable);
+  $("saveProjectDetailsBtn").hidden=!editable;$("projectDetailsModal").showModal()
 }
-function reorderProjectDrag(){
-  const list=$("projectList");
-  if(!list)return;
-  [...list.children].forEach((card,i)=>{
-    card.draggable=true;
-    card.ondragstart=()=>card.classList.add("dragging");
-    card.ondragend=()=>{
-      card.classList.remove("dragging");
-      const ids=[...list.children].map(x=>x.dataset.projectId);
-      const ordered=ids.map(id=>app.projects.find(p=>p.id===id)).filter(Boolean);
-      app.projects=ordered;
-      saveProjectOrder();
-    };
-    card.ondragover=e=>{
-      e.preventDefault();
-      const dragging=list.querySelector(".dragging");
-      if(dragging && dragging!==card){
-        list.insertBefore(dragging,card);
-      }
-    };
-  });
+async function saveProjectDetails(){
+  const id=app.detailsProjectId,p=(app.current?.id===id?app.current:app.projects.find(x=>x.id===id));if(!p)return;
+  p.name=$("detailProjectName").value.trim()||p.name;p.folder=$("detailProjectFolder").value.trim()||"General";p.tags=$("detailProjectTags").value.split(",").map(x=>x.trim()).filter(Boolean);p.isFavorite=$("detailFavorite").checked;
+  p.metadata={director:$("detailDirector").value.trim(),writer:$("detailWriter").value.trim(),production:$("detailProduction").value.trim(),status:$("detailStatus").value,notes:$("detailNotes").value.trim()};
+  if(app.mode==="cloud"){
+    const {error}=await sb.from("projects").update({name:p.name,folder:p.folder,tags:p.tags,is_favorite:p.isFavorite,metadata:p.metadata,updated_at:new Date().toISOString()}).eq("id",id);if(error)return alert(error.message)
+  }else saveLocal();
+  if(app.current?.id===id){app.current={...app.current,...p};$("projectName").value=p.name;if($("projectFolderBadge"))$("projectFolderBadge").textContent=p.folder}
+  const listP=app.projects.find(x=>x.id===id);if(listP)Object.assign(listP,p);$("projectDetailsModal").close();renderProjects()
 }
 
-/* ---------- SCENE COLLAPSE ---------- */
-function toggleSceneCollapse(sceneId){
-  const sc=currentScene();
-  const scene=app.current?.scenes.find(s=>s.id===sceneId);
-  if(!scene)return;
-  scene.collapsed=!scene.collapsed;
-  renderSceneList();
-}
-function normalizeShotNumbers(scene){
-  scene.shots.forEach((shot,i)=>{
-    shot.shotNo=i+1;
-    shot.position=i+1;
-  });
-}
 /* ---------- EVENTS ---------- */
 function bind(){
   $("loginTabBtn").onclick=()=>toggleAuthTab("login");$("signupTabBtn").onclick=()=>toggleAuthTab("signup");$("loginEmailMode").onclick=()=>setLoginKind("email");$("loginUsernameMode").onclick=()=>setLoginKind("username");
@@ -848,10 +941,15 @@ function bind(){
   $("logoutBtn").onclick=logout;$("newCloudProjectBtn").onclick=createCloudProject;$("emptyNewProjectBtn").onclick=createCloudProject;
   $("accountBtn").onclick=()=>$("accountModal").showModal();$("closeAccountBtn").onclick=()=>$("accountModal").close();
   $("backProjectsBtn").onclick=async()=>{unsubscribeRealtime();if(app.mode==="cloud"){await loadCloudProjects();showProjects()}else showAuth()};
+  $("projectSearch").oninput=e=>{app.projectSearch=e.target.value;renderProjects()};
+  $("projectFilter").onchange=e=>{app.projectFilter=e.target.value;renderProjects()};
+  $("projectFolderFilter").onchange=e=>{app.projectFolder=e.target.value;renderProjects()};
+  $("closeProjectDetailsBtn").onclick=()=>$("projectDetailsModal").close();$("saveProjectDetailsBtn").onclick=saveProjectDetails;$("projectDetailsBtn").onclick=()=>openProjectDetails(app.current.id);
   ["projectName","projectAspect","projectStyle","aspectWidth","aspectHeight"].forEach(id=>{["input","change"].forEach(ev=>$(id).addEventListener(ev,onProjectChange))});
-  ["sceneNumber","sceneTitle","sceneDescription"].forEach(id=>{["input","change"].forEach(ev=>$(id).addEventListener(ev,onSceneChange))});
-  SHOT_FIELDS.forEach(id=>{if($(id))["input","change"].forEach(ev=>$(id).addEventListener(ev,()=>onShotChange(id)))});
-  $("addSceneBtn").onclick=addScene;$("deleteSceneBtn").onclick=deleteScene;$("addShotBtn").onclick=addShot;$("mobileAddShotBtn").onclick=addShot;$("duplicateShotBtn").onclick=duplicateShot;$("deleteShotBtn").onclick=deleteShot;
+  ["sceneTitle","sceneDescription"].forEach(id=>{["input","change"].forEach(ev=>$(id).addEventListener(ev,onSceneChange))});
+  SHOT_FIELDS.filter(id=>id!=="shotNo").forEach(id=>{if($(id))["input","change"].forEach(ev=>$(id).addEventListener(ev,()=>onShotChange(id)))});
+  $("addSceneBtn").onclick=addScene;$("deleteSceneBtn").onclick=deleteScene;$("collapseAllScenesBtn").onclick=()=>setAllScenesCollapsed(true);$("expandAllScenesBtn").onclick=()=>setAllScenesCollapsed(false);
+  $("addShotBtn").onclick=addShot;$("mobileAddShotBtn").onclick=addShot;$("duplicateShotBtn").onclick=duplicateShot;$("copyShotBtn").onclick=copyShot;$("pasteShotBtn").onclick=pasteShot;$("moveShotUpBtn").onclick=()=>moveShot(-1);$("moveShotDownBtn").onclick=()=>moveShot(1);$("deleteShotBtn").onclick=deleteShot;
   $("prevShotBtn").onclick=()=>adjacentShot(-1);$("nextShotBtn").onclick=()=>adjacentShot(1);
   $("frameImageInput").onchange=loadImage;$("removeImageBtn").onclick=removeImage;
   $("sheetToggleBtn").onclick=()=>toggleSheet();$("mobileSheetBtn").onclick=()=>toggleSheet();$("closeSheetBtn").onclick=()=>toggleSheet(false);$("shotsPerPage").onchange=renderSheet;$("printSheetBtn").onclick=()=>window.print();
@@ -862,4 +960,5 @@ function bind(){
   $("collaborateBtn").onclick=openCollab;$("addMemberBtn").onclick=addMemberByUsername;$("createShareLinkBtn").onclick=createShareLink;$("copyShareLinkBtn").onclick=async()=>{await navigator.clipboard.writeText($("shareLinkOutput").value);setMsg("collabMessage","Invite link copied.")};
   $("permissionPreset").onchange=e=>{if(e.target.value!=="custom")setPermissionPreset(e.target.value)}
 }
+
 start();

@@ -1,3 +1,21 @@
+# Storyboard Shot Builder v3.5 — Production Management
+
+This build intentionally starts from the pre-Roozaneh-image-import v3.2 codebase and does **not** include the temporary GitHub/Raw-URL image patches.
+
+## Added in v3.5
+- Project dashboard search and filters (All, Favorites, Recently Updated, Shared)
+- Folder/category, tags, project metadata (Director, Writer, Production, Status, Notes)
+- Favorite, rename, delete and full project duplication
+- Drag-and-drop ordering for owned projects with Supabase `position` persistence
+- Scene collapse/expand, Collapse All/Expand All
+- Scene rename, duplicate, move up/down, automatic scene renumbering
+- Shot duplicate, copy/paste, move up/down
+- Automatic contiguous shot renumbering after reorder/delete
+- Existing auth, collaboration, JSON import/export, storyboard sheet, custom aspect ratio and media upload preserved
+
+## Database
+This build expects the v3.5 patch already applied to `projects`, `scenes`, and `shots` (`position`, `is_favorite`, `folder`, `tags`, `metadata`, `collapsed`).
+
 # Storyboard Shot Builder v3
 
 ## New in v3
