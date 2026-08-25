@@ -1,4 +1,4 @@
-// Storyboard Shot Builder v3.6 — workflow continuity + sidebar shot controls + collaboration chat
+// Storyboard Shot Builder v3.6.1 — chat unread notifications + @mentions
 const OPTIONS = {
   shotSize:["ECU · Extreme Close Up","CU · Close Up","MCU · Medium Close Up","MS · Medium Shot","MLS · Medium Long Shot","WS · Wide Shot","EWS · Extreme Wide Shot","OTS · Over The Shoulder","POV · Point of View","Insert","Top Shot"],
   angle:["Eye Level","High Angle","Low Angle","Top / Bird's Eye","Dutch Angle","Ground Level","Overhead"],
@@ -31,6 +31,8 @@ let app = {
   sheetOpen: false,
   realtimeChannel: null,
   chatChannel: null,
+  chatNoticeChannel: null,
+  collabTab: "chat",
   permissions: fullPermissions(),
   isOwner: true,
   pendingInvite: new URLSearchParams(location.search).get("invite"),
@@ -75,6 +77,157 @@ function escapeHtml(str){return String(str??"").replace(/[&<>"']/g,m=>({"&":"&am
 function show(el, yes=true){if(el) el.hidden=!yes}
 function setMsg(id,msg,type=""){const el=$(id); if(!msg){el.hidden=true;el.textContent="";return} el.hidden=false;el.textContent=msg;el.className="notice"+(type?` ${type}`:"")}
 function can(key){return app.isOwner || !!app.permissions?.[key]}
+
+/* ---------- CHAT NOTIFICATIONS + MENTIONS ---------- */
+function chatReadKey(projectId=app.current?.id){
+  return `storyboard-v3.6.1-chat-read:${app.session?.user?.id||"local"}:${projectId||"none"}`
+}
+function escapeRegex(v){return String(v||"").replace(/[.*+?^${}()|[\]\\]/g,"\\$&")}
+function messageMentionsCurrentUser(body){
+  const username=String(app.profile?.username||"").trim();
+  if(!username)return false;
+  const re=new RegExp(`(^|[\\s([{"'.,;:!?])@${escapeRegex(username)}(?=$|[\\s)\\]}"'.,;:!?])`,"i");
+  return re.test(String(body||""))
+}
+function renderChatBody(body){
+  const username=String(app.profile?.username||"").trim().toLowerCase();
+  let safe=escapeHtml(body).replace(/\n/g,"<br>");
+  safe=safe.replace(/(^|[\s([{"'.,;:!?])@([A-Za-z0-9._-]+)(?=$|[\s)\]}"'.,;:!?])/gi,(m,prefix,handle)=>{
+    const mine=username && handle.toLowerCase()===username;
+    return `${prefix}<span class="chat-mention${mine?" me":""}">@${handle}</span>`
+  });
+  return safe
+}
+function readChatReadAt(projectId=app.current?.id){
+  if(!projectId)return null;
+  return localStorage.getItem(chatReadKey(projectId))
+}
+function writeChatReadAt(iso,projectId=app.current?.id){
+  if(!projectId||!iso)return;
+  localStorage.setItem(chatReadKey(projectId),iso)
+}
+function chatActivelyVisible(){
+  return !!($("collabModal")?.open && app.collabTab==="chat" && document.visibilityState==="visible")
+}
+function updateChatBadges(count=0,mentioned=false){
+  count=Math.max(0,Number(count||0));
+  const visible=count>0;
+
+  for(const id of ["collabUnreadBadge","chatTabUnreadBadge"]){
+    const badge=$(id);if(!badge)continue;
+    badge.hidden=!visible;
+  }
+  for(const id of ["collabUnreadCount","chatTabUnreadCount"]){
+    const el=$(id);if(el)el.textContent=String(count);
+  }
+  for(const id of ["collabMentionMark","chatTabMentionMark"]){
+    const el=$(id);if(el)el.hidden=!(visible&&mentioned);
+  }
+
+  if($("collaborateBtn")){
+    $("collaborateBtn").classList.toggle("has-unread",visible);
+    $("collaborateBtn").classList.toggle("has-mention",visible&&mentioned);
+    $("collaborateBtn").title=visible
+      ? `${count} unread chat message${count===1?"":"s"}${mentioned?" · You were mentioned":""}`
+      : "Collaborate · Chat";
+  }
+}
+async function ensureChatReadBaseline(){
+  if(app.mode!=="cloud"||!app.current||!app.session)return;
+  if(readChatReadAt(app.current.id))return;
+  const {data,error}=await sb.from("project_messages")
+    .select("created_at")
+    .eq("project_id",app.current.id)
+    .order("created_at",{ascending:false})
+    .limit(1);
+  if(error)return;
+  writeChatReadAt(data?.[0]?.created_at||new Date().toISOString(),app.current.id)
+}
+async function refreshChatNotificationBadge(){
+  if(app.mode!=="cloud"||!app.current||!app.session){updateChatBadges(0,false);return}
+  await ensureChatReadBaseline();
+  const since=readChatReadAt(app.current.id);
+  if(!since){updateChatBadges(0,false);return}
+
+  const {data:rows,error}=await sb.from("project_messages")
+    .select("id,user_id,body,created_at")
+    .eq("project_id",app.current.id)
+    .gt("created_at",since)
+    .neq("user_id",app.session.user.id)
+    .order("created_at",{ascending:true})
+    .limit(500);
+
+  if(error){console.warn("Could not refresh chat notification badge:",error);return}
+  const unread=rows||[];
+  updateChatBadges(unread.length,unread.some(r=>messageMentionsCurrentUser(r.body)))
+}
+async function markChatRead(rows=null){
+  if(app.mode!=="cloud"||!app.current||!app.session)return;
+  let iso=null;
+  if(Array.isArray(rows)&&rows.length)iso=rows[rows.length-1]?.created_at||null;
+  writeChatReadAt(iso||new Date().toISOString(),app.current.id);
+  updateChatBadges(0,false)
+}
+async function renderChatMentionOptions(){
+  const el=$("chatMentionSelect");if(!el||app.mode!=="cloud"||!app.current)return;
+  const current=el.value;
+  const {data:members}=await sb.from("project_members")
+    .select("user_id")
+    .eq("project_id",app.current.id);
+  const ids=[app.current.owner_id,...(members||[]).map(m=>m.user_id)]
+    .filter(Boolean)
+    .filter((id,i,a)=>a.indexOf(id)===i);
+  let profiles=[];
+  if(ids.length){
+    const {data}=await sb.from("profiles")
+      .select("id,username,display_name")
+      .in("id",ids);
+    profiles=data||[];
+  }
+  const opts=['<option value="">Mention collaborator…</option>'];
+  for(const pr of profiles
+    .filter(p=>p.id!==app.session.user.id&&p.username)
+    .sort((a,b)=>(a.display_name||a.username||"").localeCompare(b.display_name||b.username||""))){
+    opts.push(`<option value="${escapeHtml(pr.username)}">@${escapeHtml(pr.username)} · ${escapeHtml(pr.display_name||pr.username)}</option>`)
+  }
+  el.innerHTML=opts.join("");
+  if([...el.options].some(o=>o.value===current))el.value=current
+}
+function insertChatMention(username){
+  username=String(username||"").trim();if(!username)return;
+  const input=$("chatMessageInput");if(!input)return;
+  const mention=`@${username} `;
+  const start=input.selectionStart??input.value.length,end=input.selectionEnd??input.value.length;
+  const before=input.value.slice(0,start),after=input.value.slice(end);
+  const spacer=before && !/\s$/.test(before)?" ":"";
+  input.value=before+spacer+mention+after;
+  const pos=(before+spacer+mention).length;
+  input.focus();input.setSelectionRange(pos,pos)
+}
+function subscribeChatNoticeRealtime(){
+  unsubscribeChatNoticeRealtime();
+  if(!sb||app.mode!=="cloud"||!app.current)return;
+  const pid=app.current.id;
+  app.chatNoticeChannel=sb.channel(`project-chat-notice-${pid}`)
+    .on("postgres_changes",{event:"INSERT",schema:"public",table:"project_messages",filter:`project_id=eq.${pid}`},payload=>{
+      if(chatActivelyVisible())renderChatMessages();
+      else refreshChatNotificationBadge()
+    })
+    .on("postgres_changes",{event:"DELETE",schema:"public",table:"project_messages",filter:`project_id=eq.${pid}`},()=>{
+      if(chatActivelyVisible())renderChatMessages();
+      else refreshChatNotificationBadge()
+    })
+    .subscribe()
+}
+function unsubscribeChatNoticeRealtime(){
+  if(sb&&app.chatNoticeChannel){sb.removeChannel(app.chatNoticeChannel);app.chatNoticeChannel=null}
+}
+async function setupChatNotifications(){
+  if(app.mode!=="cloud"||!app.current)return;
+  await ensureChatReadBaseline();
+  await refreshChatNotificationBadge();
+  subscribeChatNoticeRealtime()
+}
 
 
 /* ---------- WORKSPACE CONTINUITY ---------- */
@@ -161,7 +314,7 @@ async function start(){
   app.session=session;
   sb.auth.onAuthStateChange(async(event,session)=>{
     app.session=session;
-    if(!session){app.profile=null;app.current=null;unsubscribeRealtime();unsubscribeChatRealtime();showAuth();return}
+    if(!session){app.profile=null;app.current=null;unsubscribeRealtime();unsubscribeChatRealtime();unsubscribeChatNoticeRealtime();updateChatBadges(0,false);showAuth();return}
     // INITIAL_SESSION is already handled by getSession() below. Token refreshes must
     // never kick an editor back to the Projects screen.
     if(event==="INITIAL_SESSION"||event==="TOKEN_REFRESHED"||event==="USER_UPDATED")return;
@@ -365,6 +518,8 @@ async function openCloudProject(id,options={}){
   const preferredShotId=options.shotId || (sameProject&&options.preserveSelection!==false?app.activeShotId:null);
   const restoreScroll=Number.isFinite(Number(options.scrollY))?Number(options.scrollY):(sameProject?window.scrollY:null);
   unsubscribeRealtime();
+  unsubscribeChatNoticeRealtime();
+  updateChatBadges(0,false);
   const {data:p,error}=await sb.from("projects").select("*").eq("id",id).single();if(error){alert(error.message);return}
   const {data:scenes,error:se}=await sb.from("scenes").select("*").eq("project_id",id).order("position");if(se){alert(se.message);return}
   const {data:shots,error:sh}=await sb.from("shots").select("*").eq("project_id",id).order("position");if(sh){alert(sh.message);return}
@@ -392,6 +547,7 @@ async function openCloudProject(id,options={}){
   showEditor();
   restoreAccordionState(options.openDetails);
   subscribeRealtime();
+  setupChatNotifications();
   rememberWorkspace();
   if(restoreScroll!==null)setTimeout(()=>window.scrollTo({top:restoreScroll,left:0,behavior:"auto"}),0)
 }
@@ -770,11 +926,16 @@ function writePermissionUI(p){$("permProject").checked=!!p.project_settings;$("p
 function setPermissionPreset(name){if(name==="viewer")writePermissionUI(blankPermissions());else if(name==="editor")writePermissionUI(editorPermissions())}
 
 function setCollabTab(tab){
+  app.collabTab=tab;
   const chat=tab==="chat";
   $("collabChatTab").classList.toggle("active",chat);$("collabMembersTab").classList.toggle("active",!chat);
   $("collabChatPane").hidden=!chat;$("collabMembersPane").hidden=chat;
-  if(chat){renderChatReferenceOptions();renderChatMessages();setTimeout(()=>{const box=$("chatMessages");if(box)box.scrollTop=box.scrollHeight},30)}
-  else renderMembers();
+  if(chat){
+    renderChatReferenceOptions();
+    renderChatMentionOptions();
+    renderChatMessages();
+    setTimeout(()=>{const box=$("chatMessages");if(box)box.scrollTop=box.scrollHeight},30)
+  }else renderMembers();
 }
 function renderChatReferenceOptions(){
   const el=$("chatReferenceSelect");if(!el||!app.current)return;
@@ -812,11 +973,12 @@ async function renderChatMessages(){
     const mine=row.user_id===app.session.user.id,pr=profiles.find(p=>p.id===row.user_id)||{},name=pr.display_name||pr.username||(mine?"You":"Collaborator");
     const item=document.createElement("div");item.className="chat-message"+(mine?" mine":"");
     const ref=row.context_type&&row.context_label?`<button type="button" class="chat-ref" data-type="${escapeHtml(row.context_type)}" data-id="${escapeHtml(row.context_id||"")}">↗ ${escapeHtml(row.context_label)}</button>`:"";
-    item.innerHTML=`<div class="chat-meta"><strong>${escapeHtml(name)}</strong><span>${new Date(row.created_at).toLocaleString()}</span></div>${ref}<div class="chat-body">${escapeHtml(row.body).replace(/\n/g,"<br>")}</div>`;
+    item.innerHTML=`<div class="chat-meta"><strong>${escapeHtml(name)}</strong><span>${new Date(row.created_at).toLocaleString()}</span></div>${ref}<div class="chat-body">${renderChatBody(row.body)}</div>`;
     item.querySelector(".chat-ref")?.addEventListener("click",e=>jumpToChatReference(e.currentTarget.dataset.type,e.currentTarget.dataset.id));
     box.appendChild(item)
   }
-  box.scrollTop=box.scrollHeight
+  box.scrollTop=box.scrollHeight;
+  if(chatActivelyVisible())await markChatRead(rows)
 }
 async function sendChatMessage(){
   if(app.mode!=="cloud"||!app.current)return;const input=$("chatMessageInput"),body=input.value.trim();if(!body)return;
@@ -839,8 +1001,7 @@ function jumpToChatReference(type,id){
 }
 function subscribeChatRealtime(){
   unsubscribeChatRealtime();if(!sb||app.mode!=="cloud"||!app.current)return;
-  const pid=app.current.id;app.chatChannel=sb.channel(`project-chat-${pid}`)
-    .on("postgres_changes",{event:"INSERT",schema:"public",table:"project_messages",filter:`project_id=eq.${pid}`},()=>renderChatMessages())
+  const pid=app.current.id;app.chatChannel=sb.channel(`project-chat-modal-${pid}`)
     .on("postgres_changes",{event:"DELETE",schema:"public",table:"project_messages",filter:`project_id=eq.${pid}`},()=>renderChatMessages())
     .subscribe()
 }
@@ -1047,7 +1208,7 @@ function bind(){
   $("loginForm").onsubmit=doLogin;$("signupForm").onsubmit=doSignup;$("forgotPasswordBtn").onclick=forgotPassword;$("continueOfflineBtn").onclick=continueOffline;
   $("logoutBtn").onclick=logout;$("newCloudProjectBtn").onclick=createCloudProject;$("emptyNewProjectBtn").onclick=createCloudProject;
   $("accountBtn").onclick=()=>$("accountModal").showModal();$("closeAccountBtn").onclick=()=>$("accountModal").close();
-  $("backProjectsBtn").onclick=async()=>{unsubscribeRealtime();unsubscribeChatRealtime();if(app.mode==="cloud"){rememberProjectsView();await loadCloudProjects();showProjects()}else showAuth()};
+  $("backProjectsBtn").onclick=async()=>{unsubscribeRealtime();unsubscribeChatRealtime();unsubscribeChatNoticeRealtime();updateChatBadges(0,false);if(app.mode==="cloud"){rememberProjectsView();await loadCloudProjects();showProjects()}else showAuth()};
   $("projectSearch").oninput=e=>{app.projectSearch=e.target.value;renderProjects()};
   $("projectFilter").onchange=e=>{app.projectFilter=e.target.value;renderProjects()};
   $("projectFolderFilter").onchange=e=>{app.projectFolder=e.target.value;renderProjects()};
@@ -1065,11 +1226,22 @@ function bind(){
   $("collaborateBtn").onclick=openCollab;$("addMemberBtn").onclick=addMemberByUsername;$("createShareLinkBtn").onclick=createShareLink;$("copyShareLinkBtn").onclick=async()=>{await navigator.clipboard.writeText($("shareLinkOutput").value);setMsg("collabMessage","Invite link copied.")};
   $("permissionPreset").onchange=e=>{if(e.target.value!=="custom")setPermissionPreset(e.target.value)};
   $("collabMembersTab").onclick=()=>setCollabTab("members");$("collabChatTab").onclick=()=>setCollabTab("chat");$("sendChatMessageBtn").onclick=sendChatMessage;
+  $("chatMentionSelect").onchange=e=>{if(e.target.value)insertChatMention(e.target.value);e.target.value=""};
   $("chatMessageInput").addEventListener("keydown",e=>{if(e.key==="Enter"&&(e.ctrlKey||e.metaKey)){e.preventDefault();sendChatMessage()}});
   $("closeCollabBtn").onclick=()=>{$("collabModal").close();unsubscribeChatRealtime()};$("collabModal").addEventListener("close",unsubscribeChatRealtime);
   document.querySelectorAll(".accordion details").forEach(d=>d.addEventListener("toggle",()=>rememberWorkspace()));
   window.addEventListener("scroll",queueWorkspaceScrollSave,{passive:true});
-  document.addEventListener("visibilitychange",()=>{if(document.hidden)rememberWorkspace()});window.addEventListener("pagehide",()=>rememberWorkspace())
+  document.addEventListener("visibilitychange",()=>{
+    if(document.hidden)rememberWorkspace();
+    else if(app.mode==="cloud"&&app.current){
+      if(chatActivelyVisible())renderChatMessages();
+      else refreshChatNotificationBadge()
+    }
+  });
+  window.addEventListener("storage",e=>{
+    if(app.current&&e.key===chatReadKey(app.current.id))refreshChatNotificationBadge()
+  });
+  window.addEventListener("pagehide",()=>rememberWorkspace())
 }
 
 start();

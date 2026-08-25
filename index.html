@@ -126,7 +126,13 @@
 
       <div class="top-actions editor-actions">
         <button id="sheetToggleBtn" class="btn ghost sheet-toggle">Storyboard Sheet</button>
-        <button id="collaborateBtn" class="btn ghost">Collaborate · Chat</button>
+        <button id="collaborateBtn" class="btn ghost chat-notify-btn">
+          <span>Collaborate · Chat</span>
+          <span id="collabUnreadBadge" class="chat-unread-badge" hidden>
+            <span id="collabUnreadCount">0</span>
+            <span id="collabMentionMark" class="chat-mention-mark" hidden>@</span>
+          </span>
+        </button>
         <button id="exportBtn" class="btn ghost">Export JSON</button>
         <label class="btn ghost file-label">Import JSON<input id="importInput" type="file" accept=".json,application/json" hidden></label>
       </div>
@@ -378,14 +384,28 @@
       </div>
 
       <div class="collab-tabs">
-        <button id="collabChatTab" type="button" class="mini-seg active">Chat Room</button>
+        <button id="collabChatTab" type="button" class="mini-seg active chat-tab-label">
+          <span>Chat Room</span>
+          <span id="chatTabUnreadBadge" class="chat-unread-badge small" hidden>
+            <span id="chatTabUnreadCount">0</span>
+            <span id="chatTabMentionMark" class="chat-mention-mark" hidden>@</span>
+          </span>
+        </button>
         <button id="collabMembersTab" type="button" class="mini-seg">Members & Access</button>
       </div>
 
       <section id="collabChatPane" class="collab-pane">
         <div class="chat-intro">Project conversation for the owner and all collaborators. Attach a project, scene, shot, or shot section to any message.</div>
-        <label>Reference</label>
-        <select id="chatReferenceSelect"><option value="">No reference</option></select>
+        <div class="chat-context-grid">
+          <div>
+            <label>Reference</label>
+            <select id="chatReferenceSelect"><option value="">No reference</option></select>
+          </div>
+          <div>
+            <label>Mention</label>
+            <select id="chatMentionSelect"><option value="">Mention collaborator…</option></select>
+          </div>
+        </div>
         <div id="chatMessages" class="chat-messages"></div>
         <label>Message</label>
         <textarea id="chatMessageInput" rows="3" placeholder="Write a message…  Ctrl/⌘ + Enter to send"></textarea>

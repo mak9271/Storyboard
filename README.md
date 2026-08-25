@@ -1,15 +1,15 @@
-# Storyboard Shot Builder v3.6
+# Storyboard Shot Builder v3.6.1
 
-Built from the confirmed v3.5 Clean Rebuild baseline.
+Base: v3.6 Collaboration Workspace.
 
-## Changes
-- Keeps the current project, scene, shot, scroll position, sheet state, and open editor sections across saves, tab switches, token refreshes, and reloads.
-- Scene title itself toggles open/closed; per-scene arrow removed.
-- ↕ now toggles all scenes both ways.
-- Expanded scenes show + / − shot controls; collapsed scenes show rename / duplicate / move controls.
-- Shot rows now include ↑ / ↓ controls in the left sidebar.
-- Project Details adds Cinematographer.
-- Collaborate now includes a project chat room with clickable Project / Scene / Shot / Shot-section references.
+Changes in this build:
+- Unread chat count appears beside `Collaborate · Chat` and beside the `Chat Room` tab.
+- Unread count increases in realtime while the project is open.
+- If an unread message contains the current user's `@username`, an `@` marker appears beside the unread count.
+- Added a Mention dropdown in chat so collaborators can insert an exact `@username`.
+- Mentions are highlighted inside chat messages.
+- Opening the Chat Room marks current messages as read.
+- Read state is stored per user + project in browser localStorage, so it survives refresh/reopen on the same browser.
+- No new Supabase SQL is required for this version.
 
-## Supabase
-Run `supabase-v3.6-collaboration-workspace.sql` once before using Chat Room.
+The v3.6 base remains unchanged; this is a separate build.
