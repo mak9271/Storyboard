@@ -11,7 +11,7 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="styles.css?v=35clean" />
+  <link rel="stylesheet" href="styles.css?v=36" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="config.js"></script>
   <meta name="storyboard-build" content="v3.5-clean-rebuild" />
@@ -126,7 +126,7 @@
 
       <div class="top-actions editor-actions">
         <button id="sheetToggleBtn" class="btn ghost sheet-toggle">Storyboard Sheet</button>
-        <button id="collaborateBtn" class="btn ghost">Collaborate</button>
+        <button id="collaborateBtn" class="btn ghost">Collaborate · Chat</button>
         <button id="exportBtn" class="btn ghost">Export JSON</button>
         <label class="btn ghost file-label">Import JSON<input id="importInput" type="file" accept=".json,application/json" hidden></label>
       </div>
@@ -201,7 +201,7 @@
           <span>Scenes</span>
           <div class="scene-header-actions">
             <button id="collapseAllScenesBtn" class="icon-btn" title="Collapse all scenes">−</button>
-            <button id="expandAllScenesBtn" class="icon-btn" title="Expand all scenes">↕</button>
+            <button id="expandAllScenesBtn" class="icon-btn" title="Expand / collapse all scenes">↕</button>
             <button id="addSceneBtn" class="icon-btn" title="Add scene">＋</button>
           </div>
         </div>
@@ -271,7 +271,7 @@
         </div>
 
         <div class="accordion">
-          <details open>
+          <details id="frameSection" open>
             <summary>FRAME · Camera & Composition</summary>
             <div class="form-grid">
               <div><label>Shot Number · Auto</label><input id="shotNo" type="number" min="1" readonly /></div>
@@ -287,7 +287,7 @@
             </div>
           </details>
 
-          <details>
+          <details id="subjectSection">
             <summary>SUBJECT · Character & Action</summary>
             <div class="form-grid">
               <div class="span-2"><label>Main Subject</label><input id="subject" /></div>
@@ -298,7 +298,7 @@
             </div>
           </details>
 
-          <details>
+          <details id="lightSection">
             <summary>LIGHT & SPACE · Lighting, Time & Set</summary>
             <div class="form-grid">
               <div><label>Time of Day</label><select id="timeOfDay"></select></div>
@@ -311,7 +311,7 @@
             </div>
           </details>
 
-          <details>
+          <details id="audioSection">
             <summary>AUDIO · Dialogue & Sound</summary>
             <div class="form-grid">
               <div class="span-2"><label>Dialogue</label><textarea id="dialogue" rows="3"></textarea></div>
@@ -321,7 +321,7 @@
             </div>
           </details>
 
-          <details>
+          <details id="editSection">
             <summary>EDIT & NOTES · Transition & Storyboard Notes</summary>
             <div class="form-grid">
               <div><label>Transition In</label><select id="transitionIn"></select></div>
@@ -356,6 +356,7 @@
         <div><label>Status</label><select id="detailStatus"><option>Planning</option><option>Pre-production</option><option>Production</option><option>Post-production</option><option>Complete</option><option>On Hold</option></select></div>
         <div class="span-2"><label>Tags · comma separated</label><input id="detailProjectTags" placeholder="short film, teaser, interior" /></div>
         <div><label>Director</label><input id="detailDirector" /></div>
+        <div><label>Cinematographer</label><input id="detailCinematographer" /></div>
         <div><label>Writer</label><input id="detailWriter" /></div>
         <div class="span-2"><label>Production</label><input id="detailProduction" /></div>
         <div class="span-2"><label>Project Notes</label><textarea id="detailNotes" rows="5"></textarea></div>
@@ -365,54 +366,71 @@
     </div>
   </dialog>
 
-  <!-- COLLABORATION MODAL -->
+  <!-- COLLABORATION + PROJECT CHAT MODAL -->
   <dialog id="collabModal" class="modal">
-    <form method="dialog" class="modal-card" id="collabDialogForm">
+    <div class="modal-card collab-modal-card">
       <div class="modal-head">
         <div>
-          <div class="eyebrow">PROJECT ACCESS</div>
+          <div class="eyebrow">PROJECT COLLABORATION</div>
           <h2>Collaborate</h2>
         </div>
-        <button class="icon-btn" value="cancel">×</button>
+        <button id="closeCollabBtn" class="icon-btn" type="button">×</button>
       </div>
 
-      <div id="collabOwnerTools">
-        <label>Invite an existing user by username</label>
-        <div class="inline-row">
-          <input id="inviteUsername" placeholder="username" />
-          <button id="addMemberBtn" type="button" class="btn">Add User</button>
-        </div>
+      <div class="collab-tabs">
+        <button id="collabChatTab" type="button" class="mini-seg active">Chat Room</button>
+        <button id="collabMembersTab" type="button" class="mini-seg">Members & Access</button>
+      </div>
 
-        <label>Optional email restriction for share link</label>
-        <input id="inviteEmail" type="email" placeholder="someone@example.com (optional)" />
+      <section id="collabChatPane" class="collab-pane">
+        <div class="chat-intro">Project conversation for the owner and all collaborators. Attach a project, scene, shot, or shot section to any message.</div>
+        <label>Reference</label>
+        <select id="chatReferenceSelect"><option value="">No reference</option></select>
+        <div id="chatMessages" class="chat-messages"></div>
+        <label>Message</label>
+        <textarea id="chatMessageInput" rows="3" placeholder="Write a message…  Ctrl/⌘ + Enter to send"></textarea>
+        <div class="chat-send-row"><span>References are clickable and jump back to the related storyboard item.</span><button id="sendChatMessageBtn" type="button" class="btn">Send</button></div>
+      </section>
 
-        <div class="permission-box">
-          <div class="permission-top">
-            <strong>Access</strong>
-            <select id="permissionPreset">
-              <option value="viewer">Viewer</option>
-              <option value="editor" selected>Editor</option>
-              <option value="custom">Custom</option>
-            </select>
+      <section id="collabMembersPane" class="collab-pane" hidden>
+        <div id="collabOwnerTools">
+          <label>Invite an existing user by username</label>
+          <div class="inline-row">
+            <input id="inviteUsername" placeholder="username" />
+            <button id="addMemberBtn" type="button" class="btn">Add User</button>
           </div>
-          <label class="check-row"><input id="permProject" type="checkbox" /> Project settings</label>
-          <label class="check-row"><input id="permScenes" type="checkbox" checked /> Scenes</label>
-          <label class="check-row"><input id="permShots" type="checkbox" checked /> Shot details</label>
-          <label class="check-row"><input id="permMedia" type="checkbox" checked /> Storyboard images / media</label>
-          <label class="check-row"><input id="permMembers" type="checkbox" /> Manage collaborators</label>
+
+          <label>Optional email restriction for share link</label>
+          <input id="inviteEmail" type="email" placeholder="someone@example.com (optional)" />
+
+          <div class="permission-box">
+            <div class="permission-top">
+              <strong>Access</strong>
+              <select id="permissionPreset">
+                <option value="viewer">Viewer</option>
+                <option value="editor" selected>Editor</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+            <label class="check-row"><input id="permProject" type="checkbox" /> Project settings</label>
+            <label class="check-row"><input id="permScenes" type="checkbox" checked /> Scenes</label>
+            <label class="check-row"><input id="permShots" type="checkbox" checked /> Shot details</label>
+            <label class="check-row"><input id="permMedia" type="checkbox" checked /> Storyboard images / media</label>
+            <label class="check-row"><input id="permMembers" type="checkbox" /> Manage collaborators</label>
+          </div>
+
+          <button id="createShareLinkBtn" type="button" class="btn ghost wide">Create Invite Link</button>
+          <div id="shareLinkBox" class="share-link-box" hidden>
+            <input id="shareLinkOutput" readonly />
+            <button id="copyShareLinkBtn" type="button" class="btn">Copy</button>
+          </div>
         </div>
 
-        <button id="createShareLinkBtn" type="button" class="btn ghost wide">Create Invite Link</button>
-        <div id="shareLinkBox" class="share-link-box" hidden>
-          <input id="shareLinkOutput" readonly />
-          <button id="copyShareLinkBtn" type="button" class="btn">Copy</button>
-        </div>
-      </div>
-
-      <div class="members-head"><strong>Project members</strong></div>
-      <div id="membersList" class="members-list"></div>
+        <div class="members-head"><strong>Project members</strong></div>
+        <div id="membersList" class="members-list"></div>
+      </section>
       <div id="collabMessage" class="notice" hidden></div>
-    </form>
+    </div>
   </dialog>
 
   <!-- ACCOUNT MODAL -->
@@ -427,6 +445,6 @@
     </div>
   </dialog>
 
-  <script src="app.js?v=35clean"></script>
+  <script src="app.js?v=36"></script>
 </body>
 </html>

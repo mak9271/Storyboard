@@ -1,4 +1,4 @@
-// Storyboard Shot Builder v3.5 — clean rebuild from confirmed v3 baseline
+// Storyboard Shot Builder v3.6 — workflow continuity + sidebar shot controls + collaboration chat
 const OPTIONS = {
   shotSize:["ECU · Extreme Close Up","CU · Close Up","MCU · Medium Close Up","MS · Medium Shot","MLS · Medium Long Shot","WS · Wide Shot","EWS · Extreme Wide Shot","OTS · Over The Shoulder","POV · Point of View","Insert","Top Shot"],
   angle:["Eye Level","High Angle","Low Angle","Top / Bird's Eye","Dutch Angle","Ground Level","Overhead"],
@@ -30,6 +30,7 @@ let app = {
   activeShotId: null,
   sheetOpen: false,
   realtimeChannel: null,
+  chatChannel: null,
   permissions: fullPermissions(),
   isOwner: true,
   pendingInvite: new URLSearchParams(location.search).get("invite"),
@@ -38,7 +39,8 @@ let app = {
   projectFolder: "all",
   detailsProjectId: null,
   shotClipboard: null,
-  suppressRealtime: 0
+  suppressRealtime: 0,
+  ignoreRealtimeUntil: 0
 };
 let autosaveTimer = null;
 
@@ -49,7 +51,7 @@ function editorPermissions(){return {project_settings:false,scenes:true,shots:tr
 function permissionPreset(name){return name==="viewer"?blankPermissions():name==="editor"?editorPermissions():readPermissionUI()}
 function blankShot(no=1){return {id:uid(),shotNo:no,duration:"",shotSize:"CU · Close Up",angle:"Eye Level",cameraHeight:"Eye Level",lens:"50mm",focus:"Shallow Focus",movement:"Static",startEnd:"",composition:"Centered / Symmetrical",summary:"",subject:"",description:"",performance:"",subjectMovement:"",costume:"",timeOfDay:"Night",location:"",lightSource:"Candle",lightDirection:"Camera Left",lightQuality:"Low Key",lighting:"",props:"",dialogue:"",voiceOver:"",sfx:"",music:"",transitionIn:"Cut",transitionOut:"Cut",notes:"",image:null,imagePath:null,position:no}}
 function blankScene(no=1){return {id:uid(),number:no,title:`Scene ${no}`,description:"",position:no,collapsed:false,shots:[blankShot(1)]}}
-function blankProject(name="Untitled Storyboard"){return {id:uid(),name,aspect:"3:4 Portrait",aspectWidth:3,aspectHeight:4,style:"Storyboard B&W",owner_id:null,role:"owner",position:0,isFavorite:false,folder:"General",tags:[],metadata:{director:"",writer:"",production:"",status:"Planning",notes:""},scenes:[blankScene(1)],updated_at:new Date().toISOString()}}
+function blankProject(name="Untitled Storyboard"){return {id:uid(),name,aspect:"3:4 Portrait",aspectWidth:3,aspectHeight:4,style:"Storyboard B&W",owner_id:null,role:"owner",position:0,isFavorite:false,folder:"General",tags:[],metadata:{director:"",cinematographer:"",writer:"",production:"",status:"Planning",notes:""},scenes:[blankScene(1)],updated_at:new Date().toISOString()}}
 function deepClone(x){return JSON.parse(JSON.stringify(x))}
 function normalizeTags(v){
   if(Array.isArray(v))return v.map(x=>String(x).trim()).filter(Boolean);
@@ -61,7 +63,7 @@ function normalizeTags(v){
   }
   return s.split(",").map(x=>x.trim()).filter(Boolean)
 }
-function projectMeta(p){return {director:"",writer:"",production:"",status:"Planning",notes:"",...(p?.metadata||{})}}
+function projectMeta(p){return {director:"",cinematographer:"",writer:"",production:"",status:"Planning",notes:"",...(p?.metadata||{})}}
 function projectCanEdit(p){return app.mode==="local" || p?.owner_id===app.session?.user?.id || !!p?.dashboardPermissions?.project_settings}
 function projectIsOwner(p){return app.mode==="local" || p?.owner_id===app.session?.user?.id}
 function shotDbData(s){const data={...s};delete data.id;delete data.image;delete data.imagePath;return data}
@@ -73,6 +75,46 @@ function escapeHtml(str){return String(str??"").replace(/[&<>"']/g,m=>({"&":"&am
 function show(el, yes=true){if(el) el.hidden=!yes}
 function setMsg(id,msg,type=""){const el=$(id); if(!msg){el.hidden=true;el.textContent="";return} el.hidden=false;el.textContent=msg;el.className="notice"+(type?` ${type}`:"")}
 function can(key){return app.isOwner || !!app.permissions?.[key]}
+
+
+/* ---------- WORKSPACE CONTINUITY ---------- */
+function workspaceKey(){return `storyboard-v3.6-workspace:${app.session?.user?.id||"local"}`}
+function currentEditorVisible(){return !!app.current && $("editorView") && !$("editorView").hidden}
+function openAccordionIds(){return [...document.querySelectorAll(".accordion details")].filter(x=>x.open&&x.id).map(x=>x.id)}
+function readWorkspace(){
+  try{return JSON.parse(localStorage.getItem(workspaceKey())||"null")}catch(e){return null}
+}
+function rememberWorkspace(overrides={}){
+  if(app.mode!=="cloud"||!app.session)return;
+  const previous=readWorkspace()||{};
+  const data={
+    ...previous,
+    view:currentEditorVisible()?"editor":"projects",
+    projectId:app.current?.id||previous.projectId||null,
+    sceneId:app.activeSceneId||previous.sceneId||null,
+    shotId:app.activeShotId||previous.shotId||null,
+    scrollY:currentEditorVisible()?window.scrollY:(previous.scrollY||0),
+    sheetOpen:!!app.sheetOpen,
+    openDetails:currentEditorVisible()?openAccordionIds():(previous.openDetails||[]),
+    savedAt:Date.now(),
+    ...overrides
+  };
+  localStorage.setItem(workspaceKey(),JSON.stringify(data));
+}
+function rememberProjectsView(){
+  if(app.mode!=="cloud"||!app.session)return;
+  rememberWorkspace({view:"projects",scrollY:0});
+}
+function restoreAccordionState(ids){
+  if(!Array.isArray(ids))return;
+  const set=new Set(ids);
+  document.querySelectorAll(".accordion details").forEach(d=>{if(d.id)d.open=set.has(d.id)})
+}
+let workspaceScrollTimer=null;
+function queueWorkspaceScrollSave(){
+  if(!currentEditorVisible())return;
+  clearTimeout(workspaceScrollTimer);workspaceScrollTimer=setTimeout(()=>rememberWorkspace(),180)
+}
 
 function initOptions(){
   Object.entries(OPTIONS).forEach(([id,vals])=>{
@@ -117,9 +159,13 @@ async function start(){
   }
   const {data:{session}}=await sb.auth.getSession();
   app.session=session;
-  sb.auth.onAuthStateChange(async(_event,session)=>{
+  sb.auth.onAuthStateChange(async(event,session)=>{
     app.session=session;
-    if(session){await afterLogin()} else {app.profile=null;showAuth()}
+    if(!session){app.profile=null;app.current=null;unsubscribeRealtime();unsubscribeChatRealtime();showAuth();return}
+    // INITIAL_SESSION is already handled by getSession() below. Token refreshes must
+    // never kick an editor back to the Projects screen.
+    if(event==="INITIAL_SESSION"||event==="TOKEN_REFRESHED"||event==="USER_UPDATED")return;
+    if(event==="SIGNED_IN")await afterLogin();
   });
   if(session) await afterLogin(); else showAuth();
 }
@@ -137,8 +183,12 @@ async function afterLogin(){
   app.mode="cloud";
   await loadProfile();
   await loadCloudProjects();
-  showProjects();
-  if(app.pendingInvite) await acceptPendingInvite();
+  if(app.pendingInvite){await acceptPendingInvite();showProjects();return}
+  const ws=readWorkspace();
+  const canRestore=ws?.view==="editor" && ws.projectId && app.projects.some(p=>p.id===ws.projectId);
+  if(canRestore){
+    await openCloudProject(ws.projectId,{sceneId:ws.sceneId,shotId:ws.shotId,scrollY:ws.scrollY,sheetOpen:ws.sheetOpen,openDetails:ws.openDetails,preserveSelection:true});
+  }else showProjects();
 }
 async function loadProfile(){
   if(!sb||!app.session)return;
@@ -234,7 +284,7 @@ function projectMatchesSearch(p){
   const q=(app.projectSearch||"").trim().toLowerCase();
   if(!q)return true;
   const m=projectMeta(p);
-  return [p.name,p.folder,...(p.tags||[]),m.director,m.writer,m.production,m.status,m.notes].join(" ").toLowerCase().includes(q)
+  return [p.name,p.folder,...(p.tags||[]),m.director,m.cinematographer,m.writer,m.production,m.status,m.notes].join(" ").toLowerCase().includes(q)
 }
 function filteredProjects(){
   const now=Date.now(),recentMs=30*24*60*60*1000;
@@ -302,14 +352,18 @@ async function createCloudProject(){
   const name=prompt("Project name:","Untitled Storyboard");if(!name)return;
   const myPositions=(app.projects||[]).filter(p=>p.owner_id===app.session.user.id).map(p=>Number(p.position||0));
   const position=Math.max(0,...myPositions)+1;
-  const {data:p,error}=await sb.from("projects").insert({owner_id:app.session.user.id,name,aspect:"3:4 Portrait",aspect_width:3,aspect_height:4,style:"Storyboard B&W",position,is_favorite:false,folder:"General",tags:[],metadata:{director:"",writer:"",production:"",status:"Planning",notes:""}}).select().single();
+  const {data:p,error}=await sb.from("projects").insert({owner_id:app.session.user.id,name,aspect:"3:4 Portrait",aspect_width:3,aspect_height:4,style:"Storyboard B&W",position,is_favorite:false,folder:"General",tags:[],metadata:{director:"",cinematographer:"",writer:"",production:"",status:"Planning",notes:""}}).select().single();
   if(error){alert(error.message);return}
   const {data:s,error:se}=await sb.from("scenes").insert({project_id:p.id,scene_number:1,title:"Scene 1",description:"",position:1,collapsed:false}).select().single(); if(se){alert(se.message);return}
   const shot=blankShot(1);
   const {error:shErr}=await sb.from("shots").insert({project_id:p.id,scene_id:s.id,shot_number:1,position:1,data:shot});if(shErr){alert(shErr.message);return}
   await loadCloudProjects();await openCloudProject(p.id)
 }
-async function openCloudProject(id){
+async function openCloudProject(id,options={}){
+  const sameProject=app.current?.id===id;
+  const preferredSceneId=options.sceneId || (sameProject&&options.preserveSelection!==false?app.activeSceneId:null);
+  const preferredShotId=options.shotId || (sameProject&&options.preserveSelection!==false?app.activeShotId:null);
+  const restoreScroll=Number.isFinite(Number(options.scrollY))?Number(options.scrollY):(sameProject?window.scrollY:null);
   unsubscribeRealtime();
   const {data:p,error}=await sb.from("projects").select("*").eq("id",id).single();if(error){alert(error.message);return}
   const {data:scenes,error:se}=await sb.from("scenes").select("*").eq("project_id",id).order("position");if(se){alert(se.message);return}
@@ -330,7 +384,16 @@ async function openCloudProject(id){
   if(app.isOwner){app.permissions=fullPermissions()}else{
     const {data:m}=await sb.from("project_members").select("permissions").eq("project_id",id).eq("user_id",app.session.user.id).maybeSingle();app.permissions=m?.permissions||blankPermissions()
   }
-  selectFirst();showEditor();subscribeRealtime()
+  const preferredScene=app.current.scenes.find(s=>s.id===preferredSceneId) || app.current.scenes[0] || null;
+  app.activeSceneId=preferredScene?.id||null;
+  const preferredShot=preferredScene?.shots.find(s=>s.id===preferredShotId) || preferredScene?.shots[0] || null;
+  app.activeShotId=preferredShot?.id||null;
+  if(options.sheetOpen!==undefined)app.sheetOpen=!!options.sheetOpen;
+  showEditor();
+  restoreAccordionState(options.openDetails);
+  subscribeRealtime();
+  rememberWorkspace();
+  if(restoreScroll!==null)setTimeout(()=>window.scrollTo({top:restoreScroll,left:0,behavior:"auto"}),0)
 }
 function subscribeRealtime(){
   if(!sb||app.mode!=="cloud"||!app.current)return;
@@ -343,7 +406,7 @@ function subscribeRealtime(){
 }
 function unsubscribeRealtime(){if(sb&&app.realtimeChannel){sb.removeChannel(app.realtimeChannel);app.realtimeChannel=null}}
 let refreshTimer=null;
-function remoteRefresh(){if(app.suppressRealtime>0)return;clearTimeout(refreshTimer);refreshTimer=setTimeout(()=>{if(app.current&&app.suppressRealtime===0)openCloudProject(app.current.id)},700)}
+function remoteRefresh(){if(app.suppressRealtime>0||Date.now()<app.ignoreRealtimeUntil)return;clearTimeout(refreshTimer);const pid=app.current?.id,sceneId=app.activeSceneId,shotId=app.activeShotId,scrollY=window.scrollY;refreshTimer=setTimeout(()=>{if(app.current?.id===pid&&app.suppressRealtime===0)openCloudProject(pid,{sceneId,shotId,scrollY,preserveSelection:true,openDetails:openAccordionIds(),sheetOpen:app.sheetOpen})},700)}
 
 /* ---------- EDITOR RENDER ---------- */
 function renderEditor(){
@@ -354,7 +417,8 @@ function renderEditor(){
   $("aspectWidth").value=app.current.aspectWidth||3;$("aspectHeight").value=app.current.aspectHeight||4;
   $("customAspectFields").hidden=$("projectAspect").value!=="Custom";
   if($("projectFolderBadge"))$("projectFolderBadge").textContent=app.current.folder||"General";
-  renderSceneList();renderSceneSettings();renderShot();renderSheet();updateSheetButtons();applyPermissionLocks()
+  renderSceneList();renderSceneSettings();renderShot();renderSheet();updateSheetButtons();applyPermissionLocks();
+  if(app.mode==="cloud")rememberWorkspace()
 }
 function renderSceneList(){
   const wrap=$("sceneList");wrap.innerHTML="";
@@ -362,34 +426,47 @@ function renderSceneList(){
   scenes.forEach((scene,sceneIndex)=>{
     const group=document.createElement("div");group.className="scene-group"+(scene.id===app.activeSceneId?" active":"")+(scene.collapsed?" collapsed":"");
     const row=document.createElement("div");row.className="scene-row";
+    const actions=scene.collapsed?`
+        <button class="scene-mini rename-scene" type="button" title="Rename scene">✎</button>
+        <button class="scene-mini duplicate-scene" type="button" title="Duplicate scene">⧉</button>
+        <button class="scene-mini move-scene-up" type="button" title="Move scene up" ${sceneIndex===0?"disabled":""}>↑</button>
+        <button class="scene-mini move-scene-down" type="button" title="Move scene down" ${sceneIndex===scenes.length-1?"disabled":""}>↓</button>`:`
+        <button class="scene-mini add-shot-scene" type="button" title="Add shot to this scene">＋</button>
+        <button class="scene-mini delete-shot-scene" type="button" title="Delete selected shot" ${scene.shots.length<=1?"disabled":""}>−</button>`;
     row.innerHTML=`
-      <button class="scene-select" type="button">
+      <button class="scene-select" type="button" title="Click scene name to open / close">
         <span class="scene-title-stack"><strong>Scene ${scene.number}</strong><small>${escapeHtml(scene.title||"")}</small></span>
         <span class="scene-count">${scene.shots.length} shots</span>
       </button>
-      <div class="scene-actions">
-        <button class="collapse-btn" type="button" title="Collapse / Expand">${scene.collapsed?"▶":"▼"}</button>
-        <button class="scene-mini rename-scene" type="button" title="Rename">✎</button>
-        <button class="scene-mini duplicate-scene" type="button" title="Duplicate">⧉</button>
-        <button class="scene-mini move-scene-up" type="button" title="Move up" ${sceneIndex===0?"disabled":""}>↑</button>
-        <button class="scene-mini move-scene-down" type="button" title="Move down" ${sceneIndex===scenes.length-1?"disabled":""}>↓</button>
-      </div>`;
-    row.querySelector(".scene-select").onclick=()=>{app.activeSceneId=scene.id;app.activeShotId=scene.shots[0]?.id||null;renderEditor()};
-    row.querySelector(".collapse-btn").onclick=()=>toggleSceneCollapse(scene.id);
-    row.querySelector(".rename-scene").onclick=()=>renameScene(scene.id);
-    row.querySelector(".duplicate-scene").onclick=()=>duplicateScene(scene.id);
-    row.querySelector(".move-scene-up").onclick=()=>moveScene(scene.id,-1);
-    row.querySelector(".move-scene-down").onclick=()=>moveScene(scene.id,1);
+      <div class="scene-actions">${actions}</div>`;
+    row.querySelector(".scene-select").onclick=()=>toggleSceneCollapse(scene.id,true);
+    row.querySelector(".rename-scene")?.addEventListener("click",()=>renameScene(scene.id));
+    row.querySelector(".duplicate-scene")?.addEventListener("click",()=>duplicateScene(scene.id));
+    row.querySelector(".move-scene-up")?.addEventListener("click",()=>moveScene(scene.id,-1));
+    row.querySelector(".move-scene-down")?.addEventListener("click",()=>moveScene(scene.id,1));
+    row.querySelector(".add-shot-scene")?.addEventListener("click",()=>addShotToScene(scene.id));
+    row.querySelector(".delete-shot-scene")?.addEventListener("click",()=>deleteSelectedShotFromScene(scene.id));
     row.querySelectorAll(".rename-scene,.duplicate-scene,.move-scene-up,.move-scene-down").forEach(b=>b.disabled=b.disabled||!can("scenes"));
+    row.querySelectorAll(".add-shot-scene,.delete-shot-scene").forEach(b=>b.disabled=b.disabled||!can("shots"));
+
     const shots=document.createElement("div");shots.className="scene-shots";
-    scene.shots.sort((a,b)=>a.position-b.position).forEach(shot=>{
-      const b=document.createElement("button");b.className="shot-item"+(shot.id===app.activeShotId?" active":"");
+    const ordered=[...scene.shots].sort((a,b)=>a.position-b.position);
+    ordered.forEach((shot,shotIndex)=>{
+      const sr=document.createElement("div");sr.className="shot-row";
+      const b=document.createElement("button");b.type="button";b.className="shot-item"+(shot.id===app.activeShotId?" active":"");
       const th=document.createElement("span");th.className="shot-thumb";if(shot.image)th.style.backgroundImage=`url(${shot.image})`;
-      const txt=document.createElement("span");txt.innerHTML=`<strong>Shot ${shot.shotNo}</strong><small>${shortValue(shot.shotSize)} · ${shot.duration||"No duration"}</small>`;
-      b.append(th,txt);b.onclick=()=>{app.activeSceneId=scene.id;app.activeShotId=shot.id;renderEditor()};shots.appendChild(b)
+      const txt=document.createElement("span");txt.className="shot-item-text";txt.innerHTML=`<strong>Shot ${shot.shotNo}</strong><small>${shortValue(shot.shotSize)} · ${shot.duration||"No duration"}</small>`;
+      b.append(th,txt);b.onclick=()=>{app.activeSceneId=scene.id;app.activeShotId=shot.id;renderEditor();rememberWorkspace()};
+      const controls=document.createElement("span");controls.className="shot-inline-actions";
+      controls.innerHTML=`<button type="button" class="shot-up" title="Move shot up" ${shotIndex===0?"disabled":""}>↑</button><button type="button" class="shot-down" title="Move shot down" ${shotIndex===ordered.length-1?"disabled":""}>↓</button>`;
+      controls.querySelector(".shot-up").onclick=()=>moveShotById(scene.id,shot.id,-1);
+      controls.querySelector(".shot-down").onclick=()=>moveShotById(scene.id,shot.id,1);
+      controls.querySelectorAll("button").forEach(x=>x.disabled=x.disabled||!can("shots"));
+      sr.append(b,controls);shots.appendChild(sr)
     });
     group.append(row,shots);wrap.appendChild(group)
-  })
+  });
+  updateSceneHeaderToggle();
 }
 function renderSceneSettings(){
   const s=currentScene();if(!s)return;$("sceneNumber").value=s.number;$("sceneTitle").value=s.title||"";$("sceneDescription").value=s.description||""
@@ -428,7 +505,7 @@ function applyPermissionLocks(){
   SHOT_FIELDS.forEach(id=>{if($(id))$(id).disabled=shotLocked});
   $("shotNo").readOnly=true;$("shotNo").disabled=false;
   $("frameImageInput").disabled=mediaLocked;$("chooseImageLabel").classList.toggle("permission-locked",mediaLocked);$("removeImageBtn").disabled=mediaLocked;
-  $("collaborateBtn").hidden=!(app.isOwner||can("members"));
+  $("collaborateBtn").hidden=app.mode!=="cloud";
 }
 
 /* ---------- SAVING ---------- */
@@ -438,6 +515,7 @@ function queueSave(kind){
 }
 async function saveCloud(kind){
   if(!sb||!app.current)return;
+  app.ignoreRealtimeUntil=Date.now()+1400;
   if(kind==="project"&&can("project_settings")){
     await sb.from("projects").update({name:app.current.name,aspect:app.current.aspect,aspect_width:app.current.aspectWidth,aspect_height:app.current.aspectHeight,style:app.current.style,folder:app.current.folder||"General",tags:app.current.tags||[],metadata:projectMeta(app.current),is_favorite:!!app.current.isFavorite,updated_at:new Date().toISOString()}).eq("id",app.current.id)
   }else if(kind==="scene"&&can("scenes")){
@@ -450,13 +528,13 @@ async function saveCloud(kind){
 function onProjectChange(){
   if(!can("project_settings"))return;
   app.current.name=$("projectName").value;app.current.aspect=$("projectAspect").value;app.current.style=$("projectStyle").value;app.current.aspectWidth=Number($("aspectWidth").value)||3;app.current.aspectHeight=Number($("aspectHeight").value)||4;
-  $("customAspectFields").hidden=app.current.aspect!=="Custom";renderShot();renderSheet();queueSave("project")
+  $("customAspectFields").hidden=app.current.aspect!=="Custom";renderShot();renderSheet();queueSave("project");rememberWorkspace()
 }
 function onSceneChange(){
-  if(!can("scenes"))return;const s=currentScene();if(!s)return;s.title=$("sceneTitle").value;s.description=$("sceneDescription").value;renderSceneList();renderShot();renderSheet();queueSave("scene")
+  if(!can("scenes"))return;const s=currentScene();if(!s)return;s.title=$("sceneTitle").value;s.description=$("sceneDescription").value;renderSceneList();renderShot();renderSheet();queueSave("scene");rememberWorkspace()
 }
 function onShotChange(id){
-  if(!can("shots")||id==="shotNo")return;const s=currentShot();if(!s)return;s[id]=$(id).value;renderShot();renderSceneList();renderSheet();queueSave("shot")
+  if(!can("shots")||id==="shotNo")return;const s=currentShot();if(!s)return;s[id]=$(id).value;renderShot();renderSceneList();renderSheet();queueSave("shot");rememberWorkspace()
 }
 
 /* ---------- MEDIA COPY HELPERS ---------- */
@@ -559,19 +637,46 @@ async function deleteScene(){
     await openCloudProject(app.current.id)
   }catch(err){alert(`Could not delete scene: ${err.message}`)}finally{app.suppressRealtime--}
 }
-async function toggleSceneCollapse(sceneId){
-  const scene=app.current?.scenes.find(s=>s.id===sceneId);if(!scene)return;scene.collapsed=!scene.collapsed;renderSceneList();
-  if(app.mode==="local")saveLocal();else if(can("scenes"))await sb.from("scenes").update({collapsed:scene.collapsed}).eq("id",scene.id)
+async function toggleSceneCollapse(sceneId,selectScene=false){
+  const scene=app.current?.scenes.find(s=>s.id===sceneId);if(!scene)return;
+  if(selectScene){
+    app.activeSceneId=scene.id;
+    if(!scene.shots.some(s=>s.id===app.activeShotId))app.activeShotId=scene.shots[0]?.id||null;
+  }
+  scene.collapsed=!scene.collapsed;renderEditor();rememberWorkspace();
+  if(app.mode==="local")saveLocal();else if(can("scenes")){app.ignoreRealtimeUntil=Date.now()+1200;await sb.from("scenes").update({collapsed:scene.collapsed}).eq("id",scene.id)}
+}
+function updateSceneHeaderToggle(){
+  const b=$("expandAllScenesBtn");if(!b||!app.current)return;
+  const allExpanded=(app.current.scenes||[]).every(s=>!s.collapsed);
+  b.title=allExpanded?"Collapse all scenes":"Expand all scenes";
+  b.classList.toggle("all-expanded",allExpanded)
 }
 async function setAllScenesCollapsed(collapsed){
-  (app.current?.scenes||[]).forEach(s=>s.collapsed=collapsed);renderSceneList();
-  if(app.mode==="local")saveLocal();else if(can("scenes"))await Promise.all(app.current.scenes.map(s=>sb.from("scenes").update({collapsed}).eq("id",s.id)))
+  (app.current?.scenes||[]).forEach(s=>s.collapsed=collapsed);renderSceneList();rememberWorkspace();
+  if(app.mode==="local")saveLocal();else if(can("scenes")){app.ignoreRealtimeUntil=Date.now()+1200;await Promise.all(app.current.scenes.map(s=>sb.from("scenes").update({collapsed}).eq("id",s.id)))}
 }
-async function addShot(){
-  if(!can("shots"))return;const sc=currentScene();if(!sc)return;const no=sc.shots.length+1,pos=no;
-  if(app.mode==="local"){const sh=blankShot(no);sh.position=pos;sc.shots.push(sh);app.activeShotId=sh.id;saveLocal();renderEditor();return}
-  const sh=blankShot(no);const {data,error}=await sb.from("shots").insert({project_id:app.current.id,scene_id:sc.id,shot_number:no,position:pos,data:shotDbData(sh)}).select().single();if(error){alert(error.message);return}
-  await openCloudProject(app.current.id);app.activeSceneId=sc.id;app.activeShotId=data.id;renderEditor()
+async function toggleAllScenes(){
+  const allExpanded=(app.current?.scenes||[]).every(s=>!s.collapsed);
+  await setAllScenesCollapsed(allExpanded)
+}
+async function addShot(){return addShotToScene(app.activeSceneId)}
+async function addShotToScene(sceneId){
+  if(!can("shots"))return;const sc=app.current?.scenes.find(s=>s.id===sceneId);if(!sc)return;const no=sc.shots.length+1,pos=no;
+  app.activeSceneId=sc.id;sc.collapsed=false;
+  if(app.mode==="local"){const sh=blankShot(no);sh.position=pos;sc.shots.push(sh);app.activeShotId=sh.id;saveLocal();renderEditor();rememberWorkspace();return}
+  const sh=blankShot(no);app.ignoreRealtimeUntil=Date.now()+1400;const {data,error}=await sb.from("shots").insert({project_id:app.current.id,scene_id:sc.id,shot_number:no,position:pos,data:shotDbData(sh)}).select().single();if(error){alert(error.message);return}
+  await openCloudProject(app.current.id,{sceneId:sc.id,shotId:data.id,preserveSelection:true});rememberWorkspace()
+}
+async function deleteSelectedShotFromScene(sceneId){
+  const sc=app.current?.scenes.find(s=>s.id===sceneId);if(!sc||sc.shots.length<=1)return;
+  const selected=sc.shots.find(s=>s.id===app.activeShotId);
+  if(!selected){app.activeSceneId=sc.id;app.activeShotId=[...sc.shots].sort((a,b)=>a.position-b.position)[0]?.id||null;renderEditor();alert("Select the shot you want to delete, then press − again.");return}
+  app.activeSceneId=sc.id;await deleteShot()
+}
+async function moveShotById(sceneId,shotId,delta){
+  if(!can("shots"))return;const sc=app.current?.scenes.find(s=>s.id===sceneId);if(!sc)return;const arr=sc.shots.sort((a,b)=>a.position-b.position),i=arr.findIndex(x=>x.id===shotId),j=i+delta;if(i<0||j<0||j>=arr.length)return;
+  app.activeSceneId=sc.id;app.activeShotId=shotId;[arr[i],arr[j]]=[arr[j],arr[i]];arr.forEach((x,k)=>x.position=k+1);await persistShotOrder(sc);rememberWorkspace()
 }
 async function insertShotCopy(source,afterIndex){
   const sc=currentScene();if(!sc||!source)return;
@@ -597,8 +702,7 @@ async function pasteShot(){
   if(!can("shots")||!app.shotClipboard)return;const sc=currentScene();const s=currentShot();const idx=Math.max(0,sc.shots.sort((a,b)=>a.position-b.position).findIndex(x=>x.id===s?.id));await insertShotCopy(app.shotClipboard,idx)
 }
 async function moveShot(delta){
-  if(!can("shots"))return;const sc=currentScene(),s=currentShot();if(!sc||!s)return;const arr=sc.shots.sort((a,b)=>a.position-b.position),i=arr.findIndex(x=>x.id===s.id),j=i+delta;if(i<0||j<0||j>=arr.length)return;
-  [arr[i],arr[j]]=[arr[j],arr[i]];arr.forEach((x,k)=>x.position=k+1);await persistShotOrder(sc)
+  const sc=currentScene(),s=currentShot();if(!sc||!s)return;await moveShotById(sc.id,s.id,delta)
 }
 async function deleteShot(){
   if(!can("shots"))return;const s=currentShot(),sc=currentScene();if(sc.shots.length===1){alert("Each scene needs at least one shot.");return}if(!confirm(`Delete Shot ${s.shotNo}?`))return;
@@ -614,7 +718,7 @@ async function deleteShot(){
   }catch(err){alert(`Could not delete shot: ${err.message}`)}finally{app.suppressRealtime--}
 }
 function adjacentShot(delta){
-  const arr=allShots(),idx=arr.findIndex(x=>x.shot.id===app.activeShotId),target=arr[idx+delta];if(!target)return;app.activeSceneId=target.scene.id;app.activeShotId=target.shot.id;renderEditor();window.scrollTo({top:0,behavior:"smooth"})
+  const arr=allShots(),idx=arr.findIndex(x=>x.shot.id===app.activeShotId),target=arr[idx+delta];if(!target)return;app.activeSceneId=target.scene.id;app.activeShotId=target.shot.id;renderEditor();rememberWorkspace();window.scrollTo({top:0,behavior:"smooth"})
 }
 
 /* ---------- IMAGES ---------- */
@@ -631,12 +735,12 @@ async function loadImage(e){
 async function removeImage(){
   if(!can("media"))return;const s=currentShot();
   if(app.mode==="cloud"&&s.imagePath){await sb.storage.from("storyboards").remove([s.imagePath]);await sb.from("shots").update({image_path:null}).eq("id",s.id)}
-  s.image=null;s.imagePath=null;if(app.mode==="local")saveLocal();renderEditor()
+  s.image=null;s.imagePath=null;if(app.mode==="local")saveLocal();renderEditor();rememberWorkspace()
 }
 
 /* ---------- SHEET TOGGLE ---------- */
 function toggleSheet(force){
-  app.sheetOpen=typeof force==="boolean"?force:!app.sheetOpen;$("sheetPanel").hidden=!app.sheetOpen;updateSheetButtons();
+  app.sheetOpen=typeof force==="boolean"?force:!app.sheetOpen;$("sheetPanel").hidden=!app.sheetOpen;updateSheetButtons();rememberWorkspace();
   if(app.sheetOpen){renderSheet();requestAnimationFrame(()=>$("sheetPanel").scrollIntoView({behavior:"smooth",block:"start"}))}
 }
 function updateSheetButtons(){
@@ -664,9 +768,88 @@ function renderSheet(){
 function readPermissionUI(){return {project_settings:$("permProject").checked,scenes:$("permScenes").checked,shots:$("permShots").checked,media:$("permMedia").checked,members:$("permMembers").checked}}
 function writePermissionUI(p){$("permProject").checked=!!p.project_settings;$("permScenes").checked=!!p.scenes;$("permShots").checked=!!p.shots;$("permMedia").checked=!!p.media;$("permMembers").checked=!!p.members}
 function setPermissionPreset(name){if(name==="viewer")writePermissionUI(blankPermissions());else if(name==="editor")writePermissionUI(editorPermissions())}
+
+function setCollabTab(tab){
+  const chat=tab==="chat";
+  $("collabChatTab").classList.toggle("active",chat);$("collabMembersTab").classList.toggle("active",!chat);
+  $("collabChatPane").hidden=!chat;$("collabMembersPane").hidden=chat;
+  if(chat){renderChatReferenceOptions();renderChatMessages();setTimeout(()=>{const box=$("chatMessages");if(box)box.scrollTop=box.scrollHeight},30)}
+  else renderMembers();
+}
+function renderChatReferenceOptions(){
+  const el=$("chatReferenceSelect");if(!el||!app.current)return;
+  const previous=el.value;
+  const opts=[`<option value="">No reference</option>`,`<option value="project|${app.current.id}">Project · ${escapeHtml(app.current.name)}</option>`];
+  opts.push('<optgroup label="Scenes">');
+  for(const sc of [...app.current.scenes].sort((a,b)=>a.position-b.position))opts.push(`<option value="scene|${sc.id}">Scene ${sc.number} · ${escapeHtml(sc.title||"")}</option>`);
+  opts.push('</optgroup><optgroup label="Shots">');
+  for(const sc of [...app.current.scenes].sort((a,b)=>a.position-b.position))for(const sh of [...sc.shots].sort((a,b)=>a.position-b.position))opts.push(`<option value="shot|${sh.id}">Scene ${sc.number} · Shot ${sh.shotNo} · ${escapeHtml((sh.summary||sh.subject||"").slice(0,50))}</option>`);
+  opts.push('</optgroup>');
+  const sh=currentShot(),sc=currentScene();
+  if(sh&&sc){
+    const sections=[["shot_frame","Frame · Camera & Composition"],["shot_subject","Subject · Character & Action"],["shot_light","Light & Space"],["shot_audio","Audio"],["shot_edit","Edit & Notes"]];
+    opts.push('<optgroup label="Current Shot Sections">');
+    for(const [type,label] of sections)opts.push(`<option value="${type}|${sh.id}">Scene ${sc.number} · Shot ${sh.shotNo} · ${label}</option>`);
+    opts.push('</optgroup>')
+  }
+  el.innerHTML=opts.join("");
+  if([...el.options].some(o=>o.value===previous))el.value=previous
+}
+function chatReferenceFromSelect(){
+  const el=$("chatReferenceSelect"),raw=el?.value||"";if(!raw)return {context_type:null,context_id:null,context_label:null};
+  const [context_type,context_id]=raw.split("|");return {context_type,context_id,context_label:el.options[el.selectedIndex]?.textContent||null}
+}
+async function renderChatMessages(){
+  if(app.mode!=="cloud"||!app.current||!$("chatMessages"))return;
+  const box=$("chatMessages");box.innerHTML='<div class="chat-loading">Loading conversation…</div>';
+  const {data:rows,error}=await sb.from("project_messages").select("id,user_id,body,context_type,context_id,context_label,created_at").eq("project_id",app.current.id).order("created_at",{ascending:true}).limit(300);
+  if(error){box.innerHTML=`<div class="notice warning">${escapeHtml(error.message)}</div>`;return}
+  const ids=[...new Set((rows||[]).map(x=>x.user_id))];let profiles=[];
+  if(ids.length){const {data}=await sb.from("profiles").select("id,username,display_name").in("id",ids);profiles=data||[]}
+  box.innerHTML="";
+  if(!rows?.length){box.innerHTML='<div class="chat-empty">No messages yet. Start the project conversation.</div>';return}
+  for(const row of rows){
+    const mine=row.user_id===app.session.user.id,pr=profiles.find(p=>p.id===row.user_id)||{},name=pr.display_name||pr.username||(mine?"You":"Collaborator");
+    const item=document.createElement("div");item.className="chat-message"+(mine?" mine":"");
+    const ref=row.context_type&&row.context_label?`<button type="button" class="chat-ref" data-type="${escapeHtml(row.context_type)}" data-id="${escapeHtml(row.context_id||"")}">↗ ${escapeHtml(row.context_label)}</button>`:"";
+    item.innerHTML=`<div class="chat-meta"><strong>${escapeHtml(name)}</strong><span>${new Date(row.created_at).toLocaleString()}</span></div>${ref}<div class="chat-body">${escapeHtml(row.body).replace(/\n/g,"<br>")}</div>`;
+    item.querySelector(".chat-ref")?.addEventListener("click",e=>jumpToChatReference(e.currentTarget.dataset.type,e.currentTarget.dataset.id));
+    box.appendChild(item)
+  }
+  box.scrollTop=box.scrollHeight
+}
+async function sendChatMessage(){
+  if(app.mode!=="cloud"||!app.current)return;const input=$("chatMessageInput"),body=input.value.trim();if(!body)return;
+  const ref=chatReferenceFromSelect();$("sendChatMessageBtn").disabled=true;
+  const {error}=await sb.from("project_messages").insert({project_id:app.current.id,user_id:app.session.user.id,body,...ref});
+  $("sendChatMessageBtn").disabled=false;
+  if(error){setMsg("collabMessage",error.message,"warning");return}
+  input.value="";$("chatReferenceSelect").value="";await renderChatMessages()
+}
+function jumpToChatReference(type,id){
+  if(!app.current)return;
+  if(type==="project"){$("collabModal").close();unsubscribeChatRealtime();openProjectDetails(app.current.id);return}
+  let sc=null,sh=null;
+  if(type==="scene")sc=app.current.scenes.find(x=>x.id===id)||null;
+  else{for(const s of app.current.scenes){const found=s.shots.find(x=>x.id===id);if(found){sc=s;sh=found;break}}}
+  if(!sc)return;sc.collapsed=false;app.activeSceneId=sc.id;app.activeShotId=sh?.id||sc.shots[0]?.id||null;
+  $("collabModal").close();unsubscribeChatRealtime();renderEditor();rememberWorkspace();
+  const sectionMap={shot_frame:"frameSection",shot_subject:"subjectSection",shot_light:"lightSection",shot_audio:"audioSection",shot_edit:"editSection"};
+  const sectionId=sectionMap[type];if(sectionId){const d=$(sectionId);if(d){d.open=true;setTimeout(()=>d.scrollIntoView({behavior:"smooth",block:"start"}),30)}}
+}
+function subscribeChatRealtime(){
+  unsubscribeChatRealtime();if(!sb||app.mode!=="cloud"||!app.current)return;
+  const pid=app.current.id;app.chatChannel=sb.channel(`project-chat-${pid}`)
+    .on("postgres_changes",{event:"INSERT",schema:"public",table:"project_messages",filter:`project_id=eq.${pid}`},()=>renderChatMessages())
+    .on("postgres_changes",{event:"DELETE",schema:"public",table:"project_messages",filter:`project_id=eq.${pid}`},()=>renderChatMessages())
+    .subscribe()
+}
+function unsubscribeChatRealtime(){if(sb&&app.chatChannel){sb.removeChannel(app.chatChannel);app.chatChannel=null}}
 async function openCollab(){
   if(app.mode!=="cloud"){alert("Collaboration becomes available after Supabase cloud accounts are connected.");return}
-  $("collabModal").showModal();setMsg("collabMessage","");$("shareLinkBox").hidden=true;await renderMembers()
+  $("collabModal").showModal();setMsg("collabMessage","");$("shareLinkBox").hidden=true;
+  $("collabOwnerTools").hidden=!(app.isOwner||can("members"));
+  setCollabTab("chat");subscribeChatRealtime()
 }
 async function renderMembers(){
   const wrap=$("membersList");wrap.innerHTML="";const pid=app.current.id;
@@ -676,9 +859,12 @@ async function renderMembers(){
   const owner=document.createElement("div");owner.className="member-row";owner.innerHTML=`<span><strong>Project owner</strong><small>Full access</small></span><span>Owner</span>`;wrap.appendChild(owner);
   (members||[]).forEach(m=>{
     const pr=profiles.find(p=>p.id===m.user_id)||{};const row=document.createElement("div");row.className="member-row";
-    row.innerHTML=`<span><strong>${escapeHtml(pr.display_name||pr.username||"Member")}</strong><small>${pr.username?"@"+escapeHtml(pr.username):""}</small></span><span class="member-actions"><button type="button" class="btn ghost edit-member">Access</button><button type="button" class="btn ghost remove-member">Remove</button></span>`;
-    row.querySelector(".edit-member").onclick=async()=>{const preset=prompt("Set role: viewer, editor or custom","editor");if(!preset)return;let perms=preset==="viewer"?blankPermissions():preset==="editor"?editorPermissions():m.permissions||editorPermissions();const {error}=await sb.from("project_members").update({role:preset,permissions:perms}).eq("project_id",pid).eq("user_id",m.user_id);if(error)setMsg("collabMessage",error.message,"warning");else renderMembers()};
-    row.querySelector(".remove-member").onclick=async()=>{if(!confirm("Remove this collaborator?"))return;const {error}=await sb.from("project_members").delete().eq("project_id",pid).eq("user_id",m.user_id);if(error)setMsg("collabMessage",error.message,"warning");else renderMembers()};
+    const manage=app.isOwner||can("members");
+    row.innerHTML=`<span><strong>${escapeHtml(pr.display_name||pr.username||"Member")}</strong><small>${pr.username?"@"+escapeHtml(pr.username):""}</small></span>${manage?'<span class="member-actions"><button type="button" class="btn ghost edit-member">Access</button><button type="button" class="btn ghost remove-member">Remove</button></span>':`<span class="member-role-label">${escapeHtml(m.role||"member")}</span>`}`;
+    if(manage){
+      row.querySelector(".edit-member").onclick=async()=>{const preset=prompt("Set role: viewer, editor or custom","editor");if(!preset)return;let perms=preset==="viewer"?blankPermissions():preset==="editor"?editorPermissions():m.permissions||editorPermissions();const {error}=await sb.from("project_members").update({role:preset,permissions:perms}).eq("project_id",pid).eq("user_id",m.user_id);if(error)setMsg("collabMessage",error.message,"warning");else renderMembers()};
+      row.querySelector(".remove-member").onclick=async()=>{if(!confirm("Remove this collaborator?"))return;const {error}=await sb.from("project_members").delete().eq("project_id",pid).eq("user_id",m.user_id);if(error)setMsg("collabMessage",error.message,"warning");else renderMembers()};
+    }
     wrap.appendChild(row)
   })
 }
@@ -839,15 +1025,15 @@ async function duplicateProject(id){
 function openProjectDetails(id){
   const p=(app.current?.id===id?app.current:app.projects.find(x=>x.id===id));if(!p)return;app.detailsProjectId=id;const m=projectMeta(p);
   $("detailProjectName").value=p.name||"";$("detailProjectFolder").value=p.folder||"General";$("detailProjectTags").value=(p.tags||[]).join(", ");
-  $("detailDirector").value=m.director||"";$("detailWriter").value=m.writer||"";$("detailProduction").value=m.production||"";$("detailStatus").value=m.status||"Planning";$("detailNotes").value=m.notes||"";$("detailFavorite").checked=!!p.isFavorite;
+  $("detailDirector").value=m.director||"";$("detailCinematographer").value=m.cinematographer||"";$("detailWriter").value=m.writer||"";$("detailProduction").value=m.production||"";$("detailStatus").value=m.status||"Planning";$("detailNotes").value=m.notes||"";$("detailFavorite").checked=!!p.isFavorite;
   const editable=projectCanEdit(p)||(app.current?.id===id&&can("project_settings"));
-  ["detailProjectName","detailProjectFolder","detailProjectTags","detailDirector","detailWriter","detailProduction","detailStatus","detailNotes","detailFavorite"].forEach(x=>$(x).disabled=!editable);
+  ["detailProjectName","detailProjectFolder","detailProjectTags","detailDirector","detailCinematographer","detailWriter","detailProduction","detailStatus","detailNotes","detailFavorite"].forEach(x=>$(x).disabled=!editable);
   $("saveProjectDetailsBtn").hidden=!editable;$("projectDetailsModal").showModal()
 }
 async function saveProjectDetails(){
   const id=app.detailsProjectId,p=(app.current?.id===id?app.current:app.projects.find(x=>x.id===id));if(!p)return;
   p.name=$("detailProjectName").value.trim()||p.name;p.folder=$("detailProjectFolder").value.trim()||"General";p.tags=normalizeTags($("detailProjectTags").value);p.isFavorite=$("detailFavorite").checked;
-  p.metadata={director:$("detailDirector").value.trim(),writer:$("detailWriter").value.trim(),production:$("detailProduction").value.trim(),status:$("detailStatus").value,notes:$("detailNotes").value.trim()};
+  p.metadata={director:$("detailDirector").value.trim(),cinematographer:$("detailCinematographer").value.trim(),writer:$("detailWriter").value.trim(),production:$("detailProduction").value.trim(),status:$("detailStatus").value,notes:$("detailNotes").value.trim()};
   if(app.mode==="cloud"){
     const {error}=await sb.from("projects").update({name:p.name,folder:p.folder,tags:p.tags,is_favorite:p.isFavorite,metadata:p.metadata,updated_at:new Date().toISOString()}).eq("id",id);if(error)return alert(error.message)
   }else saveLocal();
@@ -861,7 +1047,7 @@ function bind(){
   $("loginForm").onsubmit=doLogin;$("signupForm").onsubmit=doSignup;$("forgotPasswordBtn").onclick=forgotPassword;$("continueOfflineBtn").onclick=continueOffline;
   $("logoutBtn").onclick=logout;$("newCloudProjectBtn").onclick=createCloudProject;$("emptyNewProjectBtn").onclick=createCloudProject;
   $("accountBtn").onclick=()=>$("accountModal").showModal();$("closeAccountBtn").onclick=()=>$("accountModal").close();
-  $("backProjectsBtn").onclick=async()=>{unsubscribeRealtime();if(app.mode==="cloud"){await loadCloudProjects();showProjects()}else showAuth()};
+  $("backProjectsBtn").onclick=async()=>{unsubscribeRealtime();unsubscribeChatRealtime();if(app.mode==="cloud"){rememberProjectsView();await loadCloudProjects();showProjects()}else showAuth()};
   $("projectSearch").oninput=e=>{app.projectSearch=e.target.value;renderProjects()};
   $("projectFilter").onchange=e=>{app.projectFilter=e.target.value;renderProjects()};
   $("projectFolderFilter").onchange=e=>{app.projectFolder=e.target.value;renderProjects()};
@@ -869,7 +1055,7 @@ function bind(){
   ["projectName","projectAspect","projectStyle","aspectWidth","aspectHeight"].forEach(id=>{["input","change"].forEach(ev=>$(id).addEventListener(ev,onProjectChange))});
   ["sceneTitle","sceneDescription"].forEach(id=>{["input","change"].forEach(ev=>$(id).addEventListener(ev,onSceneChange))});
   SHOT_FIELDS.filter(id=>id!=="shotNo").forEach(id=>{if($(id))["input","change"].forEach(ev=>$(id).addEventListener(ev,()=>onShotChange(id)))});
-  $("addSceneBtn").onclick=addScene;$("deleteSceneBtn").onclick=deleteScene;$("collapseAllScenesBtn").onclick=()=>setAllScenesCollapsed(true);$("expandAllScenesBtn").onclick=()=>setAllScenesCollapsed(false);
+  $("addSceneBtn").onclick=addScene;$("deleteSceneBtn").onclick=deleteScene;$("collapseAllScenesBtn").onclick=()=>setAllScenesCollapsed(true);$("expandAllScenesBtn").onclick=toggleAllScenes;
   $("addShotBtn").onclick=addShot;$("mobileAddShotBtn").onclick=addShot;$("duplicateShotBtn").onclick=duplicateShot;$("copyShotBtn").onclick=copyShot;$("pasteShotBtn").onclick=pasteShot;$("moveShotUpBtn").onclick=()=>moveShot(-1);$("moveShotDownBtn").onclick=()=>moveShot(1);$("deleteShotBtn").onclick=deleteShot;
   $("prevShotBtn").onclick=()=>adjacentShot(-1);$("nextShotBtn").onclick=()=>adjacentShot(1);
   $("frameImageInput").onchange=loadImage;$("removeImageBtn").onclick=removeImage;
@@ -877,7 +1063,13 @@ function bind(){
   $("exportBtn").onclick=exportJSON;$("importInput").onchange=e=>{const f=e.target.files[0];if(f)importJSONOnline(f).catch(err=>alert(err.message||"Import failed."));e.target.value="";};
   document.querySelectorAll("[data-focus]").forEach(b=>b.onclick=()=>{$(b.dataset.focus).focus();$(b.dataset.focus).scrollIntoView({behavior:"smooth",block:"center"})});
   $("collaborateBtn").onclick=openCollab;$("addMemberBtn").onclick=addMemberByUsername;$("createShareLinkBtn").onclick=createShareLink;$("copyShareLinkBtn").onclick=async()=>{await navigator.clipboard.writeText($("shareLinkOutput").value);setMsg("collabMessage","Invite link copied.")};
-  $("permissionPreset").onchange=e=>{if(e.target.value!=="custom")setPermissionPreset(e.target.value)}
+  $("permissionPreset").onchange=e=>{if(e.target.value!=="custom")setPermissionPreset(e.target.value)};
+  $("collabMembersTab").onclick=()=>setCollabTab("members");$("collabChatTab").onclick=()=>setCollabTab("chat");$("sendChatMessageBtn").onclick=sendChatMessage;
+  $("chatMessageInput").addEventListener("keydown",e=>{if(e.key==="Enter"&&(e.ctrlKey||e.metaKey)){e.preventDefault();sendChatMessage()}});
+  $("closeCollabBtn").onclick=()=>{$("collabModal").close();unsubscribeChatRealtime()};$("collabModal").addEventListener("close",unsubscribeChatRealtime);
+  document.querySelectorAll(".accordion details").forEach(d=>d.addEventListener("toggle",()=>rememberWorkspace()));
+  window.addEventListener("scroll",queueWorkspaceScrollSave,{passive:true});
+  document.addEventListener("visibilitychange",()=>{if(document.hidden)rememberWorkspace()});window.addEventListener("pagehide",()=>rememberWorkspace())
 }
 
 start();

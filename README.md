@@ -1,42 +1,15 @@
-# Storyboard Shot Builder v3.5 — Production Management
+# Storyboard Shot Builder v3.6
 
-Clean rebuild from the confirmed v3 connected baseline. AI generation is intentionally not included.
+Built from the confirmed v3.5 Clean Rebuild baseline.
 
-## Project dashboard
-- Rename / Delete / Duplicate projects
-- Favorite projects
-- Persistent drag-and-drop order for owned projects
-- Search by project, folder, tags and metadata
-- Filters: All, Favorites, Recently Updated, Shared
-- Folder / Category and Tags
-- Metadata: Director, Writer, Production, Status, Notes
+## Changes
+- Keeps the current project, scene, shot, scroll position, sheet state, and open editor sections across saves, tab switches, token refreshes, and reloads.
+- Scene title itself toggles open/closed; per-scene arrow removed.
+- ↕ now toggles all scenes both ways.
+- Expanded scenes show + / − shot controls; collapsed scenes show rename / duplicate / move controls.
+- Shot rows now include ↑ / ↓ controls in the left sidebar.
+- Project Details adds Cinematographer.
+- Collaborate now includes a project chat room with clickable Project / Scene / Shot / Shot-section references.
 
-## Scene management
-- Collapse / Expand each scene
-- Collapse All / Expand All
-- Rename and Duplicate
-- Move Up / Down
-- Automatic scene numbering
-
-## Shot management
-- Duplicate
-- Internal Copy / Paste
-- Move Up / Down
-- Delete with automatic contiguous renumbering
-- Shot settings are preserved when duplicated/copied
-- Storyboard media is copied to a new Storage path when possible
-
-## Preserved v3 features
-- Email + username authentication
-- Collaboration and permissions
-- Storyboard Sheet toggle above the editor
-- Custom aspect ratios
-- JSON import/export (cloud import creates a new project; images are added manually)
-- Supabase Storage manual shot images
-- English UI, favicon and creator credit
-
-## Install
-1. Run `supabase-v3.5-production-management.sql` once in Supabase SQL Editor.
-2. Upload/replace the app files in the root of the GitHub repository.
-3. Commit and let Cloudflare deploy.
-4. Open the site in a Private/Incognito window for the first test.
+## Supabase
+Run `supabase-v3.6-collaboration-workspace.sql` once before using Chat Room.
