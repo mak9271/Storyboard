@@ -209,15 +209,27 @@ async function openCloudProject(id){
   const {data:scenes,error:se}=await sb.from("scenes").select("*").eq("project_id",id).order("position");if(se){alert(se.message);return}
   const {data:shots,error:sh}=await sb.from("shots").select("*").eq("project_id",id).order("position");if(sh){alert(sh.message);return}
   const signed=await Promise.all((shots||[]).map(async row=>{
-    let image=null;if(row.image_path){const {data}=await sb.storage.from("storyboards").createSignedUrl(row.image_path,604800);image=data?.signedUrl||null}
     const shotData={...blankShot(row.shot_number),...(row.data||{})};
+    let image=shotData.image||null;
+    let imagePath=shotData.imagePath||null;
+
+    if(row.image_path){
+      const {data}=await sb.storage.from("storyboards").createSignedUrl(row.image_path,604800);
+      image=data?.signedUrl||image;
+      imagePath=row.image_path;
+    }
+
     if(Array.isArray(shotData.aiVariations)){
       shotData.aiVariations=await Promise.all(shotData.aiVariations.map(async v=>{
-        if(v?.path){const {data}=await sb.storage.from("storyboards").createSignedUrl(v.path,604800);return {...v,url:data?.signedUrl||v.url||null}}
+        if(v?.path){
+          const {data}=await sb.storage.from("storyboards").createSignedUrl(v.path,604800);
+          return {...v,url:data?.signedUrl||v.url||null}
+        }
         return v
       }))
     }
-    return {...shotData,id:row.id,shotNo:row.shot_number,position:row.position,imagePath:row.image_path,image}
+
+    return {...shotData,id:row.id,shotNo:row.shot_number,position:row.position,imagePath,image}
   }));
   const sceneObjects=(scenes||[]).map(s=>({id:s.id,number:s.scene_number,title:s.title||`Scene ${s.scene_number}`,description:s.description||"",position:s.position,shots:signed.filter(x=>(shots||[]).find(r=>r.id===x.id)?.scene_id===s.id)}));
   app.current={id:p.id,owner_id:p.owner_id,name:p.name,aspect:p.aspect||"3:4 Portrait",aspectWidth:Number(p.aspect_width||3),aspectHeight:Number(p.aspect_height||4),style:p.style||"Storyboard B&W",updated_at:p.updated_at,scenes:sceneObjects};
