@@ -1,21 +1,3 @@
-# v3.5.1 Delete Fix\n\nRun `supabase-delete-fix.sql` once in Supabase SQL Editor before using Delete.\n\n# Storyboard Shot Builder v3.5 — Production Management
-
-This build intentionally starts from the pre-Roozaneh-image-import v3.2 codebase and does **not** include the temporary GitHub/Raw-URL image patches.
-
-## Added in v3.5
-- Project dashboard search and filters (All, Favorites, Recently Updated, Shared)
-- Folder/category, tags, project metadata (Director, Writer, Production, Status, Notes)
-- Favorite, rename, delete and full project duplication
-- Drag-and-drop ordering for owned projects with Supabase `position` persistence
-- Scene collapse/expand, Collapse All/Expand All
-- Scene rename, duplicate, move up/down, automatic scene renumbering
-- Shot duplicate, copy/paste, move up/down
-- Automatic contiguous shot renumbering after reorder/delete
-- Existing auth, collaboration, JSON import/export, storyboard sheet, custom aspect ratio and media upload preserved
-
-## Database
-This build expects the v3.5 patch already applied to `projects`, `scenes`, and `shots` (`position`, `is_favorite`, `folder`, `tags`, `metadata`, `collapsed`).
-
 # Storyboard Shot Builder v3
 
 ## New in v3
@@ -54,11 +36,3 @@ Use the separate `storyboard-v3-supabase-setup.zip`:
 - Put the project's public URL and anon/publishable key into `config.js`.
 
 Never put the Supabase service-role key in `config.js`.
-
-
-## New in v4
-- AI Storyboard panel per shot
-- Automatic prompt builder for storyboard sketch generation
-- Generate single image or 3 variations
-- Choose a variation as the final shot frame
-- Ready for Supabase Edge Function `generate-storyboard`

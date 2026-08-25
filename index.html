@@ -11,10 +11,10 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="styles.css?v=3.5" />
+  <link rel="stylesheet" href="styles.css" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="config.js"></script>
-<meta name="storyboard-build" content="v3.5.1-delete-fix">\n</head>
+</head>
 <body>
 
   <!-- AUTH -->
@@ -90,22 +90,11 @@
 
     <main class="projects-main">
       <div id="inviteNotice" class="notice" hidden></div>
-      <div class="dashboard-tools">
-        <div class="project-search-wrap"><span>⌕</span><input id="projectSearch" type="search" placeholder="Search projects, tags, director..." /></div>
-        <select id="projectFilter" aria-label="Project filter">
-          <option value="all">All Projects</option>
-          <option value="favorites">Favorites</option>
-          <option value="recent">Recently Updated</option>
-          <option value="shared">Shared</option>
-        </select>
-        <select id="projectFolderFilter" aria-label="Folder filter"><option value="all">All folders</option></select>
-      </div>
-      <div class="dashboard-hint">Drag your own project cards to reorder them. Order is saved automatically.</div>
       <div id="projectsGrid" class="projects-grid"></div>
       <div id="projectsEmpty" class="empty-state" hidden>
         <div class="s-logo empty-logo">S</div>
-        <h2 id="projectsEmptyTitle">No projects yet</h2>
-        <p id="projectsEmptyCopy">Create your first storyboard project.</p>
+        <h2>No projects yet</h2>
+        <p>Create your first storyboard project.</p>
         <button id="emptyNewProjectBtn" class="btn">Create Project</button>
       </div>
     </main>
@@ -158,9 +147,8 @@
     <main class="app-shell">
       <aside class="sidebar">
         <div class="project-card">
-          <div class="project-card-title-row"><label>Project Name</label><span id="projectFolderBadge" class="folder-badge">General</span></div>
+          <label>Project Name</label>
           <input id="projectName" />
-          <button id="projectDetailsBtn" type="button" class="btn ghost wide project-details-btn">Project Details · Folder · Tags</button>
           <div class="grid-2">
             <div>
               <label>Aspect Ratio</label>
@@ -198,11 +186,7 @@
 
         <div class="scene-header">
           <span>Scenes</span>
-          <div class="scene-header-actions">
-            <button id="collapseAllScenesBtn" class="icon-btn" title="Collapse all scenes">−</button>
-            <button id="expandAllScenesBtn" class="icon-btn" title="Expand all scenes">↕</button>
-            <button id="addSceneBtn" class="icon-btn" title="Add scene">＋</button>
-          </div>
+          <button id="addSceneBtn" class="icon-btn" title="Add scene">＋</button>
         </div>
         <div id="sceneList" class="scene-list"></div>
 
@@ -212,7 +196,7 @@
             <button id="deleteSceneBtn" class="text-btn danger-text" type="button">Delete Scene</button>
           </div>
           <div class="grid-2">
-            <div><label>Scene Number · Auto</label><input id="sceneNumber" type="number" min="1" readonly /></div>
+            <div><label>Scene Number</label><input id="sceneNumber" type="number" min="1" /></div>
             <div><label>Scene Title</label><input id="sceneTitle" placeholder="Scene title" /></div>
           </div>
           <label>Description</label>
@@ -226,18 +210,13 @@
             <div id="shotKicker" class="eyebrow">SCENE 01 · SHOT 01</div>
             <h2 id="shotTitle">Shot 1</h2>
           </div>
-          <div class="shot-nav shot-manage-actions">
+          <div class="shot-nav">
             <button id="addShotBtn" class="btn ghost">＋ Shot</button>
             <button id="duplicateShotBtn" class="btn ghost">Duplicate</button>
-            <button id="copyShotBtn" class="btn ghost">Copy</button>
-            <button id="pasteShotBtn" class="btn ghost" disabled>Paste</button>
-            <button id="moveShotUpBtn" class="btn ghost" title="Move shot up">↑</button>
-            <button id="moveShotDownBtn" class="btn ghost" title="Move shot down">↓</button>
             <button id="deleteShotBtn" class="btn danger">Delete</button>
           </div>
         </div>
 
-        <div id="editorNotice" class="notice editor-notice" hidden></div>
         <div class="hero-grid">
           <section class="frame-card">
             <div class="frame-toolbar">
@@ -248,7 +227,7 @@
               <div class="frame-placeholder">
                 <div class="frame-icon">▧</div>
                 <strong>Storyboard Frame</strong>
-                <span>Upload an image manually or let AI generate a storyboard sketch below.</span>
+                <span>Add an image manually. AI generation is the next phase.</span>
                 <label id="chooseImageLabel" class="btn small">Choose Image<input id="frameImageInput" type="file" accept="image/*" hidden></label>
               </div>
               <img id="frameImage" alt="" hidden />
@@ -267,41 +246,13 @@
             <label>One-line Shot Summary</label>
             <textarea id="summary" rows="5" placeholder="Example: Shahrzad looks toward the king in candlelight..."></textarea>
           </section>
-
-          <section class="quick-card ai-card">
-            <div class="ai-head">
-              <div>
-                <div class="eyebrow cyan-text">AI STORYBOARD</div>
-                <h3>Storyboard Sketch B&W</h3>
-              </div>
-              <div id="aiStatusBadge" class="ai-badge">Idle</div>
-            </div>
-            <p class="muted ai-copy">AI uses your shot description and camera details to generate a black-and-white storyboard frame.</p>
-            <label>Prompt Override (optional)</label>
-            <textarea id="aiPromptOverride" rows="4" placeholder="Optional custom prompt. Leave blank to use the automatic prompt builder."></textarea>
-            <label>Prompt Preview</label>
-            <div id="aiPromptPreview" class="prompt-preview"></div>
-            <div class="ai-actions">
-              <button id="generateAiBtn" class="btn">Generate Storyboard</button>
-              <button id="generateAiVarsBtn" class="btn ghost">Generate 3 Variations</button>
-              <button id="clearAiVarsBtn" class="btn ghost">Clear Variations</button>
-            </div>
-            <div id="aiErrorBox" class="notice warning" hidden></div>
-            <div id="aiVariationsWrap" hidden>
-              <div class="variations-head">
-                <strong>Variations</strong>
-                <span class="muted">Choose one as the final shot image.</span>
-              </div>
-              <div id="aiVariationsGrid" class="ai-variations-grid"></div>
-            </div>
-          </section>
         </div>
 
         <div class="accordion">
           <details open>
             <summary>FRAME · Camera & Composition</summary>
             <div class="form-grid">
-              <div><label>Shot Number · Auto</label><input id="shotNo" type="number" min="1" readonly /></div>
+              <div><label>Shot Number</label><input id="shotNo" type="number" min="1" /></div>
               <div><label>Duration</label><input id="duration" placeholder="e.g. 2 sec" /></div>
               <div><label>Shot Size</label><select id="shotSize"></select></div>
               <div><label>Camera Angle</label><select id="angle"></select></div>
@@ -370,29 +321,6 @@
     </nav>
   </section>
 
-
-  <!-- PROJECT DETAILS MODAL -->
-  <dialog id="projectDetailsModal" class="modal">
-    <div class="modal-card project-details-modal-card">
-      <div class="modal-head">
-        <div><div class="eyebrow">PROJECT MANAGEMENT</div><h2>Project Details</h2></div>
-        <button id="closeProjectDetailsBtn" class="icon-btn" type="button">×</button>
-      </div>
-      <div class="form-grid project-details-grid">
-        <div class="span-2"><label>Project Name</label><input id="detailProjectName" /></div>
-        <div><label>Folder / Category</label><input id="detailProjectFolder" placeholder="General" /></div>
-        <div><label>Status</label><select id="detailStatus"><option>Planning</option><option>Pre-production</option><option>Production</option><option>Post-production</option><option>Complete</option><option>On Hold</option></select></div>
-        <div class="span-2"><label>Tags · comma separated</label><input id="detailProjectTags" placeholder="short film, teaser, interior" /></div>
-        <div><label>Director</label><input id="detailDirector" /></div>
-        <div><label>Writer</label><input id="detailWriter" /></div>
-        <div class="span-2"><label>Production</label><input id="detailProduction" /></div>
-        <div class="span-2"><label>Project Notes</label><textarea id="detailNotes" rows="5"></textarea></div>
-        <label class="check-row span-2"><input id="detailFavorite" type="checkbox" /> Favorite project</label>
-      </div>
-      <div class="modal-footer-actions"><button id="saveProjectDetailsBtn" type="button" class="btn">Save Project Details</button></div>
-    </div>
-  </dialog>
-
   <!-- COLLABORATION MODAL -->
   <dialog id="collabModal" class="modal">
     <form method="dialog" class="modal-card" id="collabDialogForm">
@@ -455,6 +383,6 @@
     </div>
   </dialog>
 
-  <script src="app.js?v=3.5"></script>
+  <script src="app.js"></script>
 </body>
 </html>
