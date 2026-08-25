@@ -1,38 +1,42 @@
-# Storyboard Shot Builder v3
+# Storyboard Shot Builder v3.5 — Production Management
 
-## New in v3
-1. **Storyboard Sheet is a persistent toggle**
-   - Opens above the editor, not below it.
-   - Stays ON while you continue editing.
-   - Active state uses a blue-heavy cyan gradient.
-2. **Custom aspect ratio**
-   - Choose Custom and enter Width + Height manually.
-3. **Scenes**
-   - Shots are now nested inside Scenes.
-   - Each Scene has number, title and description.
-4. **Account architecture**
-   - Email/password signup.
-   - Username + email stored as separate identity/profile data.
-   - Sign in by either Email OR Username (username uses a Supabase Edge Function).
-   - Each user sees their own projects plus projects shared with them.
-5. **Site icon**
-   - Black square, bold white “S”.
-   - favicon + Apple touch icons + web manifest.
-6. **Collaboration**
-   - Add an existing user by username.
-   - Create share/invite links.
-   - Viewer / Editor / Custom access.
-   - Granular access: project settings, scenes, shot details, media, collaborators.
-   - Simple Realtime refresh for collaborative changes.
-7. **Creator credit**
-   - Small `© 2026 Amin Khorsandi` linked to https://aminkhorsandi.com
+Clean rebuild from the confirmed v3 connected baseline. AI generation is intentionally not included.
 
-## Important: Account/collaboration setup
-The UI and backend code are included, but cloud accounts will stay in Offline mode until a free Supabase project is connected.
+## Project dashboard
+- Rename / Delete / Duplicate projects
+- Favorite projects
+- Persistent drag-and-drop order for owned projects
+- Search by project, folder, tags and metadata
+- Filters: All, Favorites, Recently Updated, Shared
+- Folder / Category and Tags
+- Metadata: Director, Writer, Production, Status, Notes
 
-Use the separate `storyboard-v3-supabase-setup.zip`:
-- Run `supabase-schema.sql` in Supabase SQL Editor.
-- Deploy the `username-login` Edge Function.
-- Put the project's public URL and anon/publishable key into `config.js`.
+## Scene management
+- Collapse / Expand each scene
+- Collapse All / Expand All
+- Rename and Duplicate
+- Move Up / Down
+- Automatic scene numbering
 
-Never put the Supabase service-role key in `config.js`.
+## Shot management
+- Duplicate
+- Internal Copy / Paste
+- Move Up / Down
+- Delete with automatic contiguous renumbering
+- Shot settings are preserved when duplicated/copied
+- Storyboard media is copied to a new Storage path when possible
+
+## Preserved v3 features
+- Email + username authentication
+- Collaboration and permissions
+- Storyboard Sheet toggle above the editor
+- Custom aspect ratios
+- JSON import/export (cloud import creates a new project; images are added manually)
+- Supabase Storage manual shot images
+- English UI, favicon and creator credit
+
+## Install
+1. Run `supabase-v3.5-production-management.sql` once in Supabase SQL Editor.
+2. Upload/replace the app files in the root of the GitHub repository.
+3. Commit and let Cloudflare deploy.
+4. Open the site in a Private/Incognito window for the first test.
