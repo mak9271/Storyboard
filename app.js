@@ -1,4 +1,4 @@
-// Storyboard Shot Builder v3.8.2 — lighting playback preview + hold-to-rotate gesture + God View toast
+// Storyboard Shot Builder v3.8.2.3 — fixed playback, rotate gestures, God View and framing
 const OPTIONS = {
   shotSize:["ECU · Extreme Close Up","CU · Close Up","MCU · Medium Close Up","MS · Medium Shot","MLS · Medium Long Shot","WS · Wide Shot","EWS · Extreme Wide Shot","OTS · Over The Shoulder","POV · Point of View","Insert","Top Shot"],
   angle:["Eye Level","High Angle","Low Angle","Top / Bird's Eye","Dutch Angle","Ground Level","Overhead"],
@@ -1190,20 +1190,20 @@ function shotFrameCropMeters(shotSize,subjectHeight=1.75){
   if(s.includes("medium close"))return 0.52;
   if(s.includes("medium shot"))return 0.98;
   if(s.includes("medium long"))return Math.min(subjectHeight*0.92,1.48);
-  if(s.includes("wide shot"))return Math.max(subjectHeight*1.1,1.95);
-  if(s.includes("extreme wide"))return Math.max(subjectHeight*2.2,4.0);
+  if(s.includes("wide shot"))return Math.max(subjectHeight*1.10,1.95);
+  if(s.includes("extreme wide"))return Math.max(subjectHeight*2.20,4.0);
   if(s.includes("over the shoulder"))return 0.82;
-  if(s.includes("point of view"))return 0.9;
+  if(s.includes("point of view"))return 0.90;
   if(s.includes("insert"))return 0.20;
   if(s.includes("top shot"))return Math.max(subjectHeight*1.22,2.0);
-  return 0.9
+  return 0.90
 }
 function shotFrameTargetRatio(shotSize){
   const s=String(shotSize||"").toLowerCase();
   if(s.includes("extreme close"))return 0.95;
   if(s.startsWith("cu"))return 0.92;
   if(s.includes("medium close"))return 0.88;
-  if(s.includes("medium shot"))return 0.8;
+  if(s.includes("medium shot"))return 0.80;
   if(s.includes("medium long"))return 0.72;
   if(s.includes("wide shot"))return 0.58;
   if(s.includes("extreme wide"))return 0.38;
@@ -1674,7 +1674,7 @@ function lightingObjectSvg(o,selected){
     </g>`
   }
   if(o.type==="subject"){
-    const bodyRx=o.gender==="male"?18:21, bodyRy=30, noseX=bodyRx+6;
+    const bodyRx=o.gender==="male"?18:21,bodyRy=30,noseX=bodyRx+6;
     return `<g>
       <g data-lighting-id="${o.id}">
         <g transform="translate(${o.x} ${o.y}) rotate(${o.rotation||0})">
@@ -1736,6 +1736,26 @@ function renderLightingCanvas(){
     node.addEventListener("pointerdown",e=>startLightingRotateHandle(e,node.dataset.lightingRotateHandle))
   })
 }
+function lightingSvgPoint(e){
+  const r=$("lightingCanvas").getBoundingClientRect();
+  return {x:(e.clientX-r.left)*1200/r.width,y:(e.clientY-r.top)*800/r.height}
+}
+function normalizeDegrees(v){return ((Number(v||0)%360)+360)%360}
+function angleBetween2d(a,b){return Math.atan2(b.y-a.y,b.x-a.x)*180/Math.PI}
+function startLightingRotateHandle(e,id){
+  selectLightingObject(id,true);
+  if(!lightingCanEdit())return;
+  const o=lightingSelected();if(!o)return;
+  e.preventDefault();e.stopPropagation();
+  const p=lightingSvgPoint(e);
+  app.lighting.pointers[e.pointerId]=p;
+  app.lighting.dragging={
+    id,mode:"rotate",pointerId:e.pointerId,
+    startRotation:Number(o.rotation||0),
+    startPointerAngle:angleBetween2d({x:o.x,y:o.y},p)
+  };
+  $("lightingCanvas").setPointerCapture?.(e.pointerId)
+}
 function startLightingDrag(e,id){
   selectLightingObject(id,true);
   if(!lightingCanEdit())return;
@@ -1743,7 +1763,7 @@ function startLightingDrag(e,id){
   e.preventDefault();
   const p=lightingSvgPoint(e);
   app.lighting.pointers[e.pointerId]=p;
-  const pts=Object.values(app.lighting.pointers||{});
+  const pts=Object.values(app.lighting.pointers);
   if(pts.length>=2){
     app.lighting.dragging={id,mode:"multirotate",startRotation:Number(o.rotation||0),startTwoFingerAngle:angleBetween2d(pts[0],pts[1])}
   }else{
@@ -1753,39 +1773,156 @@ function startLightingDrag(e,id){
 }
 function moveLightingDrag(e){
   if(!lightingCanEdit())return;
-  const d=app.lighting.dragging;
   const p=lightingSvgPoint(e);
   app.lighting.pointers[e.pointerId]=p;
-  if(!d)return;
+  const d=app.lighting.dragging;if(!d)return;
   const o=app.lighting.current?.data?.objects?.find(x=>x.id===d.id);if(!o)return;
-  const pts=Object.values(app.lighting.pointers||{});
+  const pts=Object.values(app.lighting.pointers);
+
   if(pts.length>=2){
     if(d.mode!=="multirotate"){
       app.lighting.dragging={id:d.id,mode:"multirotate",startRotation:Number(o.rotation||0),startTwoFingerAngle:angleBetween2d(pts[0],pts[1])};
       return
     }
     const currentAngle=angleBetween2d(pts[0],pts[1]);
-    o.rotation=normalizeDegrees(d.startRotation + (currentAngle-d.startTwoFingerAngle));
+    o.rotation=normalizeDegrees(d.startRotation+(currentAngle-d.startTwoFingerAngle));
     if(o.type==="camera")o.autoFrame=false;
-    markLightingDirty();renderLightingCanvas();syncLighting3D();return
+    markLightingDirty();renderLightingInspector(false);renderLightingCanvas();syncLighting3D();return
   }
+
   if(d.mode==="rotate"){
     const a=angleBetween2d({x:o.x,y:o.y},p);
-    o.rotation=normalizeDegrees(d.startRotation + (a-d.startPointerAngle));
+    o.rotation=normalizeDegrees(d.startRotation+(a-d.startPointerAngle));
     if(o.type==="camera")o.autoFrame=false;
-    markLightingDirty();renderLightingCanvas();syncLighting3D();return
+    markLightingDirty();renderLightingInspector(false);renderLightingCanvas();syncLighting3D();return
   }
-  if(d.pointerId!=null && e.pointerId!==d.pointerId)return;
+
+  if(d.pointerId!==e.pointerId)return;
   o.x=Math.max(25,Math.min(1175,d.objectX+p.x-d.startX));
   o.y=Math.max(25,Math.min(775,d.objectY+p.y-d.startY));
   markLightingDirty();renderLightingCanvas();syncLighting3D()
 }
 function endLightingDrag(e){
-  if(e?.pointerId!=null && app.lighting.pointers)delete app.lighting.pointers[e.pointerId];
-  const remain=Object.keys(app.lighting.pointers||{}).length;
-  if(!remain || app.lighting.dragging?.mode==="multirotate" || app.lighting.dragging?.pointerId===e?.pointerId){
-    app.lighting.dragging=null
+  if(e?.pointerId!=null)delete app.lighting.pointers[e.pointerId];
+  if(!Object.keys(app.lighting.pointers).length)app.lighting.dragging=null
+}
+
+
+function linkedLightingShot(){
+  const d=app.lighting.current;
+  if(d?.scene_id&&d?.shot_id){
+    const sc=app.current?.scenes?.find(s=>s.id===d.scene_id);
+    const sh=sc?.shots?.find(x=>x.id===d.shot_id);
+    if(sh)return sh
   }
+  return currentShot()
+}
+function parseDurationSeconds(v){
+  const s=String(v||"").trim().toLowerCase();
+  if(!s)return 4;
+  if(/^\d{1,2}:\d{1,2}(?::\d{1,2})?$/.test(s)){
+    const parts=s.split(":").map(Number);
+    if(parts.length===2)return parts[0]*60+parts[1];
+    if(parts.length===3)return parts[0]*3600+parts[1]*60+parts[2]
+  }
+  const m=s.match(/\d+(?:\.\d+)?/),n=m?parseFloat(m[0]):NaN;
+  if(!isFinite(n)||n<=0)return 4;
+  if(s.includes("frame"))return Math.max(.1,n/24);
+  if(s.includes("ms"))return n/1000;
+  return n
+}
+function lightingPlaybackConfig(camObj){
+  const sh=linkedLightingShot();
+  return {duration:Math.max(.25,parseDurationSeconds(sh?.duration||"4")),movement:camObj?.movement||sh?.movement||"Static"}
+}
+function updateLightingPlaybackStatus(msg=""){
+  const el=$("lightingPlaybackStatus");if(!el)return;
+  const pb=app.lighting.playback,cam=activeLightingCameraObject(),cfg=lightingPlaybackConfig(cam);
+  if(msg){el.textContent=msg;return}
+  const duration=pb.duration||cfg.duration||4,movement=pb.movement||cfg.movement||"Static";
+  if(pb.playing)el.textContent=`Playing ${movement} · ${Math.min(pb.elapsed,duration).toFixed(1)} / ${duration.toFixed(1)}s`;
+  else if(pb.baseCamera&&pb.elapsed>0)el.textContent=`Paused ${movement} · ${Math.min(pb.elapsed,duration).toFixed(1)} / ${duration.toFixed(1)}s`;
+  else el.textContent=`Movement preview ready · ${cfg.movement} · ${cfg.duration.toFixed(1)}s`
+}
+function showLightingGodToast(){
+  const el=$("lightingGodToast");if(!el)return;
+  if(app.lighting.godToastTimer)clearTimeout(app.lighting.godToastTimer);
+  el.hidden=false;
+  app.lighting.godToastTimer=setTimeout(()=>{el.hidden=true;app.lighting.godToastTimer=null},3000)
+}
+function pauseLightingPlayback(){
+  app.lighting.playback.playing=false;
+  updateLightingPlaybackStatus()
+}
+function stopLightingPlayback(resetCamera=true){
+  const pb=app.lighting.playback,cam=activeLightingCameraObject();
+  if(resetCamera&&cam&&pb.baseCamera){
+    Object.assign(cam,deepClone(pb.baseCamera));
+    renderLightingCanvas();renderLightingInspector(false);renderLightingObjectList();syncLighting3D()
+  }
+  pb.playing=false;pb.elapsed=0;pb.baseCamera=null;
+  updateLightingPlaybackStatus()
+}
+function playLightingPlayback(){
+  const cam=activeLightingCameraObject();if(!cam)return;
+  const cfg=lightingPlaybackConfig(cam),pb=app.lighting.playback;
+  if(!pb.baseCamera||pb.elapsed<=0){
+    pb.baseCamera=deepClone(cam);pb.duration=cfg.duration;pb.movement=cfg.movement;pb.elapsed=0
+  }
+  pb.playing=true;updateLightingPlaybackStatus()
+}
+function movementPreviewSample(base,movement,t,duration,subject){
+  const cam=deepClone(base),rot=Number(base.rotation||0)*Math.PI/180;
+  const fx=Math.cos(rot),fz=Math.sin(rot),rx=-Math.sin(rot),rz=Math.cos(rot);
+  const ease=t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;
+  const travel=170,side=140;
+  switch(String(movement||"Static")){
+    case "Pan Left": cam.rotation=Number(base.rotation||0)-32*ease;break;
+    case "Pan Right": cam.rotation=Number(base.rotation||0)+32*ease;break;
+    case "Tilt Up": cam.tilt=Number(base.tilt||0)+18*ease;break;
+    case "Tilt Down": cam.tilt=Number(base.tilt||0)-18*ease;break;
+    case "Dolly In":
+    case "Push In": cam.x=Number(base.x||600)+fx*travel*ease;cam.y=Number(base.y||400)+fz*travel*ease;break;
+    case "Dolly Out":
+    case "Pull Out": cam.x=Number(base.x||600)-fx*travel*ease;cam.y=Number(base.y||400)-fz*travel*ease;break;
+    case "Tracking Left": cam.x=Number(base.x||600)-rx*side*ease;cam.y=Number(base.y||400)-rz*side*ease;break;
+    case "Tracking Right": cam.x=Number(base.x||600)+rx*side*ease;cam.y=Number(base.y||400)+rz*side*ease;break;
+    case "Crane / Jib": cam.height3d=Number(base.height3d||1.65)+1.2*ease;cam.tilt=Number(base.tilt||0)-8*ease;break;
+    case "Zoom In":{
+      const mm0=parseLensMm(base.lens),mm1=Math.min(135,mm0*1.8);
+      cam.lens=`${Math.round(mm0+(mm1-mm0)*ease)}mm`;break}
+    case "Zoom Out":{
+      const mm0=parseLensMm(base.lens),mm1=Math.max(18,mm0*.55);
+      cam.lens=`${Math.round(mm0+(mm1-mm0)*ease)}mm`;break}
+    case "Orbit":
+      if(subject){
+        const sp=planToWorld(subject),bp=planToWorld(base),dx=bp.x-sp.x,dz=bp.z-sp.z,r=Math.max(.8,Math.hypot(dx,dz)),a0=Math.atan2(dz,dx),a=a0+(Math.PI/4)*ease;
+        cam.x=600+(sp.x+Math.cos(a)*r)*100;cam.y=400+(sp.z+Math.sin(a)*r)*100;
+        cam.rotation=normalizeDegrees(Math.atan2(sp.z-((cam.y-400)/100),sp.x-((cam.x-600)/100))*180/Math.PI)
+      }
+      break;
+    case "Whip Pan": cam.rotation=Number(base.rotation||0)+95*ease;break;
+    case "Handheld":
+      cam.x=Number(base.x||600)+Math.sin(t*duration*12)*8;
+      cam.y=Number(base.y||400)+Math.cos(t*duration*9)*7;
+      cam.rotation=Number(base.rotation||0)+Math.sin(t*duration*7)*2.2;
+      cam.tilt=Number(base.tilt||0)+Math.cos(t*duration*8)*1.7;
+      break;
+    default:break
+  }
+  cam.autoFrame=false;
+  return cam
+}
+function updateLightingPlayback(dt){
+  const pb=app.lighting.playback,cam=activeLightingCameraObject();
+  if(!pb.playing||!cam||!pb.baseCamera)return;
+  pb.elapsed=Math.min(pb.elapsed+dt,pb.duration);
+  const t=Math.max(0,Math.min(1,pb.elapsed/Math.max(.001,pb.duration)));
+  const subject=findLightingSubject(pb.baseCamera);
+  Object.assign(cam,movementPreviewSample(pb.baseCamera,pb.movement,t,pb.duration,subject));
+  updateLightingPlaybackStatus();
+  renderLightingCanvas();renderLightingInspector(false);renderLightingObjectList();updateThreeCameraFromObject();
+  if(t>=1){pb.playing=false;updateLightingPlaybackStatus(`Complete · ${pb.movement} · ${pb.duration.toFixed(1)}s`)}
 }
 
 function setLightingViewMode(mode){
@@ -1798,13 +1935,8 @@ async function renderLightingViewMode(){
   $("lightingCameraModeBtn").classList.toggle("active",cameraMode);
   $("lightingPlanView").hidden=cameraMode;
   $("lightingCameraView").hidden=!cameraMode;
-  if(cameraMode){
-    updateLightingPlaybackStatus();
-    await startLighting3D();
-  }else{
-    pauseLightingPlayback();
-    stopLighting3D(false);
-  }
+  if(cameraMode){updateLightingPlaybackStatus();await startLighting3D()}
+  else{pauseLightingPlayback();stopLighting3D(false)}
 }
 
 /* ----- 3D CAMERA VIEW ----- */
@@ -2050,6 +2182,7 @@ function bindThreeControls(canvas){
     camObj.rotation=(Number(camObj.rotation||0)+dx*.22);
     camObj.tilt=Math.max(-89,Math.min(89,Number(camObj.tilt||0)-dy*.18));
     camObj.autoFrame=false;
+    camObj.autoFrame=false;
     markLightingDirty();updateThreeCameraFromObject();renderLightingInspector();renderLightingCanvas()
   });
   canvas.addEventListener("pointerup",()=>{if(app.lighting.three)app.lighting.three.drag=null});
@@ -2272,7 +2405,6 @@ function bind(){
   $("lightingCanvas").addEventListener("pointermove",moveLightingDrag);
   $("lightingCanvas").addEventListener("pointerup",endLightingDrag);
   $("lightingCanvas").addEventListener("pointercancel",endLightingDrag);
-  $("lightingCanvas").addEventListener("pointerleave",endLightingDrag);
   $("lightingCanvas").addEventListener("pointerdown",e=>{
     if(e.target.classList?.contains("lighting-bg")){
       app.lighting.selectedId=null;renderLightingObjectList();renderLightingInspector();renderLightingCanvas()

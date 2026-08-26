@@ -338,12 +338,7 @@ summary{padding:16px 17px;font-weight:850;cursor:pointer;list-style:none}summary
 }
 
 
-/* v3.8.1 — lighting character/framing refinement */
-.lighting-diagram-btn{
-  background:var(--text)!important;
-  color:#090a0b!important;
-  border:1px solid var(--line)!important;
-}
+/* v3.8.2.3 — lighting interaction refinements */
 .lighting-subject-help{
   font-size:9px;
   color:#728089;
@@ -361,74 +356,32 @@ summary{padding:16px 17px;font-weight:850;cursor:pointer;list-style:none}summary
 }
 
 
-/* v3.8.2 — gestures + playback + god view */
+/* v3.8.2.3 — requested Lighting Studio changes */
 .lighting-diagram-btn{
   background:linear-gradient(135deg,var(--cyan),var(--cyan2))!important;
   color:#04151c!important;
   border-color:#2cd3ff!important;
   box-shadow:0 0 0 1px rgba(24,201,245,.18),0 0 22px rgba(18,149,232,.16)!important;
 }
-.lighting-rotate-handle text{
-  pointer-events:none;
-  font-weight:900;
-}
+.lighting-rotate-handle text{pointer-events:none;font-weight:900}
 .lighting-camera-playback{
-  position:absolute;
-  z-index:4;
-  right:18px;
-  bottom:18px;
-  display:flex;
-  align-items:center;
-  gap:8px;
-  background:rgba(6,9,10,.72);
-  border:1px solid rgba(255,255,255,.11);
-  backdrop-filter:blur(10px);
-  border-radius:12px;
-  padding:8px 10px;
+  position:absolute;z-index:4;right:18px;bottom:18px;display:flex;align-items:center;gap:8px;
+  background:rgba(6,9,10,.72);border:1px solid rgba(255,255,255,.11);
+  backdrop-filter:blur(10px);border-radius:12px;padding:8px 10px
 }
 .lighting-playback-btn{
-  border:1px solid rgba(255,255,255,.14);
-  background:rgba(14,18,21,.92);
-  color:#edf5f8;
-  border-radius:8px;
-  min-width:58px;
-  height:32px;
-  padding:0 10px;
-  font:800 10px/1 inherit;
-  cursor:pointer;
+  border:1px solid rgba(255,255,255,.14);background:rgba(14,18,21,.92);color:#edf5f8;
+  border-radius:8px;min-width:58px;height:32px;padding:0 10px;font:800 10px/1 inherit;cursor:pointer
 }
 .lighting-playback-btn:hover{border-color:#3b8ca4;background:#142027}
-.lighting-playback-status{
-  color:#8d9aa2;
-  font-size:10px;
-  white-space:nowrap;
-}
+.lighting-playback-status{color:#8d9aa2;font-size:10px;white-space:nowrap}
 .lighting-god-toast{
-  position:absolute;
-  z-index:7;
-  left:50%;
-  top:50%;
-  transform:translate(-50%,-50%);
-  background:rgba(8,12,14,.92);
-  border:1px solid rgba(255,255,255,.14);
-  color:#f2f7f8;
-  border-radius:999px;
-  padding:14px 20px;
-  font-size:18px;
-  font-weight:800;
-  letter-spacing:.02em;
-  box-shadow:0 18px 46px rgba(0,0,0,.36);
+  position:absolute;z-index:60;left:50%;top:50%;transform:translate(-50%,-50%);
+  background:rgba(8,12,14,.94);border:1px solid rgba(255,255,255,.15);color:#f2f7f8;
+  border-radius:999px;padding:14px 20px;font-size:18px;font-weight:800;letter-spacing:.02em;
+  box-shadow:0 18px 46px rgba(0,0,0,.36)
 }
 @media(max-width:760px){
-  .lighting-camera-playback{
-    left:18px;
-    right:18px;
-    bottom:56px;
-    flex-wrap:wrap;
-    justify-content:flex-start;
-  }
-  .lighting-playback-status{
-    flex:1 1 100%;
-    white-space:normal;
-  }
+  .lighting-camera-playback{left:18px;right:18px;bottom:56px;flex-wrap:wrap}
+  .lighting-playback-status{flex:1 1 100%;white-space:normal}
 }

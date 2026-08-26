@@ -1,15 +1,17 @@
-# Storyboard Shot Builder v3.8.2.1 — Cache Fix
+# Storyboard Shot Builder v3.8.2.3 — Fixed Lighting Playback + Gestures
 
-This is the same v3.8.2 feature build, repackaged with corrected asset versioning.
+This rebuild starts from the working v3.8.1 baseline and re-applies the requested changes cleanly.
 
-Important fix:
-- `index.html` now loads `styles.css?v=3821`
-- `index.html` now loads `app.js?v=3821`
-- `index.html` now loads `config.js?v=3821`
-- added no-cache metadata and `_headers`
-- God View toast moved outside Camera View so it can display from either view
+Fixed / added:
+- Open Lighting Diagram button restored to cyan/teal.
+- Camera View camera distance is calculated from both Lens and Shot Size so CU/MCU/MS/WS framing is reflected in the actual camera view.
+- Old two-button rotate UI removed.
+- One hold-and-drag rotate handle per camera/light/subject.
+- Two-finger object rotation on touch devices.
+- Camera movement playback in Camera View with Play / Pause / Stop.
+- Playback duration uses the linked/current storyboard Shot Duration.
+- Supports Static, Pan, Tilt, Dolly, Push/Pull, Tracking, Crane/Jib, Zoom, Orbit, Handheld and Whip Pan previews.
+- God View button displays “There is no God...” for 3 seconds.
+- No new Supabase SQL required.
 
-Why this was needed:
-The previous v3.8.2 package still referenced `styles.css?v=381` and `app.js?v=381`, so a browser/CDN could keep serving the old v3.8.1 CSS and JavaScript even after the GitHub files were replaced.
-
-No new Supabase SQL is required.
+Important: this build fixes the JavaScript startup error that caused the previous deployment to show a black page.
