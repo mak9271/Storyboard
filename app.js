@@ -1,4 +1,4 @@
-// Storyboard Shot Builder v3.6.1 — chat unread notifications + @mentions
+// Storyboard Shot Builder v3.7 — lighting diagram workspace + collaborative sharing
 const OPTIONS = {
   shotSize:["ECU · Extreme Close Up","CU · Close Up","MCU · Medium Close Up","MS · Medium Shot","MLS · Medium Long Shot","WS · Wide Shot","EWS · Extreme Wide Shot","OTS · Over The Shoulder","POV · Point of View","Insert","Top Shot"],
   angle:["Eye Level","High Angle","Low Angle","Top / Bird's Eye","Dutch Angle","Ground Level","Overhead"],
@@ -36,6 +36,16 @@ let app = {
   permissions: fullPermissions(),
   isOwner: true,
   pendingInvite: new URLSearchParams(location.search).get("invite"),
+  pendingLightingProject: new URLSearchParams(location.search).get("project"),
+  pendingLightingDiagram: new URLSearchParams(location.search).get("diagram"),
+  lighting: {
+    diagrams: [],
+    current: null,
+    selectedId: null,
+    dragging: null,
+    channel: null,
+    dirty: false
+  },
   projectSearch: "",
   projectFilter: "all",
   projectFolder: "all",
@@ -314,7 +324,7 @@ async function start(){
   app.session=session;
   sb.auth.onAuthStateChange(async(event,session)=>{
     app.session=session;
-    if(!session){app.profile=null;app.current=null;unsubscribeRealtime();unsubscribeChatRealtime();unsubscribeChatNoticeRealtime();updateChatBadges(0,false);showAuth();return}
+    if(!session){app.profile=null;app.current=null;unsubscribeRealtime();unsubscribeChatRealtime();unsubscribeChatNoticeRealtime();unsubscribeLightingRealtime();updateChatBadges(0,false);showAuth();return}
     // INITIAL_SESSION is already handled by getSession() below. Token refreshes must
     // never kick an editor back to the Projects screen.
     if(event==="INITIAL_SESSION"||event==="TOKEN_REFRESHED"||event==="USER_UPDATED")return;
@@ -337,6 +347,7 @@ async function afterLogin(){
   await loadProfile();
   await loadCloudProjects();
   if(app.pendingInvite){await acceptPendingInvite();showProjects();return}
+  if(app.pendingLightingProject){const opened=await openPendingLightingLink();if(opened)return}
   const ws=readWorkspace();
   const canRestore=ws?.view==="editor" && ws.projectId && app.projects.some(p=>p.id===ws.projectId);
   if(canRestore){
@@ -1106,6 +1117,237 @@ async function importJSONOnline(file){
   }
 }
 
+
+/* ---------- LIGHTING DIAGRAM WORKSPACE ---------- */
+const LIGHTING_FIXTURES = {
+  "Fresnel":{beam:28,shape:"spot",kelvin:3200,intensity:78,length:360},
+  "COB Spot":{beam:44,shape:"spot",kelvin:5600,intensity:82,length:390},
+  "LED Panel":{beam:100,shape:"panel",kelvin:5600,intensity:68,length:310},
+  "Tube":{beam:125,shape:"tube",kelvin:5600,intensity:58,length:270},
+  "Softbox":{beam:112,shape:"panel",kelvin:5600,intensity:64,length:290},
+  "PAR":{beam:18,shape:"spot",kelvin:5600,intensity:88,length:430},
+  "Practical Bulb":{beam:160,shape:"omni",kelvin:2700,intensity:48,length:190},
+  "Window":{beam:95,shape:"panel",kelvin:5600,intensity:62,length:360},
+  "Candle":{beam:160,shape:"omni",kelvin:2000,intensity:24,length:115}
+};
+const LIGHTING_DIFFUSION = {
+  "None":{spread:0,softness:0,transmission:1},
+  "Quarter Grid Cloth":{spread:10,softness:.18,transmission:.85},
+  "Half Grid Cloth":{spread:18,softness:.30,transmission:.72},
+  "Full Grid Cloth":{spread:28,softness:.44,transmission:.58},
+  "Quarter Diffusion":{spread:8,softness:.14,transmission:.88},
+  "Half Diffusion":{spread:16,softness:.27,transmission:.76},
+  "Full Diffusion":{spread:25,softness:.42,transmission:.62},
+  "Opal":{spread:12,softness:.23,transmission:.82},
+  "Light Frost":{spread:14,softness:.25,transmission:.80},
+  "Heavy Frost":{spread:24,softness:.40,transmission:.64},
+  "Spun":{spread:17,softness:.31,transmission:.73},
+  "Silk":{spread:22,softness:.38,transmission:.68},
+  "Muslin Bounce":{spread:38,softness:.58,transmission:.48}
+};
+function lightingCanEdit(){return app.mode==="local"||app.isOwner||can("shots")||can("project_settings")}
+function lightingLocalKey(projectId=app.current?.id){return `storyboard-v3.7-lighting:${projectId||"none"}`}
+function lightingSelected(){return app.lighting.current?.data?.objects?.find(o=>o.id===app.lighting.selectedId)||null}
+function lightingLinkedShot(diagram=app.lighting.current){
+  if(!diagram||!app.current)return null;
+  const scene=app.current.scenes.find(s=>s.id===diagram.scene_id),shot=scene?.shots.find(s=>s.id===diagram.shot_id);
+  return shot?{scene,shot}:null
+}
+function lightingCurrentShotLink(){const scene=currentScene(),shot=currentShot();return scene&&shot?{scene,shot}:null}
+function kelvinToRgb(kelvin){
+  let t=Math.max(1000,Math.min(40000,Number(kelvin)||5600))/100,r,g,b;
+  if(t<=66){r=255;g=99.4708025861*Math.log(t)-161.1195681661;b=t<=19?0:138.5177312231*Math.log(t-10)-305.0447927307}
+  else{r=329.698727446*Math.pow(t-60,-.1332047592);g=288.1221695283*Math.pow(t-60,-.0755148492);b=255}
+  const c=v=>Math.max(0,Math.min(255,Math.round(v)));return {r:c(r),g:c(g),b:c(b)}
+}
+function kelvinCss(k){const c=kelvinToRgb(k);return `rgb(${c.r},${c.g},${c.b})`}
+function parseLensMm(v){const m=String(v||"").match(/([\d.]+)/);return m?Math.max(8,Number(m[1])):50}
+function cameraHorizontalFov(lens){const mm=parseLensMm(lens);return Math.max(12,Math.min(115,2*Math.atan(36/(2*mm))*180/Math.PI))}
+function lightingDiffusionProps(n){return LIGHTING_DIFFUSION[n]||LIGHTING_DIFFUSION.None}
+function lightingFixtureProps(n){return LIGHTING_FIXTURES[n]||LIGHTING_FIXTURES["COB Spot"]}
+function polarPoint(x,y,len,deg){const a=deg*Math.PI/180;return {x:x+Math.cos(a)*len,y:y+Math.sin(a)*len}}
+function safeSvgText(v){return escapeHtml(String(v??""))}
+function slugName(v){return String(v||"lighting-diagram").trim().toLowerCase().replace(/[^a-z0-9_-]+/g,"-").replace(/^-+|-+$/g,"")||"lighting-diagram"}
+function defaultLightingCamera(){
+  const s=currentShot();return {id:uid(),type:"camera",label:"Camera",x:175,y:400,rotation:0,lens:s?.lens||"50mm",shotSize:s?.shotSize||"CU · Close Up",angle:s?.angle||"Eye Level",cameraHeight:s?.cameraHeight||"Eye Level",movement:s?.movement||"Static",focus:s?.focus||"Shallow Focus"}
+}
+function defaultLightingSubject(){return {id:uid(),type:"subject",label:"Subject",x:650,y:400,rotation:0}}
+function shotLightPreset(s=currentShot()){
+  const source=s?.lightSource||"Off-camera Artificial Light",quality=s?.lightQuality||"";
+  const map={"Candle":["Candle",2000],"Window Light":["Window",5600],"Moonlight":["COB Spot",7000],"Sunlight":["PAR",5600],"Torch":["Practical Bulb",2200],"Practical Light":["Practical Bulb",3000],"Off-camera Artificial Light":["LED Panel",5600],"Mixed":["LED Panel",4300],"Unspecified":["COB Spot",5600]};
+  const [fixture,kelvin]=map[source]||map["Off-camera Artificial Light"],fp=lightingFixtureProps(fixture);
+  let diffusion="None";if(/soft|diffus/i.test(quality))diffusion="Half Grid Cloth";if(/high key/i.test(quality))diffusion="Full Grid Cloth";
+  return {fixture,kelvin,beam:fp.beam,intensity:fp.intensity,diffusion}
+}
+function defaultLightingLight(fixture="COB Spot",opts={}){
+  const p=lightingFixtureProps(fixture);return {id:uid(),type:"light",label:fixture,fixture,x:390,y:245,rotation:28,kelvin:p.kelvin,intensity:p.intensity,beam:p.beam,diffusion:"None",...opts}
+}
+function newLightingDiagramObject(){
+  const link=lightingCurrentShotLink(),sn=link?.scene?.number||1,sh=link?.shot?.shotNo||1;
+  return {id:uid(),persisted:false,project_id:app.current?.id||null,scene_id:link?.scene?.id||null,shot_id:link?.shot?.id||null,created_by:app.session?.user?.id||null,name:`S${String(sn).padStart(2,"0")} · Shot ${String(sh).padStart(2,"0")} Lighting`,updated_at:new Date().toISOString(),data:{canvas:{width:1200,height:800,metersPer100px:1},objects:[defaultLightingCamera(),defaultLightingSubject()],notes:""}}
+}
+function normalizeLightingDiagram(row){
+  const data=deepClone(row?.data||{});if(!Array.isArray(data.objects))data.objects=[];if(!data.canvas)data.canvas={width:1200,height:800,metersPer100px:1};if(typeof data.notes!=="string")data.notes="";
+  return {id:row?.id||uid(),persisted:row?.persisted!==false,project_id:row?.project_id||app.current?.id||null,scene_id:row?.scene_id||null,shot_id:row?.shot_id||null,created_by:row?.created_by||null,name:row?.name||"Lighting Diagram",updated_at:row?.updated_at||new Date().toISOString(),data}
+}
+function lightingShotLabel(scene,shot){return `Scene ${scene.number} · Shot ${shot.shotNo}${shot.summary?` · ${shot.summary}`:""}`}
+function renderLightingShotOptions(){
+  const el=$("lightingLinkedShot");if(!el||!app.current)return;el.innerHTML="";
+  for(const scene of app.current.scenes)for(const shot of scene.shots){const o=document.createElement("option");o.value=`${scene.id}|${shot.id}`;o.textContent=lightingShotLabel(scene,shot);el.appendChild(o)}
+  const d=app.lighting.current;if(d?.scene_id&&d?.shot_id)el.value=`${d.scene_id}|${d.shot_id}`
+}
+function populateLightingCameraSelects(){
+  const pairs=[["lightingObjectLens",OPTIONS.lens],["lightingObjectShotSize",OPTIONS.shotSize],["lightingObjectAngle",OPTIONS.angle],["lightingObjectHeight",OPTIONS.cameraHeight],["lightingObjectMovement",OPTIONS.movement],["lightingObjectFocus",OPTIONS.focus]];
+  for(const [id,arr] of pairs){const el=$(id);if(!el||el.options.length)continue;el.innerHTML=arr.map(v=>`<option>${escapeHtml(v)}</option>`).join("")}
+}
+function renderLightingCameraSummary(){
+  const s=currentShot(),el=$("lightingCameraSummary");if(!el)return;if(!s){el.textContent="No active shot.";return}
+  el.innerHTML=`<strong>${escapeHtml(s.lens||"—")}</strong><span>${escapeHtml(shortValue(s.shotSize))} · ${escapeHtml(s.angle||"—")}</span><span>${escapeHtml(s.cameraHeight||"—")} · ${escapeHtml(s.movement||"—")}</span>`
+}
+function renderLightingDiagramList(){
+  const sel=$("lightingDiagramSelect");if(!sel)return;sel.innerHTML="";
+  const list=[...app.lighting.diagrams].sort((a,b)=>new Date(b.updated_at)-new Date(a.updated_at));
+  if(app.lighting.current&&!list.some(d=>d.id===app.lighting.current.id))list.unshift(app.lighting.current);
+  for(const d of list){const o=document.createElement("option");o.value=d.id;o.textContent=d.name||"Lighting Diagram";sel.appendChild(o)}
+  if(app.lighting.current)sel.value=app.lighting.current.id
+}
+function setLightingCurrent(d){
+  app.lighting.current=normalizeLightingDiagram(d);app.lighting.selectedId=app.lighting.current.data.objects[0]?.id||null;app.lighting.dirty=false;
+  $("lightingDiagramName").value=app.lighting.current.name||"Lighting Diagram";$("lightingDiagramNotes").value=app.lighting.current.data.notes||"";
+  renderLightingShotOptions();renderLightingDiagramList();renderLightingInspector();renderLightingCanvas();renderLightingShotContext();clearLightingDirty()
+}
+function renderLightingShotContext(){
+  const linked=lightingLinkedShot();$("lightingShotContext").textContent=linked?lightingShotLabel(linked.scene,linked.shot):"Not linked to a storyboard shot";
+  $("lightingCanvasTitle").textContent=app.lighting.current?.name||"Lighting Diagram"
+}
+async function loadLightingDiagrams(preferredId=null){
+  if(!app.current)return;
+  if(app.mode==="local"){
+    let list=[];try{list=JSON.parse(localStorage.getItem(lightingLocalKey())||"[]")}catch(e){}
+    app.lighting.diagrams=(list||[]).map(normalizeLightingDiagram)
+  }else{
+    const {data,error}=await sb.from("lighting_diagrams").select("id,project_id,scene_id,shot_id,created_by,name,data,updated_at").eq("project_id",app.current.id).order("updated_at",{ascending:false});
+    if(error){setMsg("lightingDiagramNotice",`Lighting Diagram database is not ready: ${error.message}`,"warning");app.lighting.diagrams=[]}
+    else{setMsg("lightingDiagramNotice","");app.lighting.diagrams=(data||[]).map(normalizeLightingDiagram)}
+  }
+  const d=app.lighting.diagrams.find(x=>x.id===preferredId)||app.lighting.diagrams.find(x=>x.scene_id===app.activeSceneId&&x.shot_id===app.activeShotId)||app.lighting.diagrams[0];
+  setLightingCurrent(d||newLightingDiagramObject())
+}
+async function openLightingWorkspace(options={}){
+  if(!app.current)return;populateLightingCameraSelects();renderLightingCameraSummary();await loadLightingDiagrams(options.diagramId||null);applyLightingPermissions();$("lightingDiagramModal").showModal();subscribeLightingRealtime()
+}
+function closeLightingWorkspace(){if(app.lighting.dirty&&!confirm("Close Lighting Diagram without saving the latest changes?"))return;unsubscribeLightingRealtime();$("lightingDiagramModal").close()}
+function markLightingDirty(){app.lighting.dirty=true;$("saveLightingDiagramBtn").textContent="Save •"}
+function clearLightingDirty(){app.lighting.dirty=false;$("saveLightingDiagramBtn").textContent="Save"}
+function persistLocalLightingList(){localStorage.setItem(lightingLocalKey(),JSON.stringify(app.lighting.diagrams))}
+async function saveLightingDiagram(){
+  const d=app.lighting.current;if(!d||!lightingCanEdit())return;d.name=$("lightingDiagramName").value.trim()||"Lighting Diagram";d.data.notes=$("lightingDiagramNotes").value||"";d.updated_at=new Date().toISOString();
+  if(app.mode==="local"){d.persisted=true;const i=app.lighting.diagrams.findIndex(x=>x.id===d.id);if(i>=0)app.lighting.diagrams[i]=deepClone(d);else app.lighting.diagrams.unshift(deepClone(d));persistLocalLightingList();clearLightingDirty();renderLightingDiagramList();return}
+  const result=d.persisted
+    ?await sb.from("lighting_diagrams").update({scene_id:d.scene_id,shot_id:d.shot_id,name:d.name,data:d.data,updated_at:d.updated_at}).eq("id",d.id).select().single()
+    :await sb.from("lighting_diagrams").insert({id:d.id,project_id:app.current.id,scene_id:d.scene_id,shot_id:d.shot_id,created_by:app.session.user.id,name:d.name,data:d.data}).select().single();
+  if(result.error){setMsg("lightingDiagramNotice",result.error.message,"warning");return}
+  const saved=normalizeLightingDiagram(result.data);saved.persisted=true;const i=app.lighting.diagrams.findIndex(x=>x.id===saved.id);if(i>=0)app.lighting.diagrams[i]=saved;else app.lighting.diagrams.unshift(saved);
+  app.lighting.current=saved;clearLightingDirty();renderLightingDiagramList();renderLightingShotContext();setMsg("lightingDiagramNotice","Lighting diagram saved.");setTimeout(()=>setMsg("lightingDiagramNotice",""),1600)
+}
+async function createNewLightingDiagram(){if(app.lighting.dirty&&!confirm("Create a new diagram without saving the current changes?"))return;setLightingCurrent(newLightingDiagramObject());applyLightingPermissions()}
+async function deleteLightingDiagram(){
+  const d=app.lighting.current;if(!d||!lightingCanEdit()||!confirm(`Delete "${d.name}"?`))return;
+  if(app.mode==="cloud"&&d.persisted){const {error}=await sb.from("lighting_diagrams").delete().eq("id",d.id);if(error){setMsg("lightingDiagramNotice",error.message,"warning");return}}
+  app.lighting.diagrams=app.lighting.diagrams.filter(x=>x.id!==d.id);if(app.mode==="local")persistLocalLightingList();setLightingCurrent(app.lighting.diagrams[0]||newLightingDiagramObject())
+}
+function applyLightingPermissions(){
+  const edit=lightingCanEdit();
+  ["lightingDiagramName","lightingLinkedShot","newLightingDiagramBtn","saveLightingDiagramBtn","deleteLightingDiagramBtn","addLightingCameraBtn","addLightingSubjectBtn","lightingFixturePicker","addLightingFixtureBtn","addShotLightingBtn","applyShotCameraBtn","lightingObjectLabel","lightingObjectFixture","lightingObjectKelvin","lightingObjectIntensity","lightingObjectBeam","lightingObjectDiffusion","lightingObjectLens","lightingObjectShotSize","lightingObjectAngle","lightingObjectHeight","lightingObjectMovement","lightingObjectFocus","lightingObjectRotation","deleteLightingObjectBtn","lightingDiagramNotes"].forEach(id=>{if($(id))$(id).disabled=!edit})
+}
+function addLightingObject(o){const d=app.lighting.current;if(!d||!lightingCanEdit())return;d.data.objects.push(o);app.lighting.selectedId=o.id;markLightingDirty();renderLightingInspector();renderLightingCanvas()}
+function addLightingFixtureFromPicker(){const f=$("lightingFixturePicker").value||"COB Spot",n=app.lighting.current?.data?.objects?.filter(o=>o.type==="light").length||0;addLightingObject(defaultLightingLight(f,{x:360+(n%4)*55,y:210+(n%3)*75,rotation:20+n*22}))}
+function addLightFromCurrentShot(){
+  const s=currentShot();if(!s)return;const p=shotLightPreset(s),subject=app.lighting.current?.data?.objects?.find(o=>o.type==="subject")||{x:650,y:400};
+  let x=350,y=400,rotation=0,dir=s.lightDirection||"";
+  if(/right/i.test(dir)){x=950;rotation=180}else if(/back|top/i.test(dir)){x=650;y=170;rotation=90}else if(/front|bottom/i.test(dir)){x=650;y=650;rotation=-90}else if(!/left/i.test(dir)){x=subject.x-300;y=subject.y-160;rotation=28}
+  addLightingObject(defaultLightingLight(p.fixture,{label:`${p.fixture} · ${shortValue(dir)||"Shot Light"}`,x,y,rotation,kelvin:p.kelvin,beam:p.beam,intensity:p.intensity,diffusion:p.diffusion}))
+}
+function applyCurrentShotToCamera(){
+  const s=currentShot();if(!s)return;let c=app.lighting.current?.data?.objects?.find(o=>o.type==="camera");if(!c){c=defaultLightingCamera();app.lighting.current.data.objects.unshift(c)}
+  Object.assign(c,{lens:s.lens||"50mm",shotSize:s.shotSize||"CU · Close Up",angle:s.angle||"Eye Level",cameraHeight:s.cameraHeight||"Eye Level",movement:s.movement||"Static",focus:s.focus||"Shallow Focus",label:`Camera · ${shortValue(s.shotSize)} · ${s.lens||"50mm"}`});
+  app.lighting.selectedId=c.id;markLightingDirty();renderLightingInspector();renderLightingCanvas()
+}
+function updateLightingLinkedShot(){const d=app.lighting.current;if(!d)return;const [sceneId,shotId]=String($("lightingLinkedShot").value||"").split("|");d.scene_id=sceneId||null;d.shot_id=shotId||null;markLightingDirty();renderLightingShotContext()}
+function selectedLightingChange(){
+  const o=lightingSelected();if(!o||!lightingCanEdit())return;o.label=$("lightingObjectLabel").value.trim()||o.type;o.rotation=Number($("lightingObjectRotation").value)||0;
+  if(o.type==="light"){const old=o.fixture;o.fixture=$("lightingObjectFixture").value;if(old!==o.fixture)o.beam=lightingFixtureProps(o.fixture).beam;o.kelvin=Number($("lightingObjectKelvin").value)||5600;o.intensity=Number($("lightingObjectIntensity").value)||70;o.beam=Number($("lightingObjectBeam").value)||45;o.diffusion=$("lightingObjectDiffusion").value||"None"}
+  else if(o.type==="camera"){o.lens=$("lightingObjectLens").value;o.shotSize=$("lightingObjectShotSize").value;o.angle=$("lightingObjectAngle").value;o.cameraHeight=$("lightingObjectHeight").value;o.movement=$("lightingObjectMovement").value;o.focus=$("lightingObjectFocus").value}
+  markLightingDirty();renderLightingInspector(false);renderLightingCanvas()
+}
+function renderLightingInspector(updateInputs=true){
+  const o=lightingSelected();$("lightingInspectorEmpty").hidden=!!o;$("lightingInspector").hidden=!o;if(!o)return;
+  $("lightingLightFields").hidden=o.type!=="light";$("lightingCameraFields").hidden=o.type!=="camera";
+  if(updateInputs){
+    $("lightingObjectLabel").value=o.label||o.type;$("lightingObjectRotation").value=Number(o.rotation||0);
+    if(o.type==="light"){$("lightingObjectFixture").value=o.fixture||"COB Spot";$("lightingObjectKelvin").value=Number(o.kelvin||5600);$("lightingObjectIntensity").value=Number(o.intensity||70);$("lightingObjectBeam").value=Number(o.beam||45);$("lightingObjectDiffusion").value=o.diffusion||"None"}
+    else if(o.type==="camera"){$("lightingObjectLens").value=o.lens||"50mm";$("lightingObjectShotSize").value=o.shotSize||"CU · Close Up";$("lightingObjectAngle").value=o.angle||"Eye Level";$("lightingObjectHeight").value=o.cameraHeight||"Eye Level";$("lightingObjectMovement").value=o.movement||"Static";$("lightingObjectFocus").value=o.focus||"Shallow Focus"}
+  }
+  $("lightingRotationValue").textContent=`${Math.round(Number(o.rotation||0))}°`;
+  if(o.type==="light"){$("lightingKelvinValue").textContent=`${Math.round(Number(o.kelvin||5600))} K`;$("lightingIntensityValue").textContent=`${Math.round(Number(o.intensity||70))}%`;$("lightingBeamValue").textContent=`${Math.round(Number(o.beam||45))}°`}
+}
+function deleteSelectedLightingObject(){const d=app.lighting.current,o=lightingSelected();if(!d||!o||!lightingCanEdit())return;d.data.objects=d.data.objects.filter(x=>x.id!==o.id);app.lighting.selectedId=d.data.objects[0]?.id||null;markLightingDirty();renderLightingInspector();renderLightingCanvas()}
+function lightingObjectSvg(o,selected){
+  const stroke=selected?"#18c9f5":"#dce2e7";
+  if(o.type==="camera"){
+    const fov=cameraHorizontalFov(o.lens),len=280,p1=polarPoint(o.x,o.y,len,o.rotation-fov/2),p2=polarPoint(o.x,o.y,len,o.rotation+fov/2);
+    return `<g class="lighting-object" data-lighting-id="${o.id}"><path d="M ${o.x} ${o.y} L ${p1.x} ${p1.y} L ${p2.x} ${p2.y} Z" fill="rgba(24,201,245,.08)" stroke="rgba(24,201,245,.35)" stroke-width="2"/><g transform="translate(${o.x} ${o.y}) rotate(${o.rotation||0})"><rect x="-28" y="-18" width="46" height="36" rx="7" fill="#0a1115" stroke="${stroke}" stroke-width="${selected?4:2}"/><path d="M 18 -12 L 39 -22 L 39 22 L 18 12 Z" fill="#0a1115" stroke="${stroke}" stroke-width="2"/><line x1="0" y1="18" x2="-12" y2="38" stroke="${stroke}" stroke-width="3"/><line x1="0" y1="18" x2="12" y2="38" stroke="${stroke}" stroke-width="3"/></g><text x="${o.x+48}" y="${o.y-8}" fill="#eef5f8" font-size="17" font-weight="700">${safeSvgText(o.label||"Camera")}</text><text x="${o.x+48}" y="${o.y+14}" fill="#82919b" font-size="13">${safeSvgText(o.lens||"")} · ${Math.round(fov)}° FOV</text></g>`
+  }
+  if(o.type==="subject")return `<g class="lighting-object" data-lighting-id="${o.id}"><circle cx="${o.x}" cy="${o.y}" r="29" fill="#20181a" stroke="${stroke}" stroke-width="${selected?4:2}"/><circle cx="${o.x}" cy="${o.y-8}" r="8" fill="#f1c8a7"/><path d="M ${o.x-14} ${o.y+18} Q ${o.x} ${o.y-2} ${o.x+14} ${o.y+18}" fill="none" stroke="#f1c8a7" stroke-width="6" stroke-linecap="round"/><text x="${o.x+39}" y="${o.y+5}" fill="#eef5f8" font-size="17" font-weight="700">${safeSvgText(o.label||"Subject")}</text></g>`;
+  if(o.type==="light"){
+    const fp=lightingFixtureProps(o.fixture),dp=lightingDiffusionProps(o.diffusion),beam=Math.min(170,Math.max(6,Number(o.beam||fp.beam)+dp.spread)),effective=(Number(o.intensity||70)/100)*dp.transmission,color=kelvinCss(o.kelvin||5600),len=fp.length||330;
+    let beamSvg;if(fp.shape==="omni"){const rad=Math.max(80,len*(.55+effective*.6));beamSvg=`<circle cx="${o.x}" cy="${o.y}" r="${rad}" fill="url(#lg-${o.id})" opacity="${(.38+effective*.35).toFixed(2)}"/>`}
+    else{const p1=polarPoint(o.x,o.y,len,o.rotation-beam/2),p2=polarPoint(o.x,o.y,len,o.rotation+beam/2);beamSvg=`<path d="M ${o.x} ${o.y} L ${p1.x} ${p1.y} L ${p2.x} ${p2.y} Z" fill="url(#lg-${o.id})" opacity="${(.36+effective*.46).toFixed(2)}"/>`}
+    let icon;if(fp.shape==="panel")icon=`<rect x="-20" y="-29" width="40" height="58" rx="5" fill="#121416" stroke="${stroke}" stroke-width="${selected?4:2}"/><line x1="-13" y1="-20" x2="13" y2="20" stroke="${color}" stroke-width="3"/>`;
+    else if(fp.shape==="tube")icon=`<rect x="-8" y="-35" width="16" height="70" rx="8" fill="${color}" stroke="${stroke}" stroke-width="${selected?4:2}"/>`;
+    else if(fp.shape==="omni")icon=`<circle cx="0" cy="0" r="17" fill="${color}" stroke="${stroke}" stroke-width="${selected?4:2}"/><path d="M -9 15 L -6 31 L 6 31 L 9 15" fill="#151719" stroke="${stroke}" stroke-width="2"/>`;
+    else icon=`<path d="M -25 -19 L 11 -26 L 28 -14 L 28 14 L 11 26 L -25 19 Z" fill="#121416" stroke="${stroke}" stroke-width="${selected?4:2}"/><circle cx="22" cy="0" r="10" fill="${color}"/>`;
+    return `<defs><radialGradient id="lg-${o.id}" cx="0%" cy="50%" r="100%"><stop offset="0%" stop-color="${color}" stop-opacity="${Math.min(.9,effective+.2)}"/><stop offset="58%" stop-color="${color}" stop-opacity="${Math.max(.16,effective*.45)}"/><stop offset="100%" stop-color="${color}" stop-opacity="0"/></radialGradient></defs><g class="lighting-object" data-lighting-id="${o.id}">${beamSvg}<g transform="translate(${o.x} ${o.y}) rotate(${o.rotation||0})">${icon}</g><text x="${o.x+35}" y="${o.y-12}" fill="#eef5f8" font-size="16" font-weight="700">${safeSvgText(o.label||o.fixture)}</text><text x="${o.x+35}" y="${o.y+10}" fill="#a0abb2" font-size="12">${safeSvgText(o.fixture)} · ${Number(o.kelvin||5600)}K · ${safeSvgText(o.diffusion||"None")}</text></g>`
+  }
+  return ""
+}
+function renderLightingCanvas(){
+  const svg=$("lightingCanvas"),d=app.lighting.current;if(!svg||!d)return;
+  let content=`<defs><pattern id="lightingMinorGrid" width="50" height="50" patternUnits="userSpaceOnUse"><path d="M 50 0 L 0 0 0 50" fill="none" stroke="#253039" stroke-width="1"/></pattern><pattern id="lightingMajorGrid" width="100" height="100" patternUnits="userSpaceOnUse"><rect width="100" height="100" fill="url(#lightingMinorGrid)"/><path d="M 100 0 L 0 0 0 100" fill="none" stroke="#3b4750" stroke-width="1.5"/></pattern></defs><rect class="lighting-bg" x="0" y="0" width="1200" height="800" fill="#0a0d10"/><rect class="lighting-bg" x="0" y="0" width="1200" height="800" fill="url(#lightingMajorGrid)"/><text x="22" y="32" fill="#73818a" font-size="14">12 m</text><text x="1142" y="777" fill="#73818a" font-size="14">8 m</text>`;
+  content+=(d.data.objects||[]).map(o=>lightingObjectSvg(o,o.id===app.lighting.selectedId)).join("");svg.innerHTML=content;
+  svg.querySelectorAll("[data-lighting-id]").forEach(n=>{n.style.cursor=lightingCanEdit()?"grab":"pointer";n.addEventListener("pointerdown",e=>startLightingDrag(e,n.dataset.lightingId))});
+  renderLightingInspector(false);renderLightingShotContext()
+}
+function lightingSvgPoint(e){const r=$("lightingCanvas").getBoundingClientRect();return {x:(e.clientX-r.left)*1200/r.width,y:(e.clientY-r.top)*800/r.height}}
+function startLightingDrag(e,id){app.lighting.selectedId=id;renderLightingInspector();if(!lightingCanEdit()){renderLightingCanvas();return}const o=lightingSelected();if(!o)return;e.preventDefault();const p=lightingSvgPoint(e);app.lighting.dragging={id,startX:p.x,startY:p.y,objectX:o.x,objectY:o.y};$("lightingCanvas").setPointerCapture?.(e.pointerId);renderLightingCanvas()}
+function moveLightingDrag(e){const d=app.lighting.dragging;if(!d||!lightingCanEdit())return;const o=app.lighting.current?.data?.objects?.find(x=>x.id===d.id);if(!o)return;const p=lightingSvgPoint(e);o.x=Math.max(30,Math.min(1170,d.objectX+p.x-d.startX));o.y=Math.max(30,Math.min(770,d.objectY+p.y-d.startY));markLightingDirty();renderLightingCanvas()}
+function endLightingDrag(){app.lighting.dragging=null}
+function lightingDownload(blob,name){const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1000)}
+function lightingExportSvgString(){const svg=$("lightingCanvas").cloneNode(true);svg.setAttribute("xmlns","http://www.w3.org/2000/svg");svg.setAttribute("width","1200");svg.setAttribute("height","800");return new XMLSerializer().serializeToString(svg)}
+function exportLightingSvg(){lightingDownload(new Blob([lightingExportSvgString()],{type:"image/svg+xml;charset=utf-8"}),`${slugName(app.lighting.current?.name)}.svg`)}
+function exportLightingJson(){const d=deepClone(app.lighting.current);delete d.persisted;lightingDownload(new Blob([JSON.stringify(d,null,2)],{type:"application/json"}),`${slugName(d.name)}.json`)}
+function exportLightingPng(){
+  const blob=new Blob([lightingExportSvgString()],{type:"image/svg+xml;charset=utf-8"}),url=URL.createObjectURL(blob),img=new Image();
+  img.onload=()=>{const c=document.createElement("canvas");c.width=2400;c.height=1600;const x=c.getContext("2d");x.fillStyle="#0a0d10";x.fillRect(0,0,c.width,c.height);x.drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(url);c.toBlob(p=>lightingDownload(p,`${slugName(app.lighting.current?.name)}.png`),"image/png")};img.onerror=()=>{URL.revokeObjectURL(url);alert("Could not export PNG. Try Export SVG instead.")};img.src=url
+}
+async function copyLightingShareLink(){
+  if(!app.lighting.current)return;if(!app.lighting.current.persisted&&lightingCanEdit())await saveLightingDiagram();
+  if(!app.lighting.current.persisted&&app.mode==="cloud"){setMsg("lightingDiagramNotice","Save the diagram before sharing.","warning");return}
+  const u=new URL(location.href);u.search="";u.searchParams.set("project",app.current.id);u.searchParams.set("diagram",app.lighting.current.id);
+  try{await navigator.clipboard.writeText(u.toString());setMsg("lightingDiagramNotice","Share link copied. Project access is still required.")}catch(e){prompt("Copy this diagram link:",u.toString())}
+}
+function subscribeLightingRealtime(){
+  unsubscribeLightingRealtime();if(!sb||app.mode!=="cloud"||!app.current)return;const pid=app.current.id;
+  app.lighting.channel=sb.channel(`lighting-diagrams-${pid}`).on("postgres_changes",{event:"*",schema:"public",table:"lighting_diagrams",filter:`project_id=eq.${pid}`},async()=>{if(!$("lightingDiagramModal")?.open||app.lighting.dragging||app.lighting.dirty)return;const id=app.lighting.current?.id;await loadLightingDiagrams(id)}).subscribe()
+}
+function unsubscribeLightingRealtime(){if(sb&&app.lighting.channel){sb.removeChannel(app.lighting.channel);app.lighting.channel=null}}
+async function openPendingLightingLink(){
+  if(!app.pendingLightingProject)return false;const pid=app.pendingLightingProject,did=app.pendingLightingDiagram;
+  if(!app.projects.some(p=>p.id===pid)){alert("You do not have access to this lighting diagram project.");return false}
+  await openCloudProject(pid,{preserveSelection:true});await openLightingWorkspace({diagramId:did});app.pendingLightingProject=null;app.pendingLightingDiagram=null;history.replaceState({},document.title,location.pathname);return true
+}
+
+
 /* ---------- PROJECT MANAGEMENT ---------- */
 function projectDragEnabled(){return app.projectFilter==="all" && !app.projectSearch.trim() && app.projectFolder==="all"}
 async function persistProjectPositions(){
@@ -1208,7 +1450,7 @@ function bind(){
   $("loginForm").onsubmit=doLogin;$("signupForm").onsubmit=doSignup;$("forgotPasswordBtn").onclick=forgotPassword;$("continueOfflineBtn").onclick=continueOffline;
   $("logoutBtn").onclick=logout;$("newCloudProjectBtn").onclick=createCloudProject;$("emptyNewProjectBtn").onclick=createCloudProject;
   $("accountBtn").onclick=()=>$("accountModal").showModal();$("closeAccountBtn").onclick=()=>$("accountModal").close();
-  $("backProjectsBtn").onclick=async()=>{unsubscribeRealtime();unsubscribeChatRealtime();unsubscribeChatNoticeRealtime();updateChatBadges(0,false);if(app.mode==="cloud"){rememberProjectsView();await loadCloudProjects();showProjects()}else showAuth()};
+  $("backProjectsBtn").onclick=async()=>{unsubscribeRealtime();unsubscribeChatRealtime();unsubscribeChatNoticeRealtime();unsubscribeLightingRealtime();updateChatBadges(0,false);if(app.mode==="cloud"){rememberProjectsView();await loadCloudProjects();showProjects()}else showAuth()};
   $("projectSearch").oninput=e=>{app.projectSearch=e.target.value;renderProjects()};
   $("projectFilter").onchange=e=>{app.projectFilter=e.target.value;renderProjects()};
   $("projectFolderFilter").onchange=e=>{app.projectFolder=e.target.value;renderProjects()};
@@ -1220,6 +1462,41 @@ function bind(){
   $("addShotBtn").onclick=addShot;$("mobileAddShotBtn").onclick=addShot;$("duplicateShotBtn").onclick=duplicateShot;$("copyShotBtn").onclick=copyShot;$("pasteShotBtn").onclick=pasteShot;$("moveShotUpBtn").onclick=()=>moveShot(-1);$("moveShotDownBtn").onclick=()=>moveShot(1);$("deleteShotBtn").onclick=deleteShot;
   $("prevShotBtn").onclick=()=>adjacentShot(-1);$("nextShotBtn").onclick=()=>adjacentShot(1);
   $("frameImageInput").onchange=loadImage;$("removeImageBtn").onclick=removeImage;
+
+  // Lighting Diagram workspace
+  $("openLightingDiagramBtn").onclick=()=>openLightingWorkspace();
+  $("closeLightingDiagramBtn").onclick=closeLightingWorkspace;
+  $("lightingDiagramModal").addEventListener("cancel",e=>{e.preventDefault();closeLightingWorkspace()});
+  $("lightingDiagramModal").addEventListener("close",unsubscribeLightingRealtime);
+  $("newLightingDiagramBtn").onclick=createNewLightingDiagram;
+  $("saveLightingDiagramBtn").onclick=saveLightingDiagram;
+  $("deleteLightingDiagramBtn").onclick=deleteLightingDiagram;
+  $("lightingDiagramSelect").onchange=e=>{
+    if(app.lighting.dirty&&!confirm("Switch diagrams without saving the latest changes?")){renderLightingDiagramList();return}
+    const d=app.lighting.diagrams.find(x=>x.id===e.target.value);if(d)setLightingCurrent(d)
+  };
+  $("lightingDiagramName").oninput=e=>{if(!app.lighting.current)return;app.lighting.current.name=e.target.value;markLightingDirty();renderLightingShotContext()};
+  $("lightingDiagramNotes").oninput=e=>{if(!app.lighting.current)return;app.lighting.current.data.notes=e.target.value;markLightingDirty()};
+  $("lightingLinkedShot").onchange=updateLightingLinkedShot;
+  $("addLightingCameraBtn").onclick=()=>addLightingObject(defaultLightingCamera());
+  $("addLightingSubjectBtn").onclick=()=>addLightingObject(defaultLightingSubject());
+  $("addLightingFixtureBtn").onclick=addLightingFixtureFromPicker;
+  $("addShotLightingBtn").onclick=addLightFromCurrentShot;
+  $("applyShotCameraBtn").onclick=applyCurrentShotToCamera;
+  ["lightingObjectLabel","lightingObjectFixture","lightingObjectKelvin","lightingObjectIntensity","lightingObjectBeam","lightingObjectDiffusion",
+   "lightingObjectLens","lightingObjectShotSize","lightingObjectAngle","lightingObjectHeight","lightingObjectMovement","lightingObjectFocus","lightingObjectRotation"]
+    .forEach(id=>["input","change"].forEach(ev=>$(id).addEventListener(ev,selectedLightingChange)));
+  $("deleteLightingObjectBtn").onclick=deleteSelectedLightingObject;
+  $("lightingCanvas").addEventListener("pointermove",moveLightingDrag);
+  $("lightingCanvas").addEventListener("pointerup",endLightingDrag);
+  $("lightingCanvas").addEventListener("pointercancel",endLightingDrag);
+  $("lightingCanvas").addEventListener("pointerdown",e=>{if(e.target.classList?.contains("lighting-bg")){app.lighting.selectedId=null;renderLightingInspector();renderLightingCanvas()}});
+  $("centerLightingViewBtn").onclick=()=>$("lightingCanvas").scrollIntoView({block:"center",behavior:"smooth"});
+  $("exportLightingPngBtn").onclick=exportLightingPng;
+  $("exportLightingSvgBtn").onclick=exportLightingSvg;
+  $("exportLightingJsonBtn").onclick=exportLightingJson;
+  $("shareLightingDiagramBtn").onclick=copyLightingShareLink;
+
   $("sheetToggleBtn").onclick=()=>toggleSheet();$("mobileSheetBtn").onclick=()=>toggleSheet();$("closeSheetBtn").onclick=()=>toggleSheet(false);$("shotsPerPage").onchange=renderSheet;$("printSheetBtn").onclick=()=>window.print();
   $("exportBtn").onclick=exportJSON;$("importInput").onchange=e=>{const f=e.target.files[0];if(f)importJSONOnline(f).catch(err=>alert(err.message||"Import failed."));e.target.value="";};
   document.querySelectorAll("[data-focus]").forEach(b=>b.onclick=()=>{$(b.dataset.focus).focus();$(b.dataset.focus).scrollIntoView({behavior:"smooth",block:"center"})});

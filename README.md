@@ -1,15 +1,22 @@
-# Storyboard Shot Builder v3.6.1
+# Storyboard Shot Builder v3.7 — Lighting Diagram
 
-Base: v3.6 Collaboration Workspace.
+Base: v3.6.1 Chat Notifications.
 
-Changes in this build:
-- Unread chat count appears beside `Collaborate · Chat` and beside the `Chat Room` tab.
-- Unread count increases in realtime while the project is open.
-- If an unread message contains the current user's `@username`, an `@` marker appears beside the unread count.
-- Added a Mention dropdown in chat so collaborators can insert an exact `@username`.
-- Mentions are highlighted inside chat messages.
-- Opening the Chat Room marks current messages as read.
-- Read state is stored per user + project in browser localStorage, so it survives refresh/reopen on the same browser.
-- No new Supabase SQL is required for this version.
+New:
+- Lighting Diagram button inside LIGHT & SPACE.
+- 12 m × 8 m draggable plan.
+- Camera + FOV driven by storyboard lens.
+- Shot camera data: lens, size, angle, height, movement, focus.
+- Kelvin-to-color light beams.
+- Fixture-specific beams for Fresnel, COB Spot, LED Panel, Tube, Softbox, PAR, Practical Bulb, Window and Candle.
+- Diffusion/modifier options: Grid Cloth, Diffusion, Opal, Frost, Spun, Silk and Muslin Bounce.
+- Add a light preset from current Shot Light Source / Direction / Quality.
+- Multiple saved diagrams per project and shot.
+- Project collaborators can view; collaborators with Shot or Project Settings edit permission can edit.
+- Realtime refresh.
+- PNG, SVG and JSON export.
+- Deep share links for existing collaborators.
 
-The v3.6 base remains unchanged; this is a separate build.
+Setup:
+1. Run supabase-v3.7-lighting-diagram.sql once in Supabase SQL Editor.
+2. Deploy all files over the current v3.6.1 build.

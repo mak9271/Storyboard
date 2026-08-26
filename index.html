@@ -11,10 +11,10 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="styles.css?v=36" />
+  <link rel="stylesheet" href="styles.css?v=37" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="config.js"></script>
-  <meta name="storyboard-build" content="v3.5-clean-rebuild" />
+  <meta name="storyboard-build" content="v3.7-lighting-diagram" />
 </head>
 <body>
 
@@ -313,6 +313,13 @@
               <div><label>Light Direction</label><select id="lightDirection"></select></div>
               <div><label>Light Quality</label><select id="lightQuality"></select></div>
               <div class="span-2"><label>Lighting Notes</label><textarea id="lighting" rows="3"></textarea></div>
+              <div class="span-2 lighting-diagram-launch">
+                <div>
+                  <strong>Lighting Diagram</strong>
+                  <small>Place the camera, subjects and fixtures on a plan. Kelvin controls light color; modifiers change the beam.</small>
+                </div>
+                <button id="openLightingDiagramBtn" type="button" class="btn lighting-diagram-btn">Open Lighting Diagram →</button>
+              </div>
               <div class="span-2"><label>Props / Set Elements</label><textarea id="props" rows="3"></textarea></div>
             </div>
           </details>
@@ -453,6 +460,155 @@
     </div>
   </dialog>
 
+
+  <!-- LIGHTING DIAGRAM WORKSPACE -->
+  <dialog id="lightingDiagramModal" class="modal lighting-workspace-modal">
+    <div class="modal-card lighting-workspace-card">
+      <div class="modal-head lighting-workspace-head">
+        <div>
+          <div class="eyebrow">LIGHTING · CAMERA PLAN</div>
+          <h2>Lighting Diagram</h2>
+          <div id="lightingShotContext" class="lighting-shot-context"></div>
+        </div>
+        <button id="closeLightingDiagramBtn" class="icon-btn" type="button">×</button>
+      </div>
+
+      <div id="lightingDiagramNotice" class="notice" hidden></div>
+
+      <div class="lighting-topbar">
+        <div class="lighting-top-field">
+          <label>Diagram</label>
+          <select id="lightingDiagramSelect"></select>
+        </div>
+        <div class="lighting-top-field">
+          <label>Name</label>
+          <input id="lightingDiagramName" placeholder="Lighting Diagram" />
+        </div>
+        <div class="lighting-top-field">
+          <label>Linked Shot</label>
+          <select id="lightingLinkedShot"></select>
+        </div>
+        <div class="lighting-top-actions">
+          <button id="newLightingDiagramBtn" type="button" class="btn ghost small">＋ New</button>
+          <button id="saveLightingDiagramBtn" type="button" class="btn small">Save</button>
+          <button id="deleteLightingDiagramBtn" type="button" class="btn danger small">Delete</button>
+        </div>
+      </div>
+
+      <div class="lighting-layout">
+        <aside class="lighting-toolbox">
+          <section class="lighting-tool-section">
+            <div class="lighting-tool-title">ADD TO PLAN</div>
+            <div class="lighting-add-grid">
+              <button id="addLightingCameraBtn" type="button" class="lighting-tool-btn">⌁ Camera</button>
+              <button id="addLightingSubjectBtn" type="button" class="lighting-tool-btn">● Subject</button>
+            </div>
+            <label>Fixture</label>
+            <select id="lightingFixturePicker">
+              <option>Fresnel</option><option>COB Spot</option><option>LED Panel</option>
+              <option>Tube</option><option>Softbox</option><option>PAR</option>
+              <option>Practical Bulb</option><option>Window</option><option>Candle</option>
+            </select>
+            <button id="addLightingFixtureBtn" type="button" class="btn ghost wide">＋ Add Light</button>
+            <button id="addShotLightingBtn" type="button" class="btn ghost wide">＋ Light from Current Shot</button>
+          </section>
+
+          <section class="lighting-tool-section">
+            <div class="lighting-tool-title">CAMERA FROM STORYBOARD</div>
+            <div id="lightingCameraSummary" class="lighting-camera-summary"></div>
+            <button id="applyShotCameraBtn" type="button" class="btn ghost wide">Apply Current Shot to Camera</button>
+          </section>
+
+          <section class="lighting-tool-section">
+            <div class="lighting-tool-title">SELECTED OBJECT</div>
+            <div id="lightingInspectorEmpty" class="lighting-inspector-empty">Select an item on the plan.</div>
+            <div id="lightingInspector" hidden>
+              <label>Name</label><input id="lightingObjectLabel" />
+
+              <div id="lightingLightFields" hidden>
+                <label>Fixture Type</label>
+                <select id="lightingObjectFixture">
+                  <option>Fresnel</option><option>COB Spot</option><option>LED Panel</option>
+                  <option>Tube</option><option>Softbox</option><option>PAR</option>
+                  <option>Practical Bulb</option><option>Window</option><option>Candle</option>
+                </select>
+
+                <div class="lighting-range-row">
+                  <label>Kelvin <span id="lightingKelvinValue">5600 K</span></label>
+                  <input id="lightingObjectKelvin" type="range" min="1800" max="12000" step="100" />
+                </div>
+                <div class="lighting-range-row">
+                  <label>Intensity <span id="lightingIntensityValue">70%</span></label>
+                  <input id="lightingObjectIntensity" type="range" min="1" max="100" step="1" />
+                </div>
+                <div class="lighting-range-row">
+                  <label>Beam Angle <span id="lightingBeamValue">45°</span></label>
+                  <input id="lightingObjectBeam" type="range" min="8" max="160" step="1" />
+                </div>
+
+                <label>Diffusion / Modifier</label>
+                <select id="lightingObjectDiffusion">
+                  <option>None</option><option>Quarter Grid Cloth</option><option>Half Grid Cloth</option>
+                  <option>Full Grid Cloth</option><option>Quarter Diffusion</option><option>Half Diffusion</option>
+                  <option>Full Diffusion</option><option>Opal</option><option>Light Frost</option>
+                  <option>Heavy Frost</option><option>Spun</option><option>Silk</option><option>Muslin Bounce</option>
+                </select>
+              </div>
+
+              <div id="lightingCameraFields" hidden>
+                <label>Lens</label><select id="lightingObjectLens"></select>
+                <label>Shot Size</label><select id="lightingObjectShotSize"></select>
+                <label>Camera Angle</label><select id="lightingObjectAngle"></select>
+                <label>Camera Height</label><select id="lightingObjectHeight"></select>
+                <label>Movement</label><select id="lightingObjectMovement"></select>
+                <label>Focus</label><select id="lightingObjectFocus"></select>
+              </div>
+
+              <div class="lighting-range-row">
+                <label>Rotation <span id="lightingRotationValue">0°</span></label>
+                <input id="lightingObjectRotation" type="range" min="-180" max="180" step="1" />
+              </div>
+              <button id="deleteLightingObjectBtn" type="button" class="btn danger wide">Delete Selected Object</button>
+            </div>
+          </section>
+        </aside>
+
+        <main class="lighting-stage-wrap">
+          <div class="lighting-stage-toolbar">
+            <div>
+              <strong id="lightingCanvasTitle">Lighting Diagram</strong>
+              <span>Grid: 0.5 m · drag objects to move · select to edit</span>
+            </div>
+            <button id="centerLightingViewBtn" type="button" class="btn ghost small">Center View</button>
+          </div>
+          <div class="lighting-stage">
+            <svg id="lightingCanvas" viewBox="0 0 1200 800" role="img" aria-label="Lighting diagram plan"></svg>
+          </div>
+          <div class="lighting-legend">
+            <span><i class="legend-camera"></i> Camera / FOV</span>
+            <span><i class="legend-light"></i> Fixture / Beam</span>
+            <span><i class="legend-subject"></i> Subject</span>
+            <span>Kelvin color is shown in each light beam.</span>
+          </div>
+        </main>
+      </div>
+
+      <div class="lighting-footer">
+        <div>
+          <label>Diagram Notes</label>
+          <textarea id="lightingDiagramNotes" rows="2" placeholder="Power, rigging, safety, DMX, exposure notes…"></textarea>
+        </div>
+        <div class="lighting-export-actions">
+          <button id="exportLightingPngBtn" type="button" class="btn ghost">Export PNG</button>
+          <button id="exportLightingSvgBtn" type="button" class="btn ghost">Export SVG</button>
+          <button id="exportLightingJsonBtn" type="button" class="btn ghost">Export JSON</button>
+          <button id="shareLightingDiagramBtn" type="button" class="btn">Copy Share Link</button>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+
   <!-- ACCOUNT MODAL -->
   <dialog id="accountModal" class="modal">
     <div class="modal-card compact-modal">
@@ -465,6 +621,6 @@
     </div>
   </dialog>
 
-  <script src="app.js?v=36"></script>
+  <script src="app.js?v=37"></script>
 </body>
 </html>
