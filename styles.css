@@ -336,3 +336,26 @@ summary{padding:16px 17px;font-weight:850;cursor:pointer;list-style:none}summary
   .lighting-catalog-items{grid-template-columns:repeat(3,1fr)}
   .lighting-camera-controls-hint{display:none}
 }
+
+
+/* v3.8.1 — lighting character/framing refinement */
+.lighting-diagram-btn{
+  background:var(--text)!important;
+  color:#090a0b!important;
+  border:1px solid var(--line)!important;
+}
+.lighting-subject-help{
+  font-size:9px;
+  color:#728089;
+  border:1px dashed #283138;
+  border-radius:8px;
+  padding:8px;
+  line-height:1.4;
+  min-height:44px;
+  display:flex;
+  align-items:center;
+}
+.lighting-rotate-ui text{
+  pointer-events:none;
+  font-weight:800;
+}

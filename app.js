@@ -1,4 +1,4 @@
-// Storyboard Shot Builder v3.8 — full-screen lighting studio + 3D camera view
+// Storyboard Shot Builder v3.8.1 — framing-aware camera view + gendered subject model + rotate controls
 const OPTIONS = {
   shotSize:["ECU · Extreme Close Up","CU · Close Up","MCU · Medium Close Up","MS · Medium Shot","MLS · Medium Long Shot","WS · Wide Shot","EWS · Extreme Wide Shot","OTS · Over The Shoulder","POV · Point of View","Insert","Top Shot"],
   angle:["Eye Level","High Angle","Low Angle","Top / Bird's Eye","Dutch Angle","Ground Level","Overhead"],
@@ -1179,6 +1179,55 @@ function cameraHorizontalFov(lens){
 function cameraVerticalFov(lens){
   const mm=parseLensMm(lens);return Math.max(8,Math.min(105,2*Math.atan(24/(2*mm))*180/Math.PI))
 }
+
+function shotFrameCropMeters(shotSize,subjectHeight=1.75){
+  const s=String(shotSize||"").toLowerCase();
+  if(s.includes("extreme close"))return 0.24;
+  if(s.startsWith("cu"))return 0.36;
+  if(s.includes("medium close"))return 0.72;
+  if(s.includes("medium shot"))return 1.22;
+  if(s.includes("medium long"))return Math.min(subjectHeight*1.02,1.65);
+  if(s.includes("wide shot"))return Math.max(subjectHeight*1.18,2.1);
+  if(s.includes("extreme wide"))return Math.max(subjectHeight*2.5,4.5);
+  if(s.includes("over the shoulder"))return 0.9;
+  if(s.includes("point of view"))return 1.0;
+  if(s.includes("insert"))return 0.25;
+  if(s.includes("top shot"))return Math.max(subjectHeight*1.3,2.2);
+  return 1.0
+}
+function shotFrameTargetRatio(shotSize){
+  const s=String(shotSize||"").toLowerCase();
+  if(s.includes("extreme close"))return 0.91;
+  if(s.startsWith("cu"))return 0.88;
+  if(s.includes("medium close"))return 0.84;
+  if(s.includes("medium shot"))return 0.76;
+  if(s.includes("medium long"))return 0.7;
+  if(s.includes("wide shot"))return 0.55;
+  if(s.includes("extreme wide"))return 0.35;
+  if(s.includes("over the shoulder"))return 0.75;
+  return 0.72
+}
+function findLightingSubject(camObj=null){
+  const subs=(app.lighting.current?.data?.objects||[]).filter(o=>o.type==="subject");
+  if(!subs.length)return null;
+  if(!camObj)return subs[0];
+  let best=subs[0],bestDist=Infinity;
+  for(const s of subs){
+    const dx=Number(s.x||0)-Number(camObj.x||0),dy=Number(s.y||0)-Number(camObj.y||0),d=Math.hypot(dx,dy);
+    if(d<bestDist){best=s;bestDist=d}
+  }
+  return best
+}
+function subjectFaceTargetY(subject,shotSize){
+  const h=Number(subject?.height3d||1.75)*(Number(subject?.scale||100)/100);
+  const s=String(shotSize||"").toLowerCase();
+  if(s.includes("extreme close")||s.startsWith("cu"))return h*0.92;
+  if(s.includes("medium close"))return h*0.78;
+  if(s.includes("medium shot"))return h*0.62;
+  if(s.includes("medium long"))return h*0.52;
+  if(s.includes("wide")||s.includes("top shot"))return h*0.5;
+  return h*0.7
+}
 function cameraHeightMeters(label){
   const map={"Eye Level":1.65,"Chest Level":1.35,"Waist Level":1.0,"Table Level":0.75,"Ground Level":0.2,"Overhead":2.8,"Custom":1.65};
   return map[label]||1.65
@@ -1200,6 +1249,7 @@ function normalizeLightingObject(o){
   if(o.type==="camera"){
     if(o.height3d==null)o.height3d=cameraHeightMeters(o.cameraHeight);
     if(o.tilt==null)o.tilt=cameraAngleTilt(o.angle);
+    if(o.autoFrame==null)o.autoFrame=true;
   }else if(o.type==="light"){
     if(o.height3d==null)o.height3d=2.2;
     if(o.tilt==null)o.tilt=-15;
@@ -1207,6 +1257,7 @@ function normalizeLightingObject(o){
   }else if(o.type==="subject"){
     if(o.height3d==null)o.height3d=1.75;
     if(o.scale==null)o.scale=100;
+    if(!o.gender)o.gender="female";
   }
   if(o.rotation==null)o.rotation=0;
   return o
@@ -1221,7 +1272,7 @@ function defaultLightingCamera(){
   })
 }
 function defaultLightingSubject(){
-  return normalizeLightingObject({id:uid(),type:"subject",label:"Subject",x:650,y:400,rotation:180})
+  return normalizeLightingObject({id:uid(),type:"subject",label:"Subject",gender:"female",x:650,y:400,rotation:180})
 }
 function defaultLightingLight(fixture="COB Spot",opts={}){
   const p=lightingFixtureProps(fixture);
@@ -1467,7 +1518,7 @@ function applyLightingPermissions(){
     "lightingObjectKelvin","lightingObjectIntensity","lightingObjectBeam","lightingObjectHeight3d","lightingObjectTilt",
     "lightingObjectLens","lightingObjectShotSize","lightingObjectAngle","lightingObjectHeight","lightingObjectMovement",
     "lightingObjectFocus","lightingCameraHeight3d","lightingCameraTilt","lightingSubjectHeight3d","lightingSubjectScale",
-    "lightingObjectRotation","deleteLightingObjectBtn","lightingDiagramNotes"
+    "lightingSubjectGender","lightingObjectRotation","deleteLightingObjectBtn","lightingDiagramNotes"
   ].forEach(id=>{if($(id))$(id).disabled=!edit})
 }
 function addLightingObject(o){
@@ -1501,14 +1552,15 @@ function applyCurrentShotToCamera(){
     lens:s.lens||"50mm",shotSize:s.shotSize||"CU · Close Up",angle:s.angle||"Eye Level",
     cameraHeight:s.cameraHeight||"Eye Level",movement:s.movement||"Static",focus:s.focus||"Shallow Focus",
     height3d:cameraHeightMeters(s.cameraHeight),tilt:cameraAngleTilt(s.angle),
-    label:`Camera · ${shortValue(s.shotSize)} · ${s.lens||"50mm"}`
+    label:`Camera · ${shortValue(s.shotSize)} · ${s.lens||"50mm"}`,
+    autoFrame:true
   });
   app.lighting.selectedId=c.id;app.lighting.activeCameraId=c.id;
   markLightingDirty();renderLightingObjectList();renderLightingInspector();renderLightingCanvas();syncLighting3D()
 }
 function useSelectedCameraView(){
   const o=lightingSelected();if(!o||o.type!=="camera")return;
-  app.lighting.activeCameraId=o.id;setLightingViewMode("camera")
+  o.autoFrame=true;app.lighting.activeCameraId=o.id;setLightingViewMode("camera")
 }
 function updateLightingLinkedShot(){
   const d=app.lighting.current;if(!d)return;
@@ -1526,14 +1578,19 @@ function selectedLightingChange(){
     o.height3d=Number($("lightingObjectHeight3d").value)||2.2;
     o.tilt=Number($("lightingObjectTilt").value)||0
   }else if(o.type==="camera"){
-    o.lens=$("lightingObjectLens").value;o.shotSize=$("lightingObjectShotSize").value;
-    o.angle=$("lightingObjectAngle").value;o.cameraHeight=$("lightingObjectHeight").value;
-    o.movement=$("lightingObjectMovement").value;o.focus=$("lightingObjectFocus").value;
+    o.lens=$("lightingObjectLens").value;
+    o.shotSize=$("lightingObjectShotSize").value;
+    o.angle=$("lightingObjectAngle").value;
+    o.cameraHeight=$("lightingObjectHeight").value;
+    o.movement=$("lightingObjectMovement").value;
+    o.focus=$("lightingObjectFocus").value;
     o.height3d=Number($("lightingCameraHeight3d").value)||1.65;
-    o.tilt=Number($("lightingCameraTilt").value)||0
+    o.tilt=Number($("lightingCameraTilt").value)||0;
+    o.autoFrame=true
   }else if(o.type==="subject"){
     o.height3d=Number($("lightingSubjectHeight3d").value)||1.75;
-    o.scale=Number($("lightingSubjectScale").value)||100
+    o.scale=Number($("lightingSubjectScale").value)||100;
+    o.gender=$("lightingSubjectGender").value||"female"
   }
   markLightingDirty();renderLightingObjectList();renderLightingInspector(false);renderLightingCanvas();syncLighting3D()
 }
@@ -1562,7 +1619,8 @@ function renderLightingInspector(updateInputs=true){
       renderLightingCameraSummary()
     }else if(o.type==="subject"){
       $("lightingSubjectHeight3d").value=Number(o.height3d||1.75);
-      $("lightingSubjectScale").value=Number(o.scale||100)
+      $("lightingSubjectScale").value=Number(o.scale||100);
+      $("lightingSubjectGender").value=o.gender||"female"
     }
   }
   $("lightingRotationValue").textContent=`${Math.round(Number(o.rotation||0))}°`;
@@ -1588,27 +1646,48 @@ function deleteSelectedLightingObject(){
   markLightingDirty();renderLightingObjectList();renderLightingInspector();renderLightingCanvas();syncLighting3D()
 }
 
+
 function lightingObjectSvg(o,selected){
   const stroke=selected?"#30d7ff":"#edf3f6";
+  const rotateButtons=(cx,cy)=>`
+    <g>
+      <g data-lighting-rotate="${o.id}" data-rotate-delta="-15" class="lighting-rotate-ui">
+        <circle cx="${cx-24}" cy="${cy-30}" r="12" fill="#0b0d10" stroke="#5b6c75" stroke-width="1.4"/>
+        <text x="${cx-24}" y="${cy-26}" fill="#d9e6ec" font-size="13" text-anchor="middle">↺</text>
+      </g>
+      <g data-lighting-rotate="${o.id}" data-rotate-delta="15" class="lighting-rotate-ui">
+        <circle cx="${cx+24}" cy="${cy-30}" r="12" fill="#0b0d10" stroke="#5b6c75" stroke-width="1.4"/>
+        <text x="${cx+24}" y="${cy-26}" fill="#d9e6ec" font-size="13" text-anchor="middle">↻</text>
+      </g>
+    </g>`;
   if(o.type==="camera"){
     const fov=cameraHorizontalFov(o.lens),len=285;
     const p1=polarPoint(o.x,o.y,len,o.rotation-fov/2),p2=polarPoint(o.x,o.y,len,o.rotation+fov/2);
-    return `<g data-lighting-id="${o.id}">
-      <path d="M ${o.x} ${o.y} L ${p1.x} ${p1.y} L ${p2.x} ${p2.y} Z" fill="rgba(48,215,255,.07)" stroke="rgba(48,215,255,.33)" stroke-width="2"/>
-      <g transform="translate(${o.x} ${o.y}) rotate(${o.rotation||0})">
-        <rect x="-27" y="-18" width="43" height="36" rx="7" fill="#090c0e" stroke="${stroke}" stroke-width="${selected?4:2}"/>
-        <path d="M 16 -11 L 38 -21 L 38 21 L 16 11 Z" fill="#090c0e" stroke="${stroke}" stroke-width="2"/>
+    return `<g>
+      <g data-lighting-id="${o.id}">
+        <path d="M ${o.x} ${o.y} L ${p1.x} ${p1.y} L ${p2.x} ${p2.y} Z" fill="rgba(48,215,255,.07)" stroke="rgba(48,215,255,.33)" stroke-width="2"/>
+        <g transform="translate(${o.x} ${o.y}) rotate(${o.rotation||0})">
+          <rect x="-27" y="-18" width="43" height="36" rx="7" fill="#090c0e" stroke="${stroke}" stroke-width="${selected?4:2}"/>
+          <path d="M 16 -11 L 38 -21 L 38 21 L 16 11 Z" fill="#090c0e" stroke="${stroke}" stroke-width="2"/>
+        </g>
+        <text x="${o.x+45}" y="${o.y-5}" fill="#f4f7f8" font-size="15" font-weight="700">${safeSvgText(o.label||"Camera")}</text>
+        <text x="${o.x+45}" y="${o.y+15}" fill="#80909a" font-size="12">${safeSvgText(o.lens||"")} · ${Math.round(fov)}°</text>
       </g>
-      <text x="${o.x+45}" y="${o.y-5}" fill="#f4f7f8" font-size="15" font-weight="700">${safeSvgText(o.label||"Camera")}</text>
-      <text x="${o.x+45}" y="${o.y+15}" fill="#80909a" font-size="12">${safeSvgText(o.lens||"")} · ${Math.round(fov)}°</text>
+      ${rotateButtons(o.x,o.y)}
     </g>`
   }
   if(o.type==="subject"){
-    return `<g data-lighting-id="${o.id}">
-      <circle cx="${o.x}" cy="${o.y}" r="28" fill="#1e1718" stroke="${stroke}" stroke-width="${selected?4:2}"/>
-      <circle cx="${o.x}" cy="${o.y-8}" r="7" fill="#e9b894"/>
-      <path d="M ${o.x-13} ${o.y+17} Q ${o.x} ${o.y-1} ${o.x+13} ${o.y+17}" fill="none" stroke="#e9b894" stroke-width="6" stroke-linecap="round"/>
-      <text x="${o.x+38}" y="${o.y+5}" fill="#f4f7f8" font-size="15" font-weight="700">${safeSvgText(o.label||"Subject")}</text>
+    const bodyRx=o.gender==="male"?18:21, bodyRy=30, noseX=bodyRx+6;
+    return `<g>
+      <g data-lighting-id="${o.id}">
+        <g transform="translate(${o.x} ${o.y}) rotate(${o.rotation||0})">
+          <ellipse cx="0" cy="10" rx="${bodyRx}" ry="${bodyRy}" fill="#13181b" stroke="${stroke}" stroke-width="${selected?4:2}"/>
+          <circle cx="0" cy="-26" r="11" fill="#13181b" stroke="${stroke}" stroke-width="${selected?3:1.6}"/>
+          <text x="${noseX}" y="-21" fill="#eef5f8" font-size="12" transform="rotate(90 ${noseX} -21)">∞</text>
+        </g>
+        <text x="${o.x+35}" y="${o.y+3}" fill="#f4f7f8" font-size="15" font-weight="700">${safeSvgText(o.label||"Subject")}</text>
+      </g>
+      ${rotateButtons(o.x,o.y)}
     </g>`
   }
   if(o.type==="light"){
@@ -1624,18 +1703,22 @@ function lightingObjectSvg(o,selected){
       const p1=polarPoint(o.x,o.y,len,o.rotation-beam/2),p2=polarPoint(o.x,o.y,len,o.rotation+beam/2);
       beamSvg=`<path d="M ${o.x} ${o.y} L ${p1.x} ${p1.y} L ${p2.x} ${p2.y} Z" fill="${color}" opacity="${(.07+effective*.12).toFixed(2)}"/>`
     }
-    return `<g data-lighting-id="${o.id}">
-      ${beamSvg}
-      <g transform="translate(${o.x} ${o.y}) rotate(${o.rotation||0})">
-        <rect x="-21" y="-16" width="42" height="32" rx="7" fill="#0b0d0f" stroke="${stroke}" stroke-width="${selected?4:2}"/>
-        <circle cx="15" cy="0" r="8" fill="${color}"/>
+    return `<g>
+      <g data-lighting-id="${o.id}">
+        ${beamSvg}
+        <g transform="translate(${o.x} ${o.y}) rotate(${o.rotation||0})">
+          <rect x="-21" y="-16" width="42" height="32" rx="7" fill="#0b0d0f" stroke="${stroke}" stroke-width="${selected?4:2}"/>
+          <circle cx="15" cy="0" r="8" fill="${color}"/>
+        </g>
+        <text x="${o.x+34}" y="${o.y-7}" fill="#f4f7f8" font-size="15" font-weight="700">${safeSvgText(o.label||o.fixture)}</text>
+        <text x="${o.x+34}" y="${o.y+13}" fill="#8c9aa2" font-size="11">${safeSvgText(o.fixture)} · ${Number(o.kelvin||5600)}K</text>
       </g>
-      <text x="${o.x+34}" y="${o.y-7}" fill="#f4f7f8" font-size="15" font-weight="700">${safeSvgText(o.label||o.fixture)}</text>
-      <text x="${o.x+34}" y="${o.y+13}" fill="#8c9aa2" font-size="11">${safeSvgText(o.fixture)} · ${Number(o.kelvin||5600)}K</text>
+      ${rotateButtons(o.x,o.y)}
     </g>`
   }
   return ""
 }
+
 function renderLightingCanvas(){
   const svg=$("lightingCanvas"),d=app.lighting.current;if(!svg||!d)return;
   let content=`<defs>
@@ -1650,6 +1733,19 @@ function renderLightingCanvas(){
   svg.querySelectorAll("[data-lighting-id]").forEach(node=>{
     node.style.cursor=lightingCanEdit()?"grab":"pointer";
     node.addEventListener("pointerdown",e=>startLightingDrag(e,node.dataset.lightingId))
+  });
+  svg.querySelectorAll("[data-lighting-rotate]").forEach(node=>{
+    node.style.cursor=lightingCanEdit()?"pointer":"default";
+    node.addEventListener("pointerdown",e=>{
+      e.stopPropagation();
+      if(!lightingCanEdit())return;
+      const obj=app.lighting.current?.data?.objects?.find(x=>x.id===node.dataset.lightingRotate);
+      if(!obj)return;
+      selectLightingObject(obj.id,true);
+      obj.rotation=(Number(obj.rotation||0)+Number(node.dataset.rotateDelta||0)+360)%360;
+      if(obj.type==="camera")obj.autoFrame=true;
+      markLightingDirty();renderLightingInspector();renderLightingCanvas();syncLighting3D();
+    })
   })
 }
 function lightingSvgPoint(e){
@@ -1709,23 +1805,80 @@ function activeLightingCameraObject(){
 function planToWorld(o){
   return {x:(Number(o.x||600)-600)/100,z:(Number(o.y||400)-400)/100}
 }
+
 function makeMannequin(THREE,o){
-  const scale=(Number(o.scale||100)/100),h=Number(o.height3d||1.75)*scale;
-  const g=new THREE.Group(),skin=new THREE.MeshStandardMaterial({color:0xc99775,roughness:.82}),
-        cloth=new THREE.MeshStandardMaterial({color:0x4f5960,roughness:.88});
-  const torso=new THREE.Mesh(new THREE.CapsuleGeometry(.22*scale,.62*scale,5,10),cloth);
-  torso.position.y=h*.56;torso.scale.set(1,.95,1);g.add(torso);
-  const head=new THREE.Mesh(new THREE.SphereGeometry(.16*scale,22,16),skin);
-  head.position.y=h*.88;g.add(head);
-  const limbGeo=new THREE.CylinderGeometry(.055*scale,.065*scale,.58*scale,10);
-  for(const sx of [-1,1]){
-    const arm=new THREE.Mesh(limbGeo,skin);arm.position.set(sx*.28*scale,h*.58,0);arm.rotation.z=sx*.17;g.add(arm);
-    const leg=new THREE.Mesh(new THREE.CylinderGeometry(.065*scale,.075*scale,.72*scale,10),cloth);
-    leg.position.set(sx*.11*scale,h*.20,0);g.add(leg)
+  const scale=(Number(o.scale||100)/100),gender=(o.gender||"female").toLowerCase(),h=Number(o.height3d||1.75)*scale;
+  const g=new THREE.Group();
+  const skin=new THREE.MeshStandardMaterial({color:0xe2b28f,roughness:.86,metalness:.02});
+  const feature=new THREE.MeshStandardMaterial({color:0x2d2522,roughness:.95});
+  const dark=new THREE.MeshStandardMaterial({color:0x8a5d48,roughness:.92});
+  const shoulderScale=gender==="male"?1.18:0.94;
+  const hipScale=gender==="female"?1.18:0.92;
+  const chestScale=gender==="male"?0.95:1.05;
+  const torsoH=h*0.35,legH=h*0.46,headR=h*0.095;
+
+  const pelvis=new THREE.Mesh(new THREE.SphereGeometry(h*0.12,22,18),skin);
+  pelvis.scale.set(hipScale,0.88,0.95);pelvis.position.y=h*0.43;g.add(pelvis);
+
+  const torso=new THREE.Mesh(new THREE.CapsuleGeometry(h*0.085,torsoH,8,16),skin);
+  torso.scale.set(chestScale*shoulderScale,1,0.86);torso.position.y=h*0.61;g.add(torso);
+
+  if(gender==="female"){
+    const breastGeo=new THREE.SphereGeometry(h*0.05,16,14);
+    const b1=new THREE.Mesh(breastGeo,skin),b2=new THREE.Mesh(breastGeo,skin);
+    b1.position.set(-h*0.05,h*0.67,h*0.07);b2.position.set(h*0.05,h*0.67,h*0.07);
+    b1.scale.set(1,0.86,0.72);b2.scale.set(1,0.86,0.72);g.add(b1,b2)
   }
+
+  const neck=new THREE.Mesh(new THREE.CylinderGeometry(h*0.03,h*0.035,h*0.06,12),skin);
+  neck.position.y=h*0.82;g.add(neck);
+
+  const head=new THREE.Mesh(new THREE.SphereGeometry(headR,28,20),skin);
+  head.scale.set(0.96,1.06,0.94);head.position.y=h*0.91;g.add(head);
+
+  const nose=new THREE.Mesh(new THREE.ConeGeometry(headR*0.16,headR*0.22,10),skin);
+  nose.rotation.x=Math.PI/2;nose.position.set(0,h*0.90,headR*0.82);g.add(nose);
+
+  const earGeo=new THREE.SphereGeometry(headR*0.18,10,10);
+  const earL=new THREE.Mesh(earGeo,skin), earR=new THREE.Mesh(earGeo,skin);
+  earL.position.set(-headR*0.96,h*0.91,0);earR.position.set(headR*0.96,h*0.91,0);
+  earL.scale.set(0.6,1,0.3);earR.scale.set(0.6,1,0.3);g.add(earL,earR);
+
+  const eyeGeo=new THREE.SphereGeometry(headR*0.07,8,8);
+  const eyeL=new THREE.Mesh(eyeGeo,feature), eyeR=new THREE.Mesh(eyeGeo,feature);
+  eyeL.position.set(-headR*0.28,h*0.93,headR*0.72);eyeR.position.set(headR*0.28,h*0.93,headR*0.72);g.add(eyeL,eyeR);
+
+  const mouth=new THREE.Mesh(new THREE.TorusGeometry(headR*0.15,headR*0.02,6,14,Math.PI),dark);
+  mouth.position.set(0,h*0.865,headR*0.68);mouth.rotation.z=Math.PI;g.add(mouth);
+
+  const armGeo=new THREE.CapsuleGeometry(h*0.032,h*0.26,6,10);
+  const forearmGeo=new THREE.CapsuleGeometry(h*0.028,h*0.22,6,10);
+  for(const sx of [-1,1]){
+    const upper=new THREE.Mesh(armGeo,skin);
+    upper.position.set(sx*h*0.125,h*0.67,0);upper.rotation.z=sx*(Math.PI/14);
+    const lower=new THREE.Mesh(forearmGeo,skin);
+    lower.position.set(sx*h*0.145,h*0.49,0);lower.rotation.z=sx*(Math.PI/20);
+    const hand=new THREE.Mesh(new THREE.SphereGeometry(h*0.03,12,10),skin);
+    hand.position.set(sx*h*0.15,h*0.35,0);hand.scale.set(0.8,1.2,0.45);
+    g.add(upper,lower,hand)
+  }
+
+  const thighGeo=new THREE.CapsuleGeometry(h*0.045,h*0.28,7,10);
+  const calfGeo=new THREE.CapsuleGeometry(h*0.037,h*0.26,7,10);
+  for(const sx of [-1,1]){
+    const thigh=new THREE.Mesh(thighGeo,skin);
+    thigh.position.set(sx*h*0.052,h*0.25,0);thigh.rotation.z=sx*(Math.PI/42);
+    const calf=new THREE.Mesh(calfGeo,skin);
+    calf.position.set(sx*h*0.052,h*0.07,0);
+    const foot=new THREE.Mesh(new THREE.BoxGeometry(h*0.06,h*0.025,h*0.13),skin);
+    foot.position.set(sx*h*0.052,h*0.005,h*0.04);
+    g.add(thigh,calf,foot)
+  }
+
   g.traverse(m=>{if(m.isMesh){m.castShadow=true;m.receiveShadow=true}});
   return g
 }
+
 function createThreeScene(THREE){
   const state=app.lighting.three,host=$("lighting3dViewport");
   if(!state.renderer){
@@ -1788,20 +1941,46 @@ function createThreeScene(THREE){
   updateThreeCameraFromObject();
   resizeThreeRenderer()
 }
+
 function updateThreeCameraFromObject(){
   const state=app.lighting.three,camObj=activeLightingCameraObject();
   if(!state?.camera||!camObj)return;
-  const p=planToWorld(camObj),height=Number(camObj.height3d||1.65);
-  state.camera.position.set(p.x,height,p.z);
-  state.camera.fov=cameraVerticalFov(camObj.lens);
+  const THREE=state.THREE;
+  const p=planToWorld(camObj);
   const yaw=Number(camObj.rotation||0)*Math.PI/180,tilt=Number(camObj.tilt||0)*Math.PI/180;
-  const dir=state.threeDir||(state.threeDir=new state.THREE.Vector3());
-  dir.set(Math.cos(yaw)*Math.cos(tilt),Math.sin(tilt),Math.sin(yaw)*Math.cos(tilt));
-  state.camera.lookAt(state.camera.position.clone().add(dir));
+  const dir=state.threeDir||(state.threeDir=new THREE.Vector3());
+  dir.set(Math.cos(yaw)*Math.cos(tilt),Math.sin(tilt),Math.sin(yaw)*Math.cos(tilt)).normalize();
+
+  const subject=findLightingSubject(camObj);
+  let cameraPos=new THREE.Vector3(p.x,Number(camObj.height3d||1.65),p.z);
+  let targetPos=cameraPos.clone().add(dir);
+
+  if(subject&&camObj.autoFrame!==false){
+    const sp=planToWorld(subject);
+    const subjectScale=(Number(subject.scale||100)/100);
+    const subjectHeight=Number(subject.height3d||1.75)*subjectScale;
+    const cropH=shotFrameCropMeters(camObj.shotSize,subjectHeight);
+    const occupy=shotFrameTargetRatio(camObj.shotSize);
+    const visibleH=Math.max(0.12,cropH/occupy);
+    const distance=(visibleH/2)/Math.tan(THREE.MathUtils.degToRad(Math.max(8,cameraVerticalFov(camObj.lens))/2));
+    const targetY=subjectFaceTargetY(subject,camObj.shotSize);
+    targetPos=new THREE.Vector3(sp.x,targetY,sp.z);
+    cameraPos=targetPos.clone().sub(dir.clone().multiplyScalar(distance));
+    if(camObj.cameraHeight==="Ground Level")cameraPos.y=Math.min(cameraPos.y,0.35);
+    if(camObj.cameraHeight==="Overhead")cameraPos.y=Math.max(cameraPos.y,targetY+distance*0.45);
+    camObj.x=(cameraPos.x*100)+600;
+    camObj.y=(cameraPos.z*100)+400;
+    camObj.height3d=Math.max(.1,Math.min(6,cameraPos.y))
+  }
+
+  state.camera.position.copy(cameraPos);
+  state.camera.fov=cameraVerticalFov(camObj.lens);
+  state.camera.lookAt(targetPos);
   state.camera.updateProjectionMatrix();
   $("lightingCameraHudTitle").textContent=camObj.label||"Camera View";
-  $("lightingCameraHudMeta").textContent=`${camObj.lens||"50mm"} · ${camObj.angle||"Eye Level"} · ${Number(camObj.height3d||1.65).toFixed(2)} m`
+  $("lightingCameraHudMeta").textContent=`${camObj.lens||"50mm"} · ${camObj.angle||"Eye Level"} · ${escapeHtml(shortValue(camObj.shotSize||""))}`
 }
+
 function resizeThreeRenderer(){
   const state=app.lighting.three,host=$("lighting3dViewport");if(!state?.renderer||!state.camera||!host)return;
   const r=host.getBoundingClientRect(),w=Math.max(2,Math.floor(r.width)),h=Math.max(2,Math.floor(r.height));
@@ -1846,6 +2025,7 @@ function bindThreeControls(canvas){
     const dx=e.clientX-drag.x,dy=e.clientY-drag.y;drag.x=e.clientX;drag.y=e.clientY;
     camObj.rotation=(Number(camObj.rotation||0)+dx*.22);
     camObj.tilt=Math.max(-89,Math.min(89,Number(camObj.tilt||0)-dy*.18));
+    camObj.autoFrame=false;
     markLightingDirty();updateThreeCameraFromObject();renderLightingInspector();renderLightingCanvas()
   });
   canvas.addEventListener("pointerup",()=>{if(app.lighting.three)app.lighting.three.drag=null});
@@ -1862,6 +2042,7 @@ function moveThreeCameraByKeys(dt){
   if(state.keys.has("d")){dx+=rx;dz+=rz}if(state.keys.has("a")){dx-=rx;dz-=rz}
   if(state.keys.has("e"))dy+=1;if(state.keys.has("q"))dy-=1;
   const len=Math.hypot(dx,dz)||1;dx/=len;dz/=len;
+  camObj.autoFrame=false;
   camObj.x=Math.max(0,Math.min(1200,Number(camObj.x||600)+dx*speed*dt*100));
   camObj.y=Math.max(0,Math.min(800,Number(camObj.y||400)+dz*speed*dt*100));
   camObj.height3d=Math.max(.1,Math.min(6,Number(camObj.height3d||1.65)+dy*speed*dt));
@@ -2059,7 +2240,7 @@ function bind(){
     "lightingObjectHeight3d","lightingObjectTilt","lightingObjectLens","lightingObjectShotSize",
     "lightingObjectAngle","lightingObjectHeight","lightingObjectMovement","lightingObjectFocus",
     "lightingCameraHeight3d","lightingCameraTilt","lightingSubjectHeight3d","lightingSubjectScale",
-    "lightingObjectRotation"
+    "lightingSubjectGender","lightingObjectRotation"
   ].forEach(id=>["input","change"].forEach(ev=>$(id).addEventListener(ev,selectedLightingChange)));
 
   $("deleteLightingObjectBtn").onclick=deleteSelectedLightingObject;
