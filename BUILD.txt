@@ -1,0 +1,2 @@
+Storyboard Shot Builder v3.8.2.1-cache-fix
+Expected assets: styles.css?v=3821, app.js?v=3821, config.js?v=3821

@@ -4,6 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="theme-color" content="#050607" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
   <meta name="description" content="Storyboard Shot Builder — collaborative pre-production planning." />
   <title>Storyboard Shot Builder</title>
 
@@ -11,10 +14,10 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="styles.css?v=381" />
+  <link rel="stylesheet" href="styles.css?v=3821" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="config.js"></script>
-  <meta name="storyboard-build" content="v3.8.2-lighting-playback-gestures" />
+  <script src="config.js?v=3821"></script>
+  <meta name="storyboard-build" content="v3.8.2.1-cache-fix" />
 </head>
 <body>
 
@@ -509,9 +512,11 @@
           <div class="lighting-camera-controls-hint">
             Drag = pan / tilt · W A S D = move · Q / E = down / up
           </div>
-          <div id="lightingGodToast" class="lighting-god-toast" hidden>There is no God...</div>
+          
         </div>
       </main>
+
+      <div id="lightingGodToast" class="lighting-god-toast" hidden>There is no God...</div>
 
       <aside id="lightingDrawer" class="lighting-object-drawer">
         <button id="lightingDrawerHeader" type="button" class="lighting-drawer-header">
@@ -669,6 +674,6 @@
     </div>
   </dialog>
 
-  <script src="app.js?v=381"></script>
+  <script src="app.js?v=3821"></script>
 </body>
 </html>
