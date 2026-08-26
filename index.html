@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="styles.css?v=381" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="config.js"></script>
-  <meta name="storyboard-build" content="v3.8.1-lighting-character-framing" />
+  <meta name="storyboard-build" content="v3.8.2-lighting-playback-gestures" />
 </head>
 <body>
 
@@ -472,6 +472,7 @@
         <div class="lighting-view-switch">
           <button id="lightingPlanModeBtn" type="button" class="lighting-mode-btn active">Diagram</button>
           <button id="lightingCameraModeBtn" type="button" class="lighting-mode-btn">Camera View</button>
+          <button id="lightingGodViewBtn" type="button" class="lighting-mode-btn">God View</button>
         </div>
 
         <div class="lighting-add-actions">
@@ -499,9 +500,16 @@
             <strong id="lightingCameraHudTitle">Camera View</strong>
             <span id="lightingCameraHudMeta">50mm · Eye Level</span>
           </div>
+          <div class="lighting-camera-playback">
+            <button id="lightingPlaybackPlayBtn" type="button" class="lighting-playback-btn">Play</button>
+            <button id="lightingPlaybackPauseBtn" type="button" class="lighting-playback-btn">Pause</button>
+            <button id="lightingPlaybackStopBtn" type="button" class="lighting-playback-btn">Stop</button>
+            <span id="lightingPlaybackStatus" class="lighting-playback-status">Movement preview ready</span>
+          </div>
           <div class="lighting-camera-controls-hint">
             Drag = pan / tilt · W A S D = move · Q / E = down / up
           </div>
+          <div id="lightingGodToast" class="lighting-god-toast" hidden>There is no God...</div>
         </div>
       </main>
 

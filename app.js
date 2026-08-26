@@ -1,4 +1,4 @@
-// Storyboard Shot Builder v3.8.1 — framing-aware camera view + gendered subject model + rotate controls
+// Storyboard Shot Builder v3.8.2 — lighting playback preview + hold-to-rotate gesture + God View toast
 const OPTIONS = {
   shotSize:["ECU · Extreme Close Up","CU · Close Up","MCU · Medium Close Up","MS · Medium Shot","MLS · Medium Long Shot","WS · Wide Shot","EWS · Extreme Wide Shot","OTS · Over The Shoulder","POV · Point of View","Insert","Top Shot"],
   angle:["Eye Level","High Angle","Low Angle","Top / Bird's Eye","Dutch Angle","Ground Level","Overhead"],
@@ -43,6 +43,9 @@ let app = {
     current: null,
     selectedId: null,
     dragging: null,
+    pointers: {},
+    playback: {playing:false,elapsed:0,duration:4,baseCamera:null,movement:"Static"},
+    godToastTimer: null,
     channel: null,
     dirty: false,
     drawerCollapsed: false,
@@ -1182,30 +1185,30 @@ function cameraVerticalFov(lens){
 
 function shotFrameCropMeters(shotSize,subjectHeight=1.75){
   const s=String(shotSize||"").toLowerCase();
-  if(s.includes("extreme close"))return 0.24;
-  if(s.startsWith("cu"))return 0.36;
-  if(s.includes("medium close"))return 0.72;
-  if(s.includes("medium shot"))return 1.22;
-  if(s.includes("medium long"))return Math.min(subjectHeight*1.02,1.65);
-  if(s.includes("wide shot"))return Math.max(subjectHeight*1.18,2.1);
-  if(s.includes("extreme wide"))return Math.max(subjectHeight*2.5,4.5);
-  if(s.includes("over the shoulder"))return 0.9;
-  if(s.includes("point of view"))return 1.0;
-  if(s.includes("insert"))return 0.25;
-  if(s.includes("top shot"))return Math.max(subjectHeight*1.3,2.2);
-  return 1.0
+  if(s.includes("extreme close"))return 0.16;
+  if(s.startsWith("cu"))return 0.28;
+  if(s.includes("medium close"))return 0.52;
+  if(s.includes("medium shot"))return 0.98;
+  if(s.includes("medium long"))return Math.min(subjectHeight*0.92,1.48);
+  if(s.includes("wide shot"))return Math.max(subjectHeight*1.1,1.95);
+  if(s.includes("extreme wide"))return Math.max(subjectHeight*2.2,4.0);
+  if(s.includes("over the shoulder"))return 0.82;
+  if(s.includes("point of view"))return 0.9;
+  if(s.includes("insert"))return 0.20;
+  if(s.includes("top shot"))return Math.max(subjectHeight*1.22,2.0);
+  return 0.9
 }
 function shotFrameTargetRatio(shotSize){
   const s=String(shotSize||"").toLowerCase();
-  if(s.includes("extreme close"))return 0.91;
-  if(s.startsWith("cu"))return 0.88;
-  if(s.includes("medium close"))return 0.84;
-  if(s.includes("medium shot"))return 0.76;
-  if(s.includes("medium long"))return 0.7;
-  if(s.includes("wide shot"))return 0.55;
-  if(s.includes("extreme wide"))return 0.35;
-  if(s.includes("over the shoulder"))return 0.75;
-  return 0.72
+  if(s.includes("extreme close"))return 0.95;
+  if(s.startsWith("cu"))return 0.92;
+  if(s.includes("medium close"))return 0.88;
+  if(s.includes("medium shot"))return 0.8;
+  if(s.includes("medium long"))return 0.72;
+  if(s.includes("wide shot"))return 0.58;
+  if(s.includes("extreme wide"))return 0.38;
+  if(s.includes("over the shoulder"))return 0.78;
+  return 0.75
 }
 function findLightingSubject(camObj=null){
   const subs=(app.lighting.current?.data?.objects||[]).filter(o=>o.type==="subject");
@@ -1457,7 +1460,7 @@ async function openLightingWorkspace(options={}){
 }
 function closeLightingWorkspace(){
   if(app.lighting.dirty&&!confirm("Close Lighting Diagram without saving the latest changes?"))return;
-  stopLighting3D();unsubscribeLightingRealtime();$("lightingDiagramModal").close()
+  stopLightingPlayback(true);stopLighting3D();unsubscribeLightingRealtime();$("lightingDiagramModal").close()
 }
 function toggleLightingDrawer(force){
   app.lighting.drawerCollapsed=typeof force==="boolean"?force:!app.lighting.drawerCollapsed;
@@ -1649,16 +1652,10 @@ function deleteSelectedLightingObject(){
 
 function lightingObjectSvg(o,selected){
   const stroke=selected?"#30d7ff":"#edf3f6";
-  const rotateButtons=(cx,cy)=>`
-    <g>
-      <g data-lighting-rotate="${o.id}" data-rotate-delta="-15" class="lighting-rotate-ui">
-        <circle cx="${cx-24}" cy="${cy-30}" r="12" fill="#0b0d10" stroke="#5b6c75" stroke-width="1.4"/>
-        <text x="${cx-24}" y="${cy-26}" fill="#d9e6ec" font-size="13" text-anchor="middle">↺</text>
-      </g>
-      <g data-lighting-rotate="${o.id}" data-rotate-delta="15" class="lighting-rotate-ui">
-        <circle cx="${cx+24}" cy="${cy-30}" r="12" fill="#0b0d10" stroke="#5b6c75" stroke-width="1.4"/>
-        <text x="${cx+24}" y="${cy-26}" fill="#d9e6ec" font-size="13" text-anchor="middle">↻</text>
-      </g>
+  const rotateHandle=(cx,cy)=>`
+    <g data-lighting-rotate-handle="${o.id}" class="lighting-rotate-handle">
+      <circle cx="${cx+28}" cy="${cy-30}" r="13" fill="#0b0d10" stroke="#5b6c75" stroke-width="1.4"/>
+      <text x="${cx+28}" y="${cy-25}" fill="#d9e6ec" font-size="13" text-anchor="middle">⟳</text>
     </g>`;
   if(o.type==="camera"){
     const fov=cameraHorizontalFov(o.lens),len=285;
@@ -1673,7 +1670,7 @@ function lightingObjectSvg(o,selected){
         <text x="${o.x+45}" y="${o.y-5}" fill="#f4f7f8" font-size="15" font-weight="700">${safeSvgText(o.label||"Camera")}</text>
         <text x="${o.x+45}" y="${o.y+15}" fill="#80909a" font-size="12">${safeSvgText(o.lens||"")} · ${Math.round(fov)}°</text>
       </g>
-      ${rotateButtons(o.x,o.y)}
+      ${rotateHandle(o.x,o.y)}
     </g>`
   }
   if(o.type==="subject"){
@@ -1687,7 +1684,7 @@ function lightingObjectSvg(o,selected){
         </g>
         <text x="${o.x+35}" y="${o.y+3}" fill="#f4f7f8" font-size="15" font-weight="700">${safeSvgText(o.label||"Subject")}</text>
       </g>
-      ${rotateButtons(o.x,o.y)}
+      ${rotateHandle(o.x,o.y)}
     </g>`
   }
   if(o.type==="light"){
@@ -1713,7 +1710,7 @@ function lightingObjectSvg(o,selected){
         <text x="${o.x+34}" y="${o.y-7}" fill="#f4f7f8" font-size="15" font-weight="700">${safeSvgText(o.label||o.fixture)}</text>
         <text x="${o.x+34}" y="${o.y+13}" fill="#8c9aa2" font-size="11">${safeSvgText(o.fixture)} · ${Number(o.kelvin||5600)}K</text>
       </g>
-      ${rotateButtons(o.x,o.y)}
+      ${rotateHandle(o.x,o.y)}
     </g>`
   }
   return ""
@@ -1734,23 +1731,10 @@ function renderLightingCanvas(){
     node.style.cursor=lightingCanEdit()?"grab":"pointer";
     node.addEventListener("pointerdown",e=>startLightingDrag(e,node.dataset.lightingId))
   });
-  svg.querySelectorAll("[data-lighting-rotate]").forEach(node=>{
-    node.style.cursor=lightingCanEdit()?"pointer":"default";
-    node.addEventListener("pointerdown",e=>{
-      e.stopPropagation();
-      if(!lightingCanEdit())return;
-      const obj=app.lighting.current?.data?.objects?.find(x=>x.id===node.dataset.lightingRotate);
-      if(!obj)return;
-      selectLightingObject(obj.id,true);
-      obj.rotation=(Number(obj.rotation||0)+Number(node.dataset.rotateDelta||0)+360)%360;
-      if(obj.type==="camera")obj.autoFrame=true;
-      markLightingDirty();renderLightingInspector();renderLightingCanvas();syncLighting3D();
-    })
+  svg.querySelectorAll("[data-lighting-rotate-handle]").forEach(node=>{
+    node.style.cursor=lightingCanEdit()?"grab":"default";
+    node.addEventListener("pointerdown",e=>startLightingRotateHandle(e,node.dataset.lightingRotateHandle))
   })
-}
-function lightingSvgPoint(e){
-  const r=$("lightingCanvas").getBoundingClientRect();
-  return {x:(e.clientX-r.left)*1200/r.width,y:(e.clientY-r.top)*800/r.height}
 }
 function startLightingDrag(e,id){
   selectLightingObject(id,true);
@@ -1758,18 +1742,51 @@ function startLightingDrag(e,id){
   const o=lightingSelected();if(!o)return;
   e.preventDefault();
   const p=lightingSvgPoint(e);
-  app.lighting.dragging={id,startX:p.x,startY:p.y,objectX:o.x,objectY:o.y};
+  app.lighting.pointers[e.pointerId]=p;
+  const pts=Object.values(app.lighting.pointers||{});
+  if(pts.length>=2){
+    app.lighting.dragging={id,mode:"multirotate",startRotation:Number(o.rotation||0),startTwoFingerAngle:angleBetween2d(pts[0],pts[1])}
+  }else{
+    app.lighting.dragging={id,mode:"move",pointerId:e.pointerId,startX:p.x,startY:p.y,objectX:o.x,objectY:o.y}
+  }
   $("lightingCanvas").setPointerCapture?.(e.pointerId)
 }
 function moveLightingDrag(e){
-  const d=app.lighting.dragging;if(!d||!lightingCanEdit())return;
-  const o=app.lighting.current?.data?.objects?.find(x=>x.id===d.id);if(!o)return;
+  if(!lightingCanEdit())return;
+  const d=app.lighting.dragging;
   const p=lightingSvgPoint(e);
+  app.lighting.pointers[e.pointerId]=p;
+  if(!d)return;
+  const o=app.lighting.current?.data?.objects?.find(x=>x.id===d.id);if(!o)return;
+  const pts=Object.values(app.lighting.pointers||{});
+  if(pts.length>=2){
+    if(d.mode!=="multirotate"){
+      app.lighting.dragging={id:d.id,mode:"multirotate",startRotation:Number(o.rotation||0),startTwoFingerAngle:angleBetween2d(pts[0],pts[1])};
+      return
+    }
+    const currentAngle=angleBetween2d(pts[0],pts[1]);
+    o.rotation=normalizeDegrees(d.startRotation + (currentAngle-d.startTwoFingerAngle));
+    if(o.type==="camera")o.autoFrame=false;
+    markLightingDirty();renderLightingCanvas();syncLighting3D();return
+  }
+  if(d.mode==="rotate"){
+    const a=angleBetween2d({x:o.x,y:o.y},p);
+    o.rotation=normalizeDegrees(d.startRotation + (a-d.startPointerAngle));
+    if(o.type==="camera")o.autoFrame=false;
+    markLightingDirty();renderLightingCanvas();syncLighting3D();return
+  }
+  if(d.pointerId!=null && e.pointerId!==d.pointerId)return;
   o.x=Math.max(25,Math.min(1175,d.objectX+p.x-d.startX));
   o.y=Math.max(25,Math.min(775,d.objectY+p.y-d.startY));
   markLightingDirty();renderLightingCanvas();syncLighting3D()
 }
-function endLightingDrag(){app.lighting.dragging=null}
+function endLightingDrag(e){
+  if(e?.pointerId!=null && app.lighting.pointers)delete app.lighting.pointers[e.pointerId];
+  const remain=Object.keys(app.lighting.pointers||{}).length;
+  if(!remain || app.lighting.dragging?.mode==="multirotate" || app.lighting.dragging?.pointerId===e?.pointerId){
+    app.lighting.dragging=null
+  }
+}
 
 function setLightingViewMode(mode){
   app.lighting.viewMode=mode;
@@ -1781,7 +1798,13 @@ async function renderLightingViewMode(){
   $("lightingCameraModeBtn").classList.toggle("active",cameraMode);
   $("lightingPlanView").hidden=cameraMode;
   $("lightingCameraView").hidden=!cameraMode;
-  if(cameraMode)await startLighting3D();else stopLighting3D(false)
+  if(cameraMode){
+    updateLightingPlaybackStatus();
+    await startLighting3D();
+  }else{
+    pauseLightingPlayback();
+    stopLighting3D(false);
+  }
 }
 
 /* ----- 3D CAMERA VIEW ----- */
@@ -2002,6 +2025,7 @@ async function startLighting3D(){
   const frame=t=>{
     if(app.lighting.viewMode!=="camera"||!$("lightingDiagramModal").open)return;
     const dt=Math.min(.05,(t-state.last)/1000);state.last=t;
+    updateLightingPlayback(dt);
     moveThreeCameraByKeys(dt);
     if(state.renderer&&state.scene&&state.camera)state.renderer.render(state.scene,state.camera);
     state.raf=requestAnimationFrame(frame)
@@ -2215,6 +2239,7 @@ function bind(){
 
   $("lightingPlanModeBtn").onclick=()=>setLightingViewMode("plan");
   $("lightingCameraModeBtn").onclick=()=>setLightingViewMode("camera");
+  $("lightingGodViewBtn").onclick=showLightingGodToast;
   $("lightingDrawerHeader").onclick=()=>toggleLightingDrawer();
 
   $("newLightingDiagramBtn").onclick=createNewLightingDiagram;
@@ -2247,12 +2272,16 @@ function bind(){
   $("lightingCanvas").addEventListener("pointermove",moveLightingDrag);
   $("lightingCanvas").addEventListener("pointerup",endLightingDrag);
   $("lightingCanvas").addEventListener("pointercancel",endLightingDrag);
+  $("lightingCanvas").addEventListener("pointerleave",endLightingDrag);
   $("lightingCanvas").addEventListener("pointerdown",e=>{
     if(e.target.classList?.contains("lighting-bg")){
       app.lighting.selectedId=null;renderLightingObjectList();renderLightingInspector();renderLightingCanvas()
     }
   });
 
+  $("lightingPlaybackPlayBtn").onclick=playLightingPlayback;
+  $("lightingPlaybackPauseBtn").onclick=pauseLightingPlayback;
+  $("lightingPlaybackStopBtn").onclick=()=>stopLightingPlayback(true);
   $("exportLightingPngBtn").onclick=exportLightingPng;
   $("exportLightingSvgBtn").onclick=exportLightingSvg;
   $("exportLightingJsonBtn").onclick=exportLightingJson;
