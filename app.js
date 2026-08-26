@@ -1,4 +1,4 @@
-// Storyboard Shot Builder v3.7 — lighting diagram workspace + collaborative sharing
+// Storyboard Shot Builder v3.8 — full-screen lighting studio + 3D camera view
 const OPTIONS = {
   shotSize:["ECU · Extreme Close Up","CU · Close Up","MCU · Medium Close Up","MS · Medium Shot","MLS · Medium Long Shot","WS · Wide Shot","EWS · Extreme Wide Shot","OTS · Over The Shoulder","POV · Point of View","Insert","Top Shot"],
   angle:["Eye Level","High Angle","Low Angle","Top / Bird's Eye","Dutch Angle","Ground Level","Overhead"],
@@ -44,7 +44,11 @@ let app = {
     selectedId: null,
     dragging: null,
     channel: null,
-    dirty: false
+    dirty: false,
+    drawerCollapsed: false,
+    viewMode: "plan",
+    activeCameraId: null,
+    three: null
   },
   projectSearch: "",
   projectFilter: "all",
@@ -1118,42 +1122,71 @@ async function importJSONOnline(file){
 }
 
 
-/* ---------- LIGHTING DIAGRAM WORKSPACE ---------- */
+
+/* ---------- LIGHTING STUDIO v3.8 ---------- */
 const LIGHTING_FIXTURES = {
-  "Fresnel":{beam:28,shape:"spot",kelvin:3200,intensity:78,length:360},
-  "COB Spot":{beam:44,shape:"spot",kelvin:5600,intensity:82,length:390},
-  "LED Panel":{beam:100,shape:"panel",kelvin:5600,intensity:68,length:310},
-  "Tube":{beam:125,shape:"tube",kelvin:5600,intensity:58,length:270},
-  "Softbox":{beam:112,shape:"panel",kelvin:5600,intensity:64,length:290},
-  "PAR":{beam:18,shape:"spot",kelvin:5600,intensity:88,length:430},
-  "Practical Bulb":{beam:160,shape:"omni",kelvin:2700,intensity:48,length:190},
-  "Window":{beam:95,shape:"panel",kelvin:5600,intensity:62,length:360},
-  "Candle":{beam:160,shape:"omni",kelvin:2000,intensity:24,length:115}
+  "Fresnel":        {icon:"◉", group:"Spot",      beam:28,  shape:"spot",  kelvin:3200, intensity:78, length:360},
+  "COB Spot":       {icon:"✦", group:"Spot",      beam:44,  shape:"spot",  kelvin:5600, intensity:82, length:390},
+  "PAR":            {icon:"◍", group:"Spot",      beam:18,  shape:"spot",  kelvin:5600, intensity:88, length:430},
+  "Projection":     {icon:"▣", group:"Spot",      beam:20,  shape:"spot",  kelvin:5600, intensity:84, length:450},
+  "LED Panel":      {icon:"▤", group:"Soft",      beam:100, shape:"panel", kelvin:5600, intensity:68, length:310},
+  "Softbox":        {icon:"▱", group:"Soft",      beam:112, shape:"panel", kelvin:5600, intensity:64, length:290},
+  "Lantern":        {icon:"○", group:"Soft",      beam:155, shape:"omni",  kelvin:5600, intensity:58, length:220},
+  "Tube":           {icon:"┃", group:"Linear",    beam:125, shape:"tube",  kelvin:5600, intensity:58, length:270},
+  "Practical Bulb": {icon:"●", group:"Practical", beam:165, shape:"omni",  kelvin:2700, intensity:48, length:190},
+  "Window":         {icon:"▥", group:"Practical", beam:95,  shape:"panel", kelvin:5600, intensity:62, length:360},
+  "Candle":         {icon:"♢", group:"Practical", beam:165, shape:"omni",  kelvin:2000, intensity:24, length:115}
 };
-const LIGHTING_DIFFUSION = {
-  "None":{spread:0,softness:0,transmission:1},
-  "Quarter Grid Cloth":{spread:10,softness:.18,transmission:.85},
-  "Half Grid Cloth":{spread:18,softness:.30,transmission:.72},
-  "Full Grid Cloth":{spread:28,softness:.44,transmission:.58},
-  "Quarter Diffusion":{spread:8,softness:.14,transmission:.88},
-  "Half Diffusion":{spread:16,softness:.27,transmission:.76},
-  "Full Diffusion":{spread:25,softness:.42,transmission:.62},
-  "Opal":{spread:12,softness:.23,transmission:.82},
-  "Light Frost":{spread:14,softness:.25,transmission:.80},
-  "Heavy Frost":{spread:24,softness:.40,transmission:.64},
-  "Spun":{spread:17,softness:.31,transmission:.73},
-  "Silk":{spread:22,softness:.38,transmission:.68},
-  "Muslin Bounce":{spread:38,softness:.58,transmission:.48}
+
+const LIGHTING_MODIFIERS = {
+  "None":                  {short:"Open", spread:0,  softness:0.00, transmission:1.00},
+  "251 Quarter Diffusion": {short:"¼ Diff",spread:8, softness:0.15, transmission:0.88},
+  "250 Half Diffusion":    {short:"½ Diff",spread:16,softness:0.28, transmission:0.76},
+  "216 Full Diffusion":    {short:"Full",  spread:26,softness:0.44, transmission:0.61},
+  "Opal":                  {short:"Opal",  spread:12,softness:0.23, transmission:0.82},
+  "Hampshire Frost":       {short:"Frost", spread:18,softness:0.31, transmission:0.73},
+  "Light Grid Cloth":      {short:"Lt Grid",spread:12,softness:0.24,transmission:0.82},
+  "Grid Cloth":            {short:"Grid",  spread:28,softness:0.46, transmission:0.58},
+  "Magic Cloth":           {short:"Magic", spread:34,softness:0.55, transmission:0.49},
+  "Silk":                  {short:"Silk",  spread:22,softness:0.38, transmission:0.68},
+  "Muslin Bounce":         {short:"Muslin",spread:40,softness:0.60, transmission:0.46}
 };
+
+const THREE_CDN = "https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.module.min.js";
+
 function lightingCanEdit(){return app.mode==="local"||app.isOwner||can("shots")||can("project_settings")}
-function lightingLocalKey(projectId=app.current?.id){return `storyboard-v3.7-lighting:${projectId||"none"}`}
+function lightingLocalKey(projectId=app.current?.id){return `storyboard-v3.8-lighting:${projectId||"none"}`}
 function lightingSelected(){return app.lighting.current?.data?.objects?.find(o=>o.id===app.lighting.selectedId)||null}
+function lightingCurrentShotLink(){const scene=currentScene(),shot=currentShot();return scene&&shot?{scene,shot}:null}
 function lightingLinkedShot(diagram=app.lighting.current){
   if(!diagram||!app.current)return null;
-  const scene=app.current.scenes.find(s=>s.id===diagram.scene_id),shot=scene?.shots.find(s=>s.id===diagram.shot_id);
+  const scene=app.current.scenes.find(s=>s.id===diagram.scene_id);
+  const shot=scene?.shots.find(s=>s.id===diagram.shot_id);
   return shot?{scene,shot}:null
 }
-function lightingCurrentShotLink(){const scene=currentScene(),shot=currentShot();return scene&&shot?{scene,shot}:null}
+function lightingFixtureProps(name){return LIGHTING_FIXTURES[name]||LIGHTING_FIXTURES["COB Spot"]}
+function lightingModifierProps(name){return LIGHTING_MODIFIERS[name]||LIGHTING_MODIFIERS.None}
+function safeSvgText(v){return escapeHtml(String(v??""))}
+function slugName(v){return String(v||"lighting-diagram").trim().toLowerCase().replace(/[^a-z0-9_-]+/g,"-").replace(/^-+|-+$/g,"")||"lighting-diagram"}
+function parseLensMm(v){
+  const s=String(v||"").toLowerCase();
+  if(s==="wide")return 24;if(s==="normal")return 50;if(s==="telephoto")return 100;
+  const m=s.match(/([\d.]+)/);return m?Math.max(8,Number(m[1])):50
+}
+function cameraHorizontalFov(lens){
+  const mm=parseLensMm(lens);return Math.max(10,Math.min(125,2*Math.atan(36/(2*mm))*180/Math.PI))
+}
+function cameraVerticalFov(lens){
+  const mm=parseLensMm(lens);return Math.max(8,Math.min(105,2*Math.atan(24/(2*mm))*180/Math.PI))
+}
+function cameraHeightMeters(label){
+  const map={"Eye Level":1.65,"Chest Level":1.35,"Waist Level":1.0,"Table Level":0.75,"Ground Level":0.2,"Overhead":2.8,"Custom":1.65};
+  return map[label]||1.65
+}
+function cameraAngleTilt(label){
+  const map={"Eye Level":0,"High Angle":-18,"Low Angle":16,"Top / Bird's Eye":-70,"Dutch Angle":0,"Ground Level":9,"Overhead":-45};
+  return map[label]??0
+}
 function kelvinToRgb(kelvin){
   let t=Math.max(1000,Math.min(40000,Number(kelvin)||5600))/100,r,g,b;
   if(t<=66){r=255;g=99.4708025861*Math.log(t)-161.1195681661;b=t<=19?0:138.5177312231*Math.log(t-10)-305.0447927307}
@@ -1161,64 +1194,182 @@ function kelvinToRgb(kelvin){
   const c=v=>Math.max(0,Math.min(255,Math.round(v)));return {r:c(r),g:c(g),b:c(b)}
 }
 function kelvinCss(k){const c=kelvinToRgb(k);return `rgb(${c.r},${c.g},${c.b})`}
-function parseLensMm(v){const m=String(v||"").match(/([\d.]+)/);return m?Math.max(8,Number(m[1])):50}
-function cameraHorizontalFov(lens){const mm=parseLensMm(lens);return Math.max(12,Math.min(115,2*Math.atan(36/(2*mm))*180/Math.PI))}
-function lightingDiffusionProps(n){return LIGHTING_DIFFUSION[n]||LIGHTING_DIFFUSION.None}
-function lightingFixtureProps(n){return LIGHTING_FIXTURES[n]||LIGHTING_FIXTURES["COB Spot"]}
 function polarPoint(x,y,len,deg){const a=deg*Math.PI/180;return {x:x+Math.cos(a)*len,y:y+Math.sin(a)*len}}
-function safeSvgText(v){return escapeHtml(String(v??""))}
-function slugName(v){return String(v||"lighting-diagram").trim().toLowerCase().replace(/[^a-z0-9_-]+/g,"-").replace(/^-+|-+$/g,"")||"lighting-diagram"}
-function defaultLightingCamera(){
-  const s=currentShot();return {id:uid(),type:"camera",label:"Camera",x:175,y:400,rotation:0,lens:s?.lens||"50mm",shotSize:s?.shotSize||"CU · Close Up",angle:s?.angle||"Eye Level",cameraHeight:s?.cameraHeight||"Eye Level",movement:s?.movement||"Static",focus:s?.focus||"Shallow Focus"}
+
+function normalizeLightingObject(o){
+  if(o.type==="camera"){
+    if(o.height3d==null)o.height3d=cameraHeightMeters(o.cameraHeight);
+    if(o.tilt==null)o.tilt=cameraAngleTilt(o.angle);
+  }else if(o.type==="light"){
+    if(o.height3d==null)o.height3d=2.2;
+    if(o.tilt==null)o.tilt=-15;
+    if(!o.diffusion)o.diffusion="None";
+  }else if(o.type==="subject"){
+    if(o.height3d==null)o.height3d=1.75;
+    if(o.scale==null)o.scale=100;
+  }
+  if(o.rotation==null)o.rotation=0;
+  return o
 }
-function defaultLightingSubject(){return {id:uid(),type:"subject",label:"Subject",x:650,y:400,rotation:0}}
-function shotLightPreset(s=currentShot()){
-  const source=s?.lightSource||"Off-camera Artificial Light",quality=s?.lightQuality||"";
-  const map={"Candle":["Candle",2000],"Window Light":["Window",5600],"Moonlight":["COB Spot",7000],"Sunlight":["PAR",5600],"Torch":["Practical Bulb",2200],"Practical Light":["Practical Bulb",3000],"Off-camera Artificial Light":["LED Panel",5600],"Mixed":["LED Panel",4300],"Unspecified":["COB Spot",5600]};
-  const [fixture,kelvin]=map[source]||map["Off-camera Artificial Light"],fp=lightingFixtureProps(fixture);
-  let diffusion="None";if(/soft|diffus/i.test(quality))diffusion="Half Grid Cloth";if(/high key/i.test(quality))diffusion="Full Grid Cloth";
-  return {fixture,kelvin,beam:fp.beam,intensity:fp.intensity,diffusion}
+function defaultLightingCamera(){
+  const s=currentShot();
+  return normalizeLightingObject({
+    id:uid(),type:"camera",label:"Camera",x:175,y:400,rotation:0,
+    lens:s?.lens||"50mm",shotSize:s?.shotSize||"CU · Close Up",
+    angle:s?.angle||"Eye Level",cameraHeight:s?.cameraHeight||"Eye Level",
+    movement:s?.movement||"Static",focus:s?.focus||"Shallow Focus"
+  })
+}
+function defaultLightingSubject(){
+  return normalizeLightingObject({id:uid(),type:"subject",label:"Subject",x:650,y:400,rotation:180})
 }
 function defaultLightingLight(fixture="COB Spot",opts={}){
-  const p=lightingFixtureProps(fixture);return {id:uid(),type:"light",label:fixture,fixture,x:390,y:245,rotation:28,kelvin:p.kelvin,intensity:p.intensity,beam:p.beam,diffusion:"None",...opts}
+  const p=lightingFixtureProps(fixture);
+  return normalizeLightingObject({
+    id:uid(),type:"light",label:fixture,fixture,x:390,y:245,rotation:28,
+    kelvin:p.kelvin,intensity:p.intensity,beam:p.beam,diffusion:"None",...opts
+  })
+}
+function shotLightPreset(s=currentShot()){
+  const source=s?.lightSource||"Off-camera Artificial Light",quality=s?.lightQuality||"";
+  const map={
+    "Candle":["Candle",2000],"Window Light":["Window",5600],"Moonlight":["COB Spot",7000],
+    "Sunlight":["PAR",5600],"Torch":["Practical Bulb",2200],"Practical Light":["Practical Bulb",3000],
+    "Off-camera Artificial Light":["LED Panel",5600],"Mixed":["LED Panel",4300],"Unspecified":["COB Spot",5600]
+  };
+  const [fixture,kelvin]=map[source]||map["Off-camera Artificial Light"];
+  const fp=lightingFixtureProps(fixture);
+  let diffusion="None";
+  if(/soft|diffus/i.test(quality))diffusion="250 Half Diffusion";
+  if(/high key/i.test(quality))diffusion="216 Full Diffusion";
+  return {fixture,kelvin,beam:fp.beam,intensity:fp.intensity,diffusion}
 }
 function newLightingDiagramObject(){
   const link=lightingCurrentShotLink(),sn=link?.scene?.number||1,sh=link?.shot?.shotNo||1;
-  return {id:uid(),persisted:false,project_id:app.current?.id||null,scene_id:link?.scene?.id||null,shot_id:link?.shot?.id||null,created_by:app.session?.user?.id||null,name:`S${String(sn).padStart(2,"0")} · Shot ${String(sh).padStart(2,"0")} Lighting`,updated_at:new Date().toISOString(),data:{canvas:{width:1200,height:800,metersPer100px:1},objects:[defaultLightingCamera(),defaultLightingSubject()],notes:""}}
+  return {
+    id:uid(),persisted:false,project_id:app.current?.id||null,
+    scene_id:link?.scene?.id||null,shot_id:link?.shot?.id||null,
+    created_by:app.session?.user?.id||null,
+    name:`S${String(sn).padStart(2,"0")} · Shot ${String(sh).padStart(2,"0")} Lighting`,
+    updated_at:new Date().toISOString(),
+    data:{canvas:{width:1200,height:800,metersPer100px:1},objects:[defaultLightingCamera(),defaultLightingSubject()],notes:""}
+  }
 }
 function normalizeLightingDiagram(row){
-  const data=deepClone(row?.data||{});if(!Array.isArray(data.objects))data.objects=[];if(!data.canvas)data.canvas={width:1200,height:800,metersPer100px:1};if(typeof data.notes!=="string")data.notes="";
-  return {id:row?.id||uid(),persisted:row?.persisted!==false,project_id:row?.project_id||app.current?.id||null,scene_id:row?.scene_id||null,shot_id:row?.shot_id||null,created_by:row?.created_by||null,name:row?.name||"Lighting Diagram",updated_at:row?.updated_at||new Date().toISOString(),data}
+  const data=deepClone(row?.data||{});
+  if(!Array.isArray(data.objects))data.objects=[];
+  data.objects=data.objects.map(normalizeLightingObject);
+  if(!data.canvas)data.canvas={width:1200,height:800,metersPer100px:1};
+  if(typeof data.notes!=="string")data.notes="";
+  return {
+    id:row?.id||uid(),persisted:row?.persisted!==false,
+    project_id:row?.project_id||app.current?.id||null,
+    scene_id:row?.scene_id||null,shot_id:row?.shot_id||null,
+    created_by:row?.created_by||null,name:row?.name||"Lighting Diagram",
+    updated_at:row?.updated_at||new Date().toISOString(),data
+  }
 }
 function lightingShotLabel(scene,shot){return `Scene ${scene.number} · Shot ${shot.shotNo}${shot.summary?` · ${shot.summary}`:""}`}
-function renderLightingShotOptions(){
-  const el=$("lightingLinkedShot");if(!el||!app.current)return;el.innerHTML="";
-  for(const scene of app.current.scenes)for(const shot of scene.shots){const o=document.createElement("option");o.value=`${scene.id}|${shot.id}`;o.textContent=lightingShotLabel(scene,shot);el.appendChild(o)}
-  const d=app.lighting.current;if(d?.scene_id&&d?.shot_id)el.value=`${d.scene_id}|${d.shot_id}`
-}
+
 function populateLightingCameraSelects(){
-  const pairs=[["lightingObjectLens",OPTIONS.lens],["lightingObjectShotSize",OPTIONS.shotSize],["lightingObjectAngle",OPTIONS.angle],["lightingObjectHeight",OPTIONS.cameraHeight],["lightingObjectMovement",OPTIONS.movement],["lightingObjectFocus",OPTIONS.focus]];
-  for(const [id,arr] of pairs){const el=$(id);if(!el||el.options.length)continue;el.innerHTML=arr.map(v=>`<option>${escapeHtml(v)}</option>`).join("")}
+  const pairs=[
+    ["lightingObjectLens",OPTIONS.lens],["lightingObjectShotSize",OPTIONS.shotSize],
+    ["lightingObjectAngle",OPTIONS.angle],["lightingObjectHeight",OPTIONS.cameraHeight],
+    ["lightingObjectMovement",OPTIONS.movement],["lightingObjectFocus",OPTIONS.focus]
+  ];
+  for(const [id,arr] of pairs){
+    const el=$(id);if(!el)continue;
+    el.innerHTML=arr.map(v=>`<option>${escapeHtml(v)}</option>`).join("")
+  }
+}
+function renderLightingShotOptions(){
+  const el=$("lightingLinkedShot");if(!el||!app.current)return;
+  el.innerHTML="";
+  for(const scene of app.current.scenes){
+    for(const shot of scene.shots){
+      const o=document.createElement("option");
+      o.value=`${scene.id}|${shot.id}`;
+      o.textContent=lightingShotLabel(scene,shot);
+      el.appendChild(o)
+    }
+  }
+  const d=app.lighting.current;
+  if(d?.scene_id&&d?.shot_id)el.value=`${d.scene_id}|${d.shot_id}`
 }
 function renderLightingCameraSummary(){
-  const s=currentShot(),el=$("lightingCameraSummary");if(!el)return;if(!s){el.textContent="No active shot.";return}
-  el.innerHTML=`<strong>${escapeHtml(s.lens||"—")}</strong><span>${escapeHtml(shortValue(s.shotSize))} · ${escapeHtml(s.angle||"—")}</span><span>${escapeHtml(s.cameraHeight||"—")} · ${escapeHtml(s.movement||"—")}</span>`
+  const s=currentShot(),el=$("lightingCameraSummary");if(!el)return;
+  if(!s){el.textContent="No active shot.";return}
+  el.innerHTML=`<strong>${escapeHtml(s.lens||"—")}</strong><span>${escapeHtml(shortValue(s.shotSize))} · ${escapeHtml(s.angle||"—")}</span>`
 }
 function renderLightingDiagramList(){
-  const sel=$("lightingDiagramSelect");if(!sel)return;sel.innerHTML="";
+  const sel=$("lightingDiagramSelect");if(!sel)return;
+  sel.innerHTML="";
   const list=[...app.lighting.diagrams].sort((a,b)=>new Date(b.updated_at)-new Date(a.updated_at));
   if(app.lighting.current&&!list.some(d=>d.id===app.lighting.current.id))list.unshift(app.lighting.current);
-  for(const d of list){const o=document.createElement("option");o.value=d.id;o.textContent=d.name||"Lighting Diagram";sel.appendChild(o)}
+  for(const d of list){
+    const o=document.createElement("option");o.value=d.id;o.textContent=d.name||"Lighting Diagram";sel.appendChild(o)
+  }
   if(app.lighting.current)sel.value=app.lighting.current.id
 }
-function setLightingCurrent(d){
-  app.lighting.current=normalizeLightingDiagram(d);app.lighting.selectedId=app.lighting.current.data.objects[0]?.id||null;app.lighting.dirty=false;
-  $("lightingDiagramName").value=app.lighting.current.name||"Lighting Diagram";$("lightingDiagramNotes").value=app.lighting.current.data.notes||"";
-  renderLightingShotOptions();renderLightingDiagramList();renderLightingInspector();renderLightingCanvas();renderLightingShotContext();clearLightingDirty()
+function renderLightingObjectList(){
+  const el=$("lightingObjectList");if(!el||!app.lighting.current)return;
+  const groups=[
+    ["CAMERAS","camera","⌁"],["LIGHTS","light","✦"],["SUBJECTS","subject","●"]
+  ];
+  el.innerHTML=groups.map(([title,type,icon])=>{
+    const items=app.lighting.current.data.objects.filter(o=>o.type===type);
+    return `<div class="lighting-object-group">
+      <div class="lighting-object-group-title">${title}<span>${items.length}</span></div>
+      ${items.length?items.map(o=>`
+        <button type="button" class="lighting-object-row ${o.id===app.lighting.selectedId?"active":""}" data-lighting-select="${o.id}">
+          <span class="lighting-object-row-icon">${type==="light"?(lightingFixtureProps(o.fixture).icon||icon):icon}</span>
+          <span><strong>${escapeHtml(o.label||o.fixture||type)}</strong><small>${type==="light"?`${escapeHtml(o.fixture)} · ${o.kelvin}K`:type==="camera"?`${escapeHtml(o.lens||"")} · ${escapeHtml(shortValue(o.shotSize))}`:`${Number(o.height3d||1.75).toFixed(2)} m`}</small></span>
+        </button>`).join(""):`<div class="lighting-object-empty">No ${title.toLowerCase()}</div>`}
+    </div>`
+  }).join("");
+  el.querySelectorAll("[data-lighting-select]").forEach(b=>b.onclick=()=>selectLightingObject(b.dataset.lightingSelect,true))
 }
-function renderLightingShotContext(){
-  const linked=lightingLinkedShot();$("lightingShotContext").textContent=linked?lightingShotLabel(linked.scene,linked.shot):"Not linked to a storyboard shot";
-  $("lightingCanvasTitle").textContent=app.lighting.current?.name||"Lighting Diagram"
+function renderFixtureCatalog(){
+  const el=$("lightingFixtureCatalog"),o=lightingSelected();if(!el||!o||o.type!=="light")return;
+  const groups=["Spot","Soft","Linear","Practical"];
+  el.innerHTML=groups.map(group=>`
+    <div class="lighting-catalog-group">
+      <div class="lighting-catalog-group-title">${group}</div>
+      <div class="lighting-catalog-items">
+        ${Object.entries(LIGHTING_FIXTURES).filter(([,v])=>v.group===group).map(([name,v])=>`
+          <button type="button" class="lighting-catalog-chip ${o.fixture===name?"active":""}" data-fixture="${escapeHtml(name)}">
+            <span>${v.icon}</span><small>${escapeHtml(name)}</small>
+          </button>`).join("")}
+      </div>
+    </div>`).join("");
+  el.querySelectorAll("[data-fixture]").forEach(b=>b.onclick=()=>{
+    const selected=lightingSelected();if(!selected||!lightingCanEdit())return;
+    const old=selected.fixture;selected.fixture=b.dataset.fixture;selected.label=selected.label===old?selected.fixture:selected.label;
+    const fp=lightingFixtureProps(selected.fixture);selected.beam=fp.beam;
+    markLightingDirty();renderLightingInspector();renderLightingCanvas();syncLighting3D()
+  })
+}
+function renderModifierCatalog(){
+  const el=$("lightingModifierCatalog"),o=lightingSelected();if(!el||!o||o.type!=="light")return;
+  el.innerHTML=Object.entries(LIGHTING_MODIFIERS).map(([name,v])=>`
+    <button type="button" class="lighting-modifier-chip ${o.diffusion===name?"active":""}" data-modifier="${escapeHtml(name)}" title="${escapeHtml(name)}">
+      ${escapeHtml(v.short)}
+    </button>`).join("");
+  el.querySelectorAll("[data-modifier]").forEach(b=>b.onclick=()=>{
+    const selected=lightingSelected();if(!selected||!lightingCanEdit())return;
+    selected.diffusion=b.dataset.modifier;markLightingDirty();renderLightingInspector();renderLightingCanvas();syncLighting3D()
+  })
+}
+function setLightingCurrent(diagram){
+  app.lighting.current=normalizeLightingDiagram(diagram);
+  const firstCam=app.lighting.current.data.objects.find(o=>o.type==="camera");
+  app.lighting.activeCameraId=firstCam?.id||null;
+  app.lighting.selectedId=firstCam?.id||app.lighting.current.data.objects[0]?.id||null;
+  app.lighting.dirty=false;
+  $("lightingDiagramName").value=app.lighting.current.name||"Lighting Diagram";
+  $("lightingDiagramNotes").value=app.lighting.current.data.notes||"";
+  renderLightingShotOptions();renderLightingDiagramList();renderLightingObjectList();
+  renderLightingInspector();renderLightingCanvas();clearLightingDirty()
 }
 async function loadLightingDiagrams(preferredId=null){
   if(!app.current)return;
@@ -1226,125 +1377,537 @@ async function loadLightingDiagrams(preferredId=null){
     let list=[];try{list=JSON.parse(localStorage.getItem(lightingLocalKey())||"[]")}catch(e){}
     app.lighting.diagrams=(list||[]).map(normalizeLightingDiagram)
   }else{
-    const {data,error}=await sb.from("lighting_diagrams").select("id,project_id,scene_id,shot_id,created_by,name,data,updated_at").eq("project_id",app.current.id).order("updated_at",{ascending:false});
-    if(error){setMsg("lightingDiagramNotice",`Lighting Diagram database is not ready: ${error.message}`,"warning");app.lighting.diagrams=[]}
-    else{setMsg("lightingDiagramNotice","");app.lighting.diagrams=(data||[]).map(normalizeLightingDiagram)}
+    const {data,error}=await sb.from("lighting_diagrams")
+      .select("id,project_id,scene_id,shot_id,created_by,name,data,updated_at")
+      .eq("project_id",app.current.id).order("updated_at",{ascending:false});
+    if(error){
+      setMsg("lightingDiagramNotice",`Lighting Diagram database is not ready: ${error.message}`,"warning");
+      app.lighting.diagrams=[]
+    }else{
+      setMsg("lightingDiagramNotice","");
+      app.lighting.diagrams=(data||[]).map(normalizeLightingDiagram)
+    }
   }
-  const d=app.lighting.diagrams.find(x=>x.id===preferredId)||app.lighting.diagrams.find(x=>x.scene_id===app.activeSceneId&&x.shot_id===app.activeShotId)||app.lighting.diagrams[0];
+  const d=app.lighting.diagrams.find(x=>x.id===preferredId)
+    ||app.lighting.diagrams.find(x=>x.scene_id===app.activeSceneId&&x.shot_id===app.activeShotId)
+    ||app.lighting.diagrams[0];
   setLightingCurrent(d||newLightingDiagramObject())
 }
 async function openLightingWorkspace(options={}){
-  if(!app.current)return;populateLightingCameraSelects();renderLightingCameraSummary();await loadLightingDiagrams(options.diagramId||null);applyLightingPermissions();$("lightingDiagramModal").showModal();subscribeLightingRealtime()
+  if(!app.current)return;
+  populateLightingCameraSelects();
+  renderLightingCameraSummary();
+  await loadLightingDiagrams(options.diagramId||null);
+  applyLightingPermissions();
+  app.lighting.viewMode="plan";
+  renderLightingViewMode();
+  $("lightingDiagramModal").showModal();
+  subscribeLightingRealtime()
 }
-function closeLightingWorkspace(){if(app.lighting.dirty&&!confirm("Close Lighting Diagram without saving the latest changes?"))return;unsubscribeLightingRealtime();$("lightingDiagramModal").close()}
+function closeLightingWorkspace(){
+  if(app.lighting.dirty&&!confirm("Close Lighting Diagram without saving the latest changes?"))return;
+  stopLighting3D();unsubscribeLightingRealtime();$("lightingDiagramModal").close()
+}
+function toggleLightingDrawer(force){
+  app.lighting.drawerCollapsed=typeof force==="boolean"?force:!app.lighting.drawerCollapsed;
+  $("lightingDrawer").classList.toggle("collapsed",app.lighting.drawerCollapsed);
+  $("lightingDrawerBody").hidden=app.lighting.drawerCollapsed;
+  $("lightingDrawerArrow").textContent=app.lighting.drawerCollapsed?"▸":"▾"
+}
+function selectLightingObject(id,openDrawer=false){
+  app.lighting.selectedId=id;
+  const o=lightingSelected();
+  if(o?.type==="camera"&&!app.lighting.activeCameraId)app.lighting.activeCameraId=o.id;
+  if(openDrawer&&app.lighting.drawerCollapsed)toggleLightingDrawer(false);
+  renderLightingObjectList();renderLightingInspector();renderLightingCanvas();syncLighting3D()
+}
 function markLightingDirty(){app.lighting.dirty=true;$("saveLightingDiagramBtn").textContent="Save •"}
 function clearLightingDirty(){app.lighting.dirty=false;$("saveLightingDiagramBtn").textContent="Save"}
 function persistLocalLightingList(){localStorage.setItem(lightingLocalKey(),JSON.stringify(app.lighting.diagrams))}
 async function saveLightingDiagram(){
-  const d=app.lighting.current;if(!d||!lightingCanEdit())return;d.name=$("lightingDiagramName").value.trim()||"Lighting Diagram";d.data.notes=$("lightingDiagramNotes").value||"";d.updated_at=new Date().toISOString();
-  if(app.mode==="local"){d.persisted=true;const i=app.lighting.diagrams.findIndex(x=>x.id===d.id);if(i>=0)app.lighting.diagrams[i]=deepClone(d);else app.lighting.diagrams.unshift(deepClone(d));persistLocalLightingList();clearLightingDirty();renderLightingDiagramList();return}
+  const d=app.lighting.current;if(!d||!lightingCanEdit())return;
+  d.name=$("lightingDiagramName").value.trim()||"Lighting Diagram";
+  d.data.notes=$("lightingDiagramNotes").value||"";
+  d.updated_at=new Date().toISOString();
+  if(app.mode==="local"){
+    d.persisted=true;
+    const i=app.lighting.diagrams.findIndex(x=>x.id===d.id);
+    if(i>=0)app.lighting.diagrams[i]=deepClone(d);else app.lighting.diagrams.unshift(deepClone(d));
+    persistLocalLightingList();clearLightingDirty();renderLightingDiagramList();return
+  }
   const result=d.persisted
     ?await sb.from("lighting_diagrams").update({scene_id:d.scene_id,shot_id:d.shot_id,name:d.name,data:d.data,updated_at:d.updated_at}).eq("id",d.id).select().single()
     :await sb.from("lighting_diagrams").insert({id:d.id,project_id:app.current.id,scene_id:d.scene_id,shot_id:d.shot_id,created_by:app.session.user.id,name:d.name,data:d.data}).select().single();
   if(result.error){setMsg("lightingDiagramNotice",result.error.message,"warning");return}
-  const saved=normalizeLightingDiagram(result.data);saved.persisted=true;const i=app.lighting.diagrams.findIndex(x=>x.id===saved.id);if(i>=0)app.lighting.diagrams[i]=saved;else app.lighting.diagrams.unshift(saved);
-  app.lighting.current=saved;clearLightingDirty();renderLightingDiagramList();renderLightingShotContext();setMsg("lightingDiagramNotice","Lighting diagram saved.");setTimeout(()=>setMsg("lightingDiagramNotice",""),1600)
+  const saved=normalizeLightingDiagram(result.data);saved.persisted=true;
+  const i=app.lighting.diagrams.findIndex(x=>x.id===saved.id);
+  if(i>=0)app.lighting.diagrams[i]=saved;else app.lighting.diagrams.unshift(saved);
+  app.lighting.current=saved;clearLightingDirty();renderLightingDiagramList();
+  setMsg("lightingDiagramNotice","Saved.");setTimeout(()=>setMsg("lightingDiagramNotice",""),1200)
 }
-async function createNewLightingDiagram(){if(app.lighting.dirty&&!confirm("Create a new diagram without saving the current changes?"))return;setLightingCurrent(newLightingDiagramObject());applyLightingPermissions()}
+async function createNewLightingDiagram(){
+  if(app.lighting.dirty&&!confirm("Create a new diagram without saving the latest changes?"))return;
+  setLightingCurrent(newLightingDiagramObject());applyLightingPermissions()
+}
 async function deleteLightingDiagram(){
   const d=app.lighting.current;if(!d||!lightingCanEdit()||!confirm(`Delete "${d.name}"?`))return;
-  if(app.mode==="cloud"&&d.persisted){const {error}=await sb.from("lighting_diagrams").delete().eq("id",d.id);if(error){setMsg("lightingDiagramNotice",error.message,"warning");return}}
-  app.lighting.diagrams=app.lighting.diagrams.filter(x=>x.id!==d.id);if(app.mode==="local")persistLocalLightingList();setLightingCurrent(app.lighting.diagrams[0]||newLightingDiagramObject())
+  if(app.mode==="cloud"&&d.persisted){
+    const {error}=await sb.from("lighting_diagrams").delete().eq("id",d.id);
+    if(error){setMsg("lightingDiagramNotice",error.message,"warning");return}
+  }
+  app.lighting.diagrams=app.lighting.diagrams.filter(x=>x.id!==d.id);
+  if(app.mode==="local")persistLocalLightingList();
+  setLightingCurrent(app.lighting.diagrams[0]||newLightingDiagramObject())
 }
 function applyLightingPermissions(){
   const edit=lightingCanEdit();
-  ["lightingDiagramName","lightingLinkedShot","newLightingDiagramBtn","saveLightingDiagramBtn","deleteLightingDiagramBtn","addLightingCameraBtn","addLightingSubjectBtn","lightingFixturePicker","addLightingFixtureBtn","addShotLightingBtn","applyShotCameraBtn","lightingObjectLabel","lightingObjectFixture","lightingObjectKelvin","lightingObjectIntensity","lightingObjectBeam","lightingObjectDiffusion","lightingObjectLens","lightingObjectShotSize","lightingObjectAngle","lightingObjectHeight","lightingObjectMovement","lightingObjectFocus","lightingObjectRotation","deleteLightingObjectBtn","lightingDiagramNotes"].forEach(id=>{if($(id))$(id).disabled=!edit})
+  [
+    "lightingDiagramName","lightingLinkedShot","newLightingDiagramBtn","saveLightingDiagramBtn","deleteLightingDiagramBtn",
+    "addLightingCameraBtn","addLightingSubjectBtn","addLightingFixtureBtn","addShotLightingBtn","lightingObjectLabel",
+    "lightingObjectKelvin","lightingObjectIntensity","lightingObjectBeam","lightingObjectHeight3d","lightingObjectTilt",
+    "lightingObjectLens","lightingObjectShotSize","lightingObjectAngle","lightingObjectHeight","lightingObjectMovement",
+    "lightingObjectFocus","lightingCameraHeight3d","lightingCameraTilt","lightingSubjectHeight3d","lightingSubjectScale",
+    "lightingObjectRotation","deleteLightingObjectBtn","lightingDiagramNotes"
+  ].forEach(id=>{if($(id))$(id).disabled=!edit})
 }
-function addLightingObject(o){const d=app.lighting.current;if(!d||!lightingCanEdit())return;d.data.objects.push(o);app.lighting.selectedId=o.id;markLightingDirty();renderLightingInspector();renderLightingCanvas()}
-function addLightingFixtureFromPicker(){const f=$("lightingFixturePicker").value||"COB Spot",n=app.lighting.current?.data?.objects?.filter(o=>o.type==="light").length||0;addLightingObject(defaultLightingLight(f,{x:360+(n%4)*55,y:210+(n%3)*75,rotation:20+n*22}))}
+function addLightingObject(o){
+  const d=app.lighting.current;if(!d||!lightingCanEdit())return;
+  d.data.objects.push(normalizeLightingObject(o));app.lighting.selectedId=o.id;
+  if(o.type==="camera")app.lighting.activeCameraId=o.id;
+  markLightingDirty();toggleLightingDrawer(false);renderLightingObjectList();renderLightingInspector();renderLightingCanvas();syncLighting3D()
+}
+function addLightingFixture(){
+  const n=app.lighting.current?.data?.objects?.filter(o=>o.type==="light").length||0;
+  addLightingObject(defaultLightingLight("COB Spot",{x:370+(n%4)*60,y:230+(n%3)*80,rotation:25+n*22}))
+}
 function addLightFromCurrentShot(){
-  const s=currentShot();if(!s)return;const p=shotLightPreset(s),subject=app.lighting.current?.data?.objects?.find(o=>o.type==="subject")||{x:650,y:400};
+  const s=currentShot();if(!s)return;
+  const p=shotLightPreset(s),subject=app.lighting.current?.data?.objects?.find(o=>o.type==="subject")||{x:650,y:400};
   let x=350,y=400,rotation=0,dir=s.lightDirection||"";
-  if(/right/i.test(dir)){x=950;rotation=180}else if(/back|top/i.test(dir)){x=650;y=170;rotation=90}else if(/front|bottom/i.test(dir)){x=650;y=650;rotation=-90}else if(!/left/i.test(dir)){x=subject.x-300;y=subject.y-160;rotation=28}
-  addLightingObject(defaultLightingLight(p.fixture,{label:`${p.fixture} · ${shortValue(dir)||"Shot Light"}`,x,y,rotation,kelvin:p.kelvin,beam:p.beam,intensity:p.intensity,diffusion:p.diffusion}))
+  if(/right/i.test(dir)){x=950;rotation=180}
+  else if(/back|top/i.test(dir)){x=650;y=170;rotation=90}
+  else if(/front|bottom/i.test(dir)){x=650;y=650;rotation=-90}
+  else if(!/left/i.test(dir)){x=subject.x-300;y=subject.y-160;rotation=28}
+  addLightingObject(defaultLightingLight(p.fixture,{
+    label:`${p.fixture} · ${shortValue(dir)||"Shot Light"}`,x,y,rotation,
+    kelvin:p.kelvin,beam:p.beam,intensity:p.intensity,diffusion:p.diffusion
+  }))
 }
 function applyCurrentShotToCamera(){
-  const s=currentShot();if(!s)return;let c=app.lighting.current?.data?.objects?.find(o=>o.type==="camera");if(!c){c=defaultLightingCamera();app.lighting.current.data.objects.unshift(c)}
-  Object.assign(c,{lens:s.lens||"50mm",shotSize:s.shotSize||"CU · Close Up",angle:s.angle||"Eye Level",cameraHeight:s.cameraHeight||"Eye Level",movement:s.movement||"Static",focus:s.focus||"Shallow Focus",label:`Camera · ${shortValue(s.shotSize)} · ${s.lens||"50mm"}`});
-  app.lighting.selectedId=c.id;markLightingDirty();renderLightingInspector();renderLightingCanvas()
+  const s=currentShot();if(!s)return;
+  let c=lightingSelected()?.type==="camera"?lightingSelected():app.lighting.current?.data?.objects?.find(o=>o.type==="camera");
+  if(!c){c=defaultLightingCamera();app.lighting.current.data.objects.unshift(c)}
+  Object.assign(c,{
+    lens:s.lens||"50mm",shotSize:s.shotSize||"CU · Close Up",angle:s.angle||"Eye Level",
+    cameraHeight:s.cameraHeight||"Eye Level",movement:s.movement||"Static",focus:s.focus||"Shallow Focus",
+    height3d:cameraHeightMeters(s.cameraHeight),tilt:cameraAngleTilt(s.angle),
+    label:`Camera · ${shortValue(s.shotSize)} · ${s.lens||"50mm"}`
+  });
+  app.lighting.selectedId=c.id;app.lighting.activeCameraId=c.id;
+  markLightingDirty();renderLightingObjectList();renderLightingInspector();renderLightingCanvas();syncLighting3D()
 }
-function updateLightingLinkedShot(){const d=app.lighting.current;if(!d)return;const [sceneId,shotId]=String($("lightingLinkedShot").value||"").split("|");d.scene_id=sceneId||null;d.shot_id=shotId||null;markLightingDirty();renderLightingShotContext()}
+function useSelectedCameraView(){
+  const o=lightingSelected();if(!o||o.type!=="camera")return;
+  app.lighting.activeCameraId=o.id;setLightingViewMode("camera")
+}
+function updateLightingLinkedShot(){
+  const d=app.lighting.current;if(!d)return;
+  const [sceneId,shotId]=String($("lightingLinkedShot").value||"").split("|");
+  d.scene_id=sceneId||null;d.shot_id=shotId||null;markLightingDirty()
+}
 function selectedLightingChange(){
-  const o=lightingSelected();if(!o||!lightingCanEdit())return;o.label=$("lightingObjectLabel").value.trim()||o.type;o.rotation=Number($("lightingObjectRotation").value)||0;
-  if(o.type==="light"){const old=o.fixture;o.fixture=$("lightingObjectFixture").value;if(old!==o.fixture)o.beam=lightingFixtureProps(o.fixture).beam;o.kelvin=Number($("lightingObjectKelvin").value)||5600;o.intensity=Number($("lightingObjectIntensity").value)||70;o.beam=Number($("lightingObjectBeam").value)||45;o.diffusion=$("lightingObjectDiffusion").value||"None"}
-  else if(o.type==="camera"){o.lens=$("lightingObjectLens").value;o.shotSize=$("lightingObjectShotSize").value;o.angle=$("lightingObjectAngle").value;o.cameraHeight=$("lightingObjectHeight").value;o.movement=$("lightingObjectMovement").value;o.focus=$("lightingObjectFocus").value}
-  markLightingDirty();renderLightingInspector(false);renderLightingCanvas()
+  const o=lightingSelected();if(!o||!lightingCanEdit())return;
+  o.label=$("lightingObjectLabel").value.trim()||o.type;
+  o.rotation=Number($("lightingObjectRotation").value)||0;
+  if(o.type==="light"){
+    o.kelvin=Number($("lightingObjectKelvin").value)||5600;
+    o.intensity=Number($("lightingObjectIntensity").value)||70;
+    o.beam=Number($("lightingObjectBeam").value)||45;
+    o.height3d=Number($("lightingObjectHeight3d").value)||2.2;
+    o.tilt=Number($("lightingObjectTilt").value)||0
+  }else if(o.type==="camera"){
+    o.lens=$("lightingObjectLens").value;o.shotSize=$("lightingObjectShotSize").value;
+    o.angle=$("lightingObjectAngle").value;o.cameraHeight=$("lightingObjectHeight").value;
+    o.movement=$("lightingObjectMovement").value;o.focus=$("lightingObjectFocus").value;
+    o.height3d=Number($("lightingCameraHeight3d").value)||1.65;
+    o.tilt=Number($("lightingCameraTilt").value)||0
+  }else if(o.type==="subject"){
+    o.height3d=Number($("lightingSubjectHeight3d").value)||1.75;
+    o.scale=Number($("lightingSubjectScale").value)||100
+  }
+  markLightingDirty();renderLightingObjectList();renderLightingInspector(false);renderLightingCanvas();syncLighting3D()
 }
 function renderLightingInspector(updateInputs=true){
-  const o=lightingSelected();$("lightingInspectorEmpty").hidden=!!o;$("lightingInspector").hidden=!o;if(!o)return;
-  $("lightingLightFields").hidden=o.type!=="light";$("lightingCameraFields").hidden=o.type!=="camera";
+  const o=lightingSelected();
+  $("lightingInspectorEmpty").hidden=!!o;$("lightingInspector").hidden=!o;
+  if(!o)return;
+  $("lightingLightFields").hidden=o.type!=="light";
+  $("lightingCameraFields").hidden=o.type!=="camera";
+  $("lightingSubjectFields").hidden=o.type!=="subject";
   if(updateInputs){
-    $("lightingObjectLabel").value=o.label||o.type;$("lightingObjectRotation").value=Number(o.rotation||0);
-    if(o.type==="light"){$("lightingObjectFixture").value=o.fixture||"COB Spot";$("lightingObjectKelvin").value=Number(o.kelvin||5600);$("lightingObjectIntensity").value=Number(o.intensity||70);$("lightingObjectBeam").value=Number(o.beam||45);$("lightingObjectDiffusion").value=o.diffusion||"None"}
-    else if(o.type==="camera"){$("lightingObjectLens").value=o.lens||"50mm";$("lightingObjectShotSize").value=o.shotSize||"CU · Close Up";$("lightingObjectAngle").value=o.angle||"Eye Level";$("lightingObjectHeight").value=o.cameraHeight||"Eye Level";$("lightingObjectMovement").value=o.movement||"Static";$("lightingObjectFocus").value=o.focus||"Shallow Focus"}
+    $("lightingObjectLabel").value=o.label||o.type;
+    $("lightingObjectRotation").value=Number(o.rotation||0);
+    if(o.type==="light"){
+      $("lightingObjectKelvin").value=Number(o.kelvin||5600);
+      $("lightingObjectIntensity").value=Number(o.intensity||70);
+      $("lightingObjectBeam").value=Number(o.beam||45);
+      $("lightingObjectHeight3d").value=Number(o.height3d||2.2);
+      $("lightingObjectTilt").value=Number(o.tilt||-15);
+      renderFixtureCatalog();renderModifierCatalog()
+    }else if(o.type==="camera"){
+      $("lightingObjectLens").value=o.lens||"50mm";$("lightingObjectShotSize").value=o.shotSize||"CU · Close Up";
+      $("lightingObjectAngle").value=o.angle||"Eye Level";$("lightingObjectHeight").value=o.cameraHeight||"Eye Level";
+      $("lightingObjectMovement").value=o.movement||"Static";$("lightingObjectFocus").value=o.focus||"Shallow Focus";
+      $("lightingCameraHeight3d").value=Number(o.height3d||1.65);$("lightingCameraTilt").value=Number(o.tilt||0);
+      renderLightingCameraSummary()
+    }else if(o.type==="subject"){
+      $("lightingSubjectHeight3d").value=Number(o.height3d||1.75);
+      $("lightingSubjectScale").value=Number(o.scale||100)
+    }
   }
   $("lightingRotationValue").textContent=`${Math.round(Number(o.rotation||0))}°`;
-  if(o.type==="light"){$("lightingKelvinValue").textContent=`${Math.round(Number(o.kelvin||5600))} K`;$("lightingIntensityValue").textContent=`${Math.round(Number(o.intensity||70))}%`;$("lightingBeamValue").textContent=`${Math.round(Number(o.beam||45))}°`}
-}
-function deleteSelectedLightingObject(){const d=app.lighting.current,o=lightingSelected();if(!d||!o||!lightingCanEdit())return;d.data.objects=d.data.objects.filter(x=>x.id!==o.id);app.lighting.selectedId=d.data.objects[0]?.id||null;markLightingDirty();renderLightingInspector();renderLightingCanvas()}
-function lightingObjectSvg(o,selected){
-  const stroke=selected?"#18c9f5":"#dce2e7";
-  if(o.type==="camera"){
-    const fov=cameraHorizontalFov(o.lens),len=280,p1=polarPoint(o.x,o.y,len,o.rotation-fov/2),p2=polarPoint(o.x,o.y,len,o.rotation+fov/2);
-    return `<g class="lighting-object" data-lighting-id="${o.id}"><path d="M ${o.x} ${o.y} L ${p1.x} ${p1.y} L ${p2.x} ${p2.y} Z" fill="rgba(24,201,245,.08)" stroke="rgba(24,201,245,.35)" stroke-width="2"/><g transform="translate(${o.x} ${o.y}) rotate(${o.rotation||0})"><rect x="-28" y="-18" width="46" height="36" rx="7" fill="#0a1115" stroke="${stroke}" stroke-width="${selected?4:2}"/><path d="M 18 -12 L 39 -22 L 39 22 L 18 12 Z" fill="#0a1115" stroke="${stroke}" stroke-width="2"/><line x1="0" y1="18" x2="-12" y2="38" stroke="${stroke}" stroke-width="3"/><line x1="0" y1="18" x2="12" y2="38" stroke="${stroke}" stroke-width="3"/></g><text x="${o.x+48}" y="${o.y-8}" fill="#eef5f8" font-size="17" font-weight="700">${safeSvgText(o.label||"Camera")}</text><text x="${o.x+48}" y="${o.y+14}" fill="#82919b" font-size="13">${safeSvgText(o.lens||"")} · ${Math.round(fov)}° FOV</text></g>`
-  }
-  if(o.type==="subject")return `<g class="lighting-object" data-lighting-id="${o.id}"><circle cx="${o.x}" cy="${o.y}" r="29" fill="#20181a" stroke="${stroke}" stroke-width="${selected?4:2}"/><circle cx="${o.x}" cy="${o.y-8}" r="8" fill="#f1c8a7"/><path d="M ${o.x-14} ${o.y+18} Q ${o.x} ${o.y-2} ${o.x+14} ${o.y+18}" fill="none" stroke="#f1c8a7" stroke-width="6" stroke-linecap="round"/><text x="${o.x+39}" y="${o.y+5}" fill="#eef5f8" font-size="17" font-weight="700">${safeSvgText(o.label||"Subject")}</text></g>`;
   if(o.type==="light"){
-    const fp=lightingFixtureProps(o.fixture),dp=lightingDiffusionProps(o.diffusion),beam=Math.min(170,Math.max(6,Number(o.beam||fp.beam)+dp.spread)),effective=(Number(o.intensity||70)/100)*dp.transmission,color=kelvinCss(o.kelvin||5600),len=fp.length||330;
-    let beamSvg;if(fp.shape==="omni"){const rad=Math.max(80,len*(.55+effective*.6));beamSvg=`<circle cx="${o.x}" cy="${o.y}" r="${rad}" fill="url(#lg-${o.id})" opacity="${(.38+effective*.35).toFixed(2)}"/>`}
-    else{const p1=polarPoint(o.x,o.y,len,o.rotation-beam/2),p2=polarPoint(o.x,o.y,len,o.rotation+beam/2);beamSvg=`<path d="M ${o.x} ${o.y} L ${p1.x} ${p1.y} L ${p2.x} ${p2.y} Z" fill="url(#lg-${o.id})" opacity="${(.36+effective*.46).toFixed(2)}"/>`}
-    let icon;if(fp.shape==="panel")icon=`<rect x="-20" y="-29" width="40" height="58" rx="5" fill="#121416" stroke="${stroke}" stroke-width="${selected?4:2}"/><line x1="-13" y1="-20" x2="13" y2="20" stroke="${color}" stroke-width="3"/>`;
-    else if(fp.shape==="tube")icon=`<rect x="-8" y="-35" width="16" height="70" rx="8" fill="${color}" stroke="${stroke}" stroke-width="${selected?4:2}"/>`;
-    else if(fp.shape==="omni")icon=`<circle cx="0" cy="0" r="17" fill="${color}" stroke="${stroke}" stroke-width="${selected?4:2}"/><path d="M -9 15 L -6 31 L 6 31 L 9 15" fill="#151719" stroke="${stroke}" stroke-width="2"/>`;
-    else icon=`<path d="M -25 -19 L 11 -26 L 28 -14 L 28 14 L 11 26 L -25 19 Z" fill="#121416" stroke="${stroke}" stroke-width="${selected?4:2}"/><circle cx="22" cy="0" r="10" fill="${color}"/>`;
-    return `<defs><radialGradient id="lg-${o.id}" cx="0%" cy="50%" r="100%"><stop offset="0%" stop-color="${color}" stop-opacity="${Math.min(.9,effective+.2)}"/><stop offset="58%" stop-color="${color}" stop-opacity="${Math.max(.16,effective*.45)}"/><stop offset="100%" stop-color="${color}" stop-opacity="0"/></radialGradient></defs><g class="lighting-object" data-lighting-id="${o.id}">${beamSvg}<g transform="translate(${o.x} ${o.y}) rotate(${o.rotation||0})">${icon}</g><text x="${o.x+35}" y="${o.y-12}" fill="#eef5f8" font-size="16" font-weight="700">${safeSvgText(o.label||o.fixture)}</text><text x="${o.x+35}" y="${o.y+10}" fill="#a0abb2" font-size="12">${safeSvgText(o.fixture)} · ${Number(o.kelvin||5600)}K · ${safeSvgText(o.diffusion||"None")}</text></g>`
+    $("lightingKelvinValue").textContent=`${Math.round(Number(o.kelvin||5600))} K`;
+    $("lightingIntensityValue").textContent=`${Math.round(Number(o.intensity||70))}%`;
+    $("lightingBeamValue").textContent=`${Math.round(Number(o.beam||45))}°`;
+    $("lightingHeightValue").textContent=`${Number(o.height3d||2.2).toFixed(1)} m`;
+    $("lightingTiltValue").textContent=`${Math.round(Number(o.tilt||0))}°`
+  }else if(o.type==="camera"){
+    $("lightingCameraHeightValue").textContent=`${Number(o.height3d||1.65).toFixed(2)} m`;
+    $("lightingCameraTiltValue").textContent=`${Math.round(Number(o.tilt||0))}°`
+  }else if(o.type==="subject"){
+    $("lightingSubjectHeightValue").textContent=`${Number(o.height3d||1.75).toFixed(2)} m`;
+    $("lightingSubjectScaleValue").textContent=`${Math.round(Number(o.scale||100))}%`
+  }
+}
+function deleteSelectedLightingObject(){
+  const d=app.lighting.current,o=lightingSelected();if(!d||!o||!lightingCanEdit())return;
+  d.data.objects=d.data.objects.filter(x=>x.id!==o.id);
+  if(app.lighting.activeCameraId===o.id)app.lighting.activeCameraId=d.data.objects.find(x=>x.type==="camera")?.id||null;
+  app.lighting.selectedId=d.data.objects[0]?.id||null;
+  markLightingDirty();renderLightingObjectList();renderLightingInspector();renderLightingCanvas();syncLighting3D()
+}
+
+function lightingObjectSvg(o,selected){
+  const stroke=selected?"#30d7ff":"#edf3f6";
+  if(o.type==="camera"){
+    const fov=cameraHorizontalFov(o.lens),len=285;
+    const p1=polarPoint(o.x,o.y,len,o.rotation-fov/2),p2=polarPoint(o.x,o.y,len,o.rotation+fov/2);
+    return `<g data-lighting-id="${o.id}">
+      <path d="M ${o.x} ${o.y} L ${p1.x} ${p1.y} L ${p2.x} ${p2.y} Z" fill="rgba(48,215,255,.07)" stroke="rgba(48,215,255,.33)" stroke-width="2"/>
+      <g transform="translate(${o.x} ${o.y}) rotate(${o.rotation||0})">
+        <rect x="-27" y="-18" width="43" height="36" rx="7" fill="#090c0e" stroke="${stroke}" stroke-width="${selected?4:2}"/>
+        <path d="M 16 -11 L 38 -21 L 38 21 L 16 11 Z" fill="#090c0e" stroke="${stroke}" stroke-width="2"/>
+      </g>
+      <text x="${o.x+45}" y="${o.y-5}" fill="#f4f7f8" font-size="15" font-weight="700">${safeSvgText(o.label||"Camera")}</text>
+      <text x="${o.x+45}" y="${o.y+15}" fill="#80909a" font-size="12">${safeSvgText(o.lens||"")} · ${Math.round(fov)}°</text>
+    </g>`
+  }
+  if(o.type==="subject"){
+    return `<g data-lighting-id="${o.id}">
+      <circle cx="${o.x}" cy="${o.y}" r="28" fill="#1e1718" stroke="${stroke}" stroke-width="${selected?4:2}"/>
+      <circle cx="${o.x}" cy="${o.y-8}" r="7" fill="#e9b894"/>
+      <path d="M ${o.x-13} ${o.y+17} Q ${o.x} ${o.y-1} ${o.x+13} ${o.y+17}" fill="none" stroke="#e9b894" stroke-width="6" stroke-linecap="round"/>
+      <text x="${o.x+38}" y="${o.y+5}" fill="#f4f7f8" font-size="15" font-weight="700">${safeSvgText(o.label||"Subject")}</text>
+    </g>`
+  }
+  if(o.type==="light"){
+    const fp=lightingFixtureProps(o.fixture),mp=lightingModifierProps(o.diffusion);
+    const beam=Math.min(175,Math.max(5,Number(o.beam||fp.beam)+mp.spread));
+    const effective=(Number(o.intensity||70)/100)*mp.transmission;
+    const color=kelvinCss(o.kelvin||5600),len=fp.length||330;
+    let beamSvg="";
+    if(fp.shape==="omni"){
+      const rad=Math.max(75,len*(.55+effective*.65));
+      beamSvg=`<circle cx="${o.x}" cy="${o.y}" r="${rad}" fill="${color}" opacity="${(.06+effective*.10).toFixed(2)}"/>`
+    }else{
+      const p1=polarPoint(o.x,o.y,len,o.rotation-beam/2),p2=polarPoint(o.x,o.y,len,o.rotation+beam/2);
+      beamSvg=`<path d="M ${o.x} ${o.y} L ${p1.x} ${p1.y} L ${p2.x} ${p2.y} Z" fill="${color}" opacity="${(.07+effective*.12).toFixed(2)}"/>`
+    }
+    return `<g data-lighting-id="${o.id}">
+      ${beamSvg}
+      <g transform="translate(${o.x} ${o.y}) rotate(${o.rotation||0})">
+        <rect x="-21" y="-16" width="42" height="32" rx="7" fill="#0b0d0f" stroke="${stroke}" stroke-width="${selected?4:2}"/>
+        <circle cx="15" cy="0" r="8" fill="${color}"/>
+      </g>
+      <text x="${o.x+34}" y="${o.y-7}" fill="#f4f7f8" font-size="15" font-weight="700">${safeSvgText(o.label||o.fixture)}</text>
+      <text x="${o.x+34}" y="${o.y+13}" fill="#8c9aa2" font-size="11">${safeSvgText(o.fixture)} · ${Number(o.kelvin||5600)}K</text>
+    </g>`
   }
   return ""
 }
 function renderLightingCanvas(){
   const svg=$("lightingCanvas"),d=app.lighting.current;if(!svg||!d)return;
-  let content=`<defs><pattern id="lightingMinorGrid" width="50" height="50" patternUnits="userSpaceOnUse"><path d="M 50 0 L 0 0 0 50" fill="none" stroke="#253039" stroke-width="1"/></pattern><pattern id="lightingMajorGrid" width="100" height="100" patternUnits="userSpaceOnUse"><rect width="100" height="100" fill="url(#lightingMinorGrid)"/><path d="M 100 0 L 0 0 0 100" fill="none" stroke="#3b4750" stroke-width="1.5"/></pattern></defs><rect class="lighting-bg" x="0" y="0" width="1200" height="800" fill="#0a0d10"/><rect class="lighting-bg" x="0" y="0" width="1200" height="800" fill="url(#lightingMajorGrid)"/><text x="22" y="32" fill="#73818a" font-size="14">12 m</text><text x="1142" y="777" fill="#73818a" font-size="14">8 m</text>`;
-  content+=(d.data.objects||[]).map(o=>lightingObjectSvg(o,o.id===app.lighting.selectedId)).join("");svg.innerHTML=content;
-  svg.querySelectorAll("[data-lighting-id]").forEach(n=>{n.style.cursor=lightingCanEdit()?"grab":"pointer";n.addEventListener("pointerdown",e=>startLightingDrag(e,n.dataset.lightingId))});
-  renderLightingInspector(false);renderLightingShotContext()
+  let content=`<defs>
+    <pattern id="lightingMinorGrid" width="50" height="50" patternUnits="userSpaceOnUse"><path d="M 50 0 L 0 0 0 50" fill="none" stroke="#20272d" stroke-width="1"/></pattern>
+    <pattern id="lightingMajorGrid" width="100" height="100" patternUnits="userSpaceOnUse"><rect width="100" height="100" fill="url(#lightingMinorGrid)"/><path d="M 100 0 L 0 0 0 100" fill="none" stroke="#313b43" stroke-width="1.2"/></pattern>
+  </defs>
+  <rect class="lighting-bg" x="0" y="0" width="1200" height="800" fill="#080a0c"/>
+  <rect class="lighting-bg" x="0" y="0" width="1200" height="800" fill="url(#lightingMajorGrid)"/>
+  <text x="20" y="30" fill="#5f6d75" font-size="13">12 m × 8 m</text>`;
+  content+=(d.data.objects||[]).map(o=>lightingObjectSvg(o,o.id===app.lighting.selectedId)).join("");
+  svg.innerHTML=content;
+  svg.querySelectorAll("[data-lighting-id]").forEach(node=>{
+    node.style.cursor=lightingCanEdit()?"grab":"pointer";
+    node.addEventListener("pointerdown",e=>startLightingDrag(e,node.dataset.lightingId))
+  })
 }
-function lightingSvgPoint(e){const r=$("lightingCanvas").getBoundingClientRect();return {x:(e.clientX-r.left)*1200/r.width,y:(e.clientY-r.top)*800/r.height}}
-function startLightingDrag(e,id){app.lighting.selectedId=id;renderLightingInspector();if(!lightingCanEdit()){renderLightingCanvas();return}const o=lightingSelected();if(!o)return;e.preventDefault();const p=lightingSvgPoint(e);app.lighting.dragging={id,startX:p.x,startY:p.y,objectX:o.x,objectY:o.y};$("lightingCanvas").setPointerCapture?.(e.pointerId);renderLightingCanvas()}
-function moveLightingDrag(e){const d=app.lighting.dragging;if(!d||!lightingCanEdit())return;const o=app.lighting.current?.data?.objects?.find(x=>x.id===d.id);if(!o)return;const p=lightingSvgPoint(e);o.x=Math.max(30,Math.min(1170,d.objectX+p.x-d.startX));o.y=Math.max(30,Math.min(770,d.objectY+p.y-d.startY));markLightingDirty();renderLightingCanvas()}
+function lightingSvgPoint(e){
+  const r=$("lightingCanvas").getBoundingClientRect();
+  return {x:(e.clientX-r.left)*1200/r.width,y:(e.clientY-r.top)*800/r.height}
+}
+function startLightingDrag(e,id){
+  selectLightingObject(id,true);
+  if(!lightingCanEdit())return;
+  const o=lightingSelected();if(!o)return;
+  e.preventDefault();
+  const p=lightingSvgPoint(e);
+  app.lighting.dragging={id,startX:p.x,startY:p.y,objectX:o.x,objectY:o.y};
+  $("lightingCanvas").setPointerCapture?.(e.pointerId)
+}
+function moveLightingDrag(e){
+  const d=app.lighting.dragging;if(!d||!lightingCanEdit())return;
+  const o=app.lighting.current?.data?.objects?.find(x=>x.id===d.id);if(!o)return;
+  const p=lightingSvgPoint(e);
+  o.x=Math.max(25,Math.min(1175,d.objectX+p.x-d.startX));
+  o.y=Math.max(25,Math.min(775,d.objectY+p.y-d.startY));
+  markLightingDirty();renderLightingCanvas();syncLighting3D()
+}
 function endLightingDrag(){app.lighting.dragging=null}
-function lightingDownload(blob,name){const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1000)}
-function lightingExportSvgString(){const svg=$("lightingCanvas").cloneNode(true);svg.setAttribute("xmlns","http://www.w3.org/2000/svg");svg.setAttribute("width","1200");svg.setAttribute("height","800");return new XMLSerializer().serializeToString(svg)}
+
+function setLightingViewMode(mode){
+  app.lighting.viewMode=mode;
+  renderLightingViewMode()
+}
+async function renderLightingViewMode(){
+  const cameraMode=app.lighting.viewMode==="camera";
+  $("lightingPlanModeBtn").classList.toggle("active",!cameraMode);
+  $("lightingCameraModeBtn").classList.toggle("active",cameraMode);
+  $("lightingPlanView").hidden=cameraMode;
+  $("lightingCameraView").hidden=!cameraMode;
+  if(cameraMode)await startLighting3D();else stopLighting3D(false)
+}
+
+/* ----- 3D CAMERA VIEW ----- */
+async function loadThree(){
+  if(app.lighting.three?.THREE)return app.lighting.three.THREE;
+  $("lighting3dLoading").hidden=false;$("lighting3dError").hidden=true;
+  try{
+    const THREE=await import(THREE_CDN);
+    app.lighting.three={THREE,renderer:null,scene:null,camera:null,raf:0,keys:new Set(),drag:null,last:0};
+    return THREE
+  }catch(err){
+    $("lighting3dError").hidden=false;
+    $("lighting3dError").textContent="3D Camera View could not load. The 2D diagram is still available.";
+    console.error(err);return null
+  }finally{$("lighting3dLoading").hidden=true}
+}
+function activeLightingCameraObject(){
+  const objs=app.lighting.current?.data?.objects||[];
+  return objs.find(o=>o.id===app.lighting.activeCameraId&&o.type==="camera")||objs.find(o=>o.type==="camera")||null
+}
+function planToWorld(o){
+  return {x:(Number(o.x||600)-600)/100,z:(Number(o.y||400)-400)/100}
+}
+function makeMannequin(THREE,o){
+  const scale=(Number(o.scale||100)/100),h=Number(o.height3d||1.75)*scale;
+  const g=new THREE.Group(),skin=new THREE.MeshStandardMaterial({color:0xc99775,roughness:.82}),
+        cloth=new THREE.MeshStandardMaterial({color:0x4f5960,roughness:.88});
+  const torso=new THREE.Mesh(new THREE.CapsuleGeometry(.22*scale,.62*scale,5,10),cloth);
+  torso.position.y=h*.56;torso.scale.set(1,.95,1);g.add(torso);
+  const head=new THREE.Mesh(new THREE.SphereGeometry(.16*scale,22,16),skin);
+  head.position.y=h*.88;g.add(head);
+  const limbGeo=new THREE.CylinderGeometry(.055*scale,.065*scale,.58*scale,10);
+  for(const sx of [-1,1]){
+    const arm=new THREE.Mesh(limbGeo,skin);arm.position.set(sx*.28*scale,h*.58,0);arm.rotation.z=sx*.17;g.add(arm);
+    const leg=new THREE.Mesh(new THREE.CylinderGeometry(.065*scale,.075*scale,.72*scale,10),cloth);
+    leg.position.set(sx*.11*scale,h*.20,0);g.add(leg)
+  }
+  g.traverse(m=>{if(m.isMesh){m.castShadow=true;m.receiveShadow=true}});
+  return g
+}
+function createThreeScene(THREE){
+  const state=app.lighting.three,host=$("lighting3dViewport");
+  if(!state.renderer){
+    state.renderer=new THREE.WebGLRenderer({antialias:true,alpha:false,powerPreference:"high-performance"});
+    state.renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+    state.renderer.shadowMap.enabled=true;
+    state.renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+    host.innerHTML="";host.appendChild(state.renderer.domElement);
+    bindThreeControls(state.renderer.domElement)
+  }
+  state.scene=new THREE.Scene();
+  state.scene.background=new THREE.Color(0x090b0d);
+  state.scene.add(new THREE.HemisphereLight(0x8da1b0,0x111111,.42));
+  const floor=new THREE.Mesh(
+    new THREE.PlaneGeometry(12,8),
+    new THREE.MeshStandardMaterial({color:0x20252a,roughness:.93,metalness:.02})
+  );
+  floor.rotation.x=-Math.PI/2;floor.receiveShadow=true;state.scene.add(floor);
+  const grid=new THREE.GridHelper(12,24,0x52606a,0x30383e);
+  grid.position.y=.002;state.scene.add(grid);
+
+  const objects=app.lighting.current?.data?.objects||[];
+  let shadowLights=0;
+  for(const o of objects){
+    const p=planToWorld(o);
+    if(o.type==="subject"){
+      const g=makeMannequin(THREE,o);g.position.set(p.x,0,p.z);g.rotation.y=-Number(o.rotation||0)*Math.PI/180;state.scene.add(g)
+    }else if(o.type==="light"){
+      const fp=lightingFixtureProps(o.fixture),mp=lightingModifierProps(o.diffusion),rgb=kelvinToRgb(o.kelvin);
+      const color=new THREE.Color(rgb.r/255,rgb.g/255,rgb.b/255),height=Number(o.height3d||2.2);
+      const marker=new THREE.Mesh(
+        fp.shape==="tube"?new THREE.CylinderGeometry(.035,.035,.65,12):new THREE.BoxGeometry(.22,.16,.18),
+        new THREE.MeshStandardMaterial({color:0x202428,emissive:color,emissiveIntensity:.55})
+      );
+      marker.position.set(p.x,height,p.z);marker.rotation.y=-Number(o.rotation||0)*Math.PI/180;state.scene.add(marker);
+      const strength=Math.max(.08,(Number(o.intensity||70)/100)*mp.transmission);
+      if(fp.shape==="omni"){
+        const l=new THREE.PointLight(color,45*strength,7,2);l.position.set(p.x,height,p.z);
+        if(shadowLights<3){l.castShadow=true;l.shadow.mapSize.set(512,512);shadowLights++}state.scene.add(l)
+      }else{
+        const l=new THREE.SpotLight(color,80*strength,10,THREE.MathUtils.degToRad(Math.min(85,(Number(o.beam||fp.beam)+mp.spread)/2)),Math.min(.95,.15+mp.softness),1.6);
+        l.position.set(p.x,height,p.z);
+        const yaw=Number(o.rotation||0)*Math.PI/180,tilt=Number(o.tilt||-15)*Math.PI/180;
+        const target=new THREE.Object3D();
+        target.position.set(p.x+Math.cos(yaw)*4,p.z===undefined?0:height+Math.sin(tilt)*4,p.z+Math.sin(yaw)*4);
+        l.target=target;state.scene.add(target);
+        if(shadowLights<4){l.castShadow=true;l.shadow.mapSize.set(768,768);shadowLights++}state.scene.add(l)
+      }
+    }
+  }
+
+  const camObj=activeLightingCameraObject();
+  if(!camObj){
+    $("lighting3dError").hidden=false;$("lighting3dError").textContent="Add a camera to use Camera View.";
+    return
+  }
+  $("lighting3dError").hidden=true;
+  const rect=host.getBoundingClientRect(),aspect=Math.max(.2,rect.width/Math.max(1,rect.height));
+  state.camera=new THREE.PerspectiveCamera(cameraVerticalFov(camObj.lens),aspect,.03,100);
+  updateThreeCameraFromObject();
+  resizeThreeRenderer()
+}
+function updateThreeCameraFromObject(){
+  const state=app.lighting.three,camObj=activeLightingCameraObject();
+  if(!state?.camera||!camObj)return;
+  const p=planToWorld(camObj),height=Number(camObj.height3d||1.65);
+  state.camera.position.set(p.x,height,p.z);
+  state.camera.fov=cameraVerticalFov(camObj.lens);
+  const yaw=Number(camObj.rotation||0)*Math.PI/180,tilt=Number(camObj.tilt||0)*Math.PI/180;
+  const dir=state.threeDir||(state.threeDir=new state.THREE.Vector3());
+  dir.set(Math.cos(yaw)*Math.cos(tilt),Math.sin(tilt),Math.sin(yaw)*Math.cos(tilt));
+  state.camera.lookAt(state.camera.position.clone().add(dir));
+  state.camera.updateProjectionMatrix();
+  $("lightingCameraHudTitle").textContent=camObj.label||"Camera View";
+  $("lightingCameraHudMeta").textContent=`${camObj.lens||"50mm"} · ${camObj.angle||"Eye Level"} · ${Number(camObj.height3d||1.65).toFixed(2)} m`
+}
+function resizeThreeRenderer(){
+  const state=app.lighting.three,host=$("lighting3dViewport");if(!state?.renderer||!state.camera||!host)return;
+  const r=host.getBoundingClientRect(),w=Math.max(2,Math.floor(r.width)),h=Math.max(2,Math.floor(r.height));
+  state.renderer.setSize(w,h,false);state.camera.aspect=w/h;state.camera.updateProjectionMatrix()
+}
+function rebuildLighting3D(){
+  const state=app.lighting.three;if(!state?.THREE||app.lighting.viewMode!=="camera")return;
+  createThreeScene(state.THREE)
+}
+function syncLighting3D(){
+  if(app.lighting.viewMode==="camera"&&app.lighting.three?.THREE)rebuildLighting3D()
+}
+async function startLighting3D(){
+  const THREE=await loadThree();if(!THREE)return;
+  createThreeScene(THREE);
+  const state=app.lighting.three;
+  if(state.raf)cancelAnimationFrame(state.raf);
+  state.last=performance.now();
+  const frame=t=>{
+    if(app.lighting.viewMode!=="camera"||!$("lightingDiagramModal").open)return;
+    const dt=Math.min(.05,(t-state.last)/1000);state.last=t;
+    moveThreeCameraByKeys(dt);
+    if(state.renderer&&state.scene&&state.camera)state.renderer.render(state.scene,state.camera);
+    state.raf=requestAnimationFrame(frame)
+  };
+  state.raf=requestAnimationFrame(frame)
+}
+function stopLighting3D(clear=false){
+  const state=app.lighting.three;if(!state)return;
+  if(state.raf){cancelAnimationFrame(state.raf);state.raf=0}
+  if(clear&&state.renderer){state.renderer.dispose();$("lighting3dViewport").innerHTML="";app.lighting.three=null}
+}
+function bindThreeControls(canvas){
+  canvas.tabIndex=0;
+  canvas.addEventListener("pointerdown",e=>{
+    if(!lightingCanEdit())return;
+    canvas.focus();app.lighting.three.drag={x:e.clientX,y:e.clientY};canvas.setPointerCapture?.(e.pointerId)
+  });
+  canvas.addEventListener("pointermove",e=>{
+    const state=app.lighting.three,drag=state?.drag,camObj=activeLightingCameraObject();
+    if(!drag||!camObj||!lightingCanEdit())return;
+    const dx=e.clientX-drag.x,dy=e.clientY-drag.y;drag.x=e.clientX;drag.y=e.clientY;
+    camObj.rotation=(Number(camObj.rotation||0)+dx*.22);
+    camObj.tilt=Math.max(-89,Math.min(89,Number(camObj.tilt||0)-dy*.18));
+    markLightingDirty();updateThreeCameraFromObject();renderLightingInspector();renderLightingCanvas()
+  });
+  canvas.addEventListener("pointerup",()=>{if(app.lighting.three)app.lighting.three.drag=null});
+  canvas.addEventListener("pointercancel",()=>{if(app.lighting.three)app.lighting.three.drag=null});
+  canvas.addEventListener("keydown",e=>{if(["w","a","s","d","q","e"].includes(e.key.toLowerCase())){e.preventDefault();app.lighting.three.keys.add(e.key.toLowerCase())}});
+  canvas.addEventListener("keyup",e=>app.lighting.three?.keys?.delete(e.key.toLowerCase()));
+  canvas.addEventListener("blur",()=>app.lighting.three?.keys?.clear())
+}
+function moveThreeCameraByKeys(dt){
+  const state=app.lighting.three,camObj=activeLightingCameraObject();if(!state?.keys?.size||!camObj||!lightingCanEdit())return;
+  const speed=2.4,rot=Number(camObj.rotation||0)*Math.PI/180;
+  let fx=Math.cos(rot),fz=Math.sin(rot),rx=-Math.sin(rot),rz=Math.cos(rot),dx=0,dz=0,dy=0;
+  if(state.keys.has("w")){dx+=fx;dz+=fz}if(state.keys.has("s")){dx-=fx;dz-=fz}
+  if(state.keys.has("d")){dx+=rx;dz+=rz}if(state.keys.has("a")){dx-=rx;dz-=rz}
+  if(state.keys.has("e"))dy+=1;if(state.keys.has("q"))dy-=1;
+  const len=Math.hypot(dx,dz)||1;dx/=len;dz/=len;
+  camObj.x=Math.max(0,Math.min(1200,Number(camObj.x||600)+dx*speed*dt*100));
+  camObj.y=Math.max(0,Math.min(800,Number(camObj.y||400)+dz*speed*dt*100));
+  camObj.height3d=Math.max(.1,Math.min(6,Number(camObj.height3d||1.65)+dy*speed*dt));
+  markLightingDirty();updateThreeCameraFromObject();
+  renderLightingInspector();renderLightingCanvas();renderLightingObjectList()
+}
+
+/* ----- export / share ----- */
+function lightingDownload(blob,name){
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1000)
+}
+function lightingExportSvgString(){
+  const svg=$("lightingCanvas").cloneNode(true);svg.setAttribute("xmlns","http://www.w3.org/2000/svg");svg.setAttribute("width","1200");svg.setAttribute("height","800");
+  return new XMLSerializer().serializeToString(svg)
+}
 function exportLightingSvg(){lightingDownload(new Blob([lightingExportSvgString()],{type:"image/svg+xml;charset=utf-8"}),`${slugName(app.lighting.current?.name)}.svg`)}
 function exportLightingJson(){const d=deepClone(app.lighting.current);delete d.persisted;lightingDownload(new Blob([JSON.stringify(d,null,2)],{type:"application/json"}),`${slugName(d.name)}.json`)}
 function exportLightingPng(){
   const blob=new Blob([lightingExportSvgString()],{type:"image/svg+xml;charset=utf-8"}),url=URL.createObjectURL(blob),img=new Image();
-  img.onload=()=>{const c=document.createElement("canvas");c.width=2400;c.height=1600;const x=c.getContext("2d");x.fillStyle="#0a0d10";x.fillRect(0,0,c.width,c.height);x.drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(url);c.toBlob(p=>lightingDownload(p,`${slugName(app.lighting.current?.name)}.png`),"image/png")};img.onerror=()=>{URL.revokeObjectURL(url);alert("Could not export PNG. Try Export SVG instead.")};img.src=url
+  img.onload=()=>{const c=document.createElement("canvas");c.width=2400;c.height=1600;const ctx=c.getContext("2d");ctx.fillStyle="#080a0c";ctx.fillRect(0,0,c.width,c.height);ctx.drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(url);c.toBlob(p=>lightingDownload(p,`${slugName(app.lighting.current?.name)}.png`),"image/png")};
+  img.onerror=()=>{URL.revokeObjectURL(url);alert("Could not export PNG. Try SVG instead.")};img.src=url
 }
 async function copyLightingShareLink(){
-  if(!app.lighting.current)return;if(!app.lighting.current.persisted&&lightingCanEdit())await saveLightingDiagram();
-  if(!app.lighting.current.persisted&&app.mode==="cloud"){setMsg("lightingDiagramNotice","Save the diagram before sharing.","warning");return}
+  if(!app.lighting.current)return;
+  if(!app.lighting.current.persisted&&lightingCanEdit())await saveLightingDiagram();
+  if(!app.lighting.current.persisted&&app.mode==="cloud"){setMsg("lightingDiagramNotice","Save before sharing.","warning");return}
   const u=new URL(location.href);u.search="";u.searchParams.set("project",app.current.id);u.searchParams.set("diagram",app.lighting.current.id);
-  try{await navigator.clipboard.writeText(u.toString());setMsg("lightingDiagramNotice","Share link copied. Project access is still required.")}catch(e){prompt("Copy this diagram link:",u.toString())}
+  try{await navigator.clipboard.writeText(u.toString());setMsg("lightingDiagramNotice","Share link copied.")}
+  catch(e){prompt("Copy this diagram link:",u.toString())}
 }
 function subscribeLightingRealtime(){
-  unsubscribeLightingRealtime();if(!sb||app.mode!=="cloud"||!app.current)return;const pid=app.current.id;
-  app.lighting.channel=sb.channel(`lighting-diagrams-${pid}`).on("postgres_changes",{event:"*",schema:"public",table:"lighting_diagrams",filter:`project_id=eq.${pid}`},async()=>{if(!$("lightingDiagramModal")?.open||app.lighting.dragging||app.lighting.dirty)return;const id=app.lighting.current?.id;await loadLightingDiagrams(id)}).subscribe()
+  unsubscribeLightingRealtime();if(!sb||app.mode!=="cloud"||!app.current)return;
+  const pid=app.current.id;
+  app.lighting.channel=sb.channel(`lighting-diagrams-${pid}`).on("postgres_changes",{event:"*",schema:"public",table:"lighting_diagrams",filter:`project_id=eq.${pid}`},async()=>{
+    if(!$("lightingDiagramModal")?.open||app.lighting.dragging||app.lighting.dirty)return;
+    const id=app.lighting.current?.id;await loadLightingDiagrams(id)
+  }).subscribe()
 }
 function unsubscribeLightingRealtime(){if(sb&&app.lighting.channel){sb.removeChannel(app.lighting.channel);app.lighting.channel=null}}
 async function openPendingLightingLink(){
-  if(!app.pendingLightingProject)return false;const pid=app.pendingLightingProject,did=app.pendingLightingDiagram;
+  if(!app.pendingLightingProject)return false;
+  const pid=app.pendingLightingProject,did=app.pendingLightingDiagram;
   if(!app.projects.some(p=>p.id===pid)){alert("You do not have access to this lighting diagram project.");return false}
-  await openCloudProject(pid,{preserveSelection:true});await openLightingWorkspace({diagramId:did});app.pendingLightingProject=null;app.pendingLightingDiagram=null;history.replaceState({},document.title,location.pathname);return true
+  await openCloudProject(pid,{preserveSelection:true});await openLightingWorkspace({diagramId:did});
+  app.pendingLightingProject=null;app.pendingLightingDiagram=null;history.replaceState({},document.title,location.pathname);return true
 }
 
 
@@ -1463,11 +2026,16 @@ function bind(){
   $("prevShotBtn").onclick=()=>adjacentShot(-1);$("nextShotBtn").onclick=()=>adjacentShot(1);
   $("frameImageInput").onchange=loadImage;$("removeImageBtn").onclick=removeImage;
 
-  // Lighting Diagram workspace
+  // Lighting Studio v3.8
   $("openLightingDiagramBtn").onclick=()=>openLightingWorkspace();
   $("closeLightingDiagramBtn").onclick=closeLightingWorkspace;
   $("lightingDiagramModal").addEventListener("cancel",e=>{e.preventDefault();closeLightingWorkspace()});
-  $("lightingDiagramModal").addEventListener("close",unsubscribeLightingRealtime);
+  $("lightingDiagramModal").addEventListener("close",()=>{stopLighting3D();unsubscribeLightingRealtime()});
+
+  $("lightingPlanModeBtn").onclick=()=>setLightingViewMode("plan");
+  $("lightingCameraModeBtn").onclick=()=>setLightingViewMode("camera");
+  $("lightingDrawerHeader").onclick=()=>toggleLightingDrawer();
+
   $("newLightingDiagramBtn").onclick=createNewLightingDiagram;
   $("saveLightingDiagramBtn").onclick=saveLightingDiagram;
   $("deleteLightingDiagramBtn").onclick=deleteLightingDiagram;
@@ -1475,23 +2043,35 @@ function bind(){
     if(app.lighting.dirty&&!confirm("Switch diagrams without saving the latest changes?")){renderLightingDiagramList();return}
     const d=app.lighting.diagrams.find(x=>x.id===e.target.value);if(d)setLightingCurrent(d)
   };
-  $("lightingDiagramName").oninput=e=>{if(!app.lighting.current)return;app.lighting.current.name=e.target.value;markLightingDirty();renderLightingShotContext()};
+  $("lightingDiagramName").oninput=e=>{if(!app.lighting.current)return;app.lighting.current.name=e.target.value;markLightingDirty()};
   $("lightingDiagramNotes").oninput=e=>{if(!app.lighting.current)return;app.lighting.current.data.notes=e.target.value;markLightingDirty()};
   $("lightingLinkedShot").onchange=updateLightingLinkedShot;
+
   $("addLightingCameraBtn").onclick=()=>addLightingObject(defaultLightingCamera());
   $("addLightingSubjectBtn").onclick=()=>addLightingObject(defaultLightingSubject());
-  $("addLightingFixtureBtn").onclick=addLightingFixtureFromPicker;
+  $("addLightingFixtureBtn").onclick=addLightingFixture;
   $("addShotLightingBtn").onclick=addLightFromCurrentShot;
   $("applyShotCameraBtn").onclick=applyCurrentShotToCamera;
-  ["lightingObjectLabel","lightingObjectFixture","lightingObjectKelvin","lightingObjectIntensity","lightingObjectBeam","lightingObjectDiffusion",
-   "lightingObjectLens","lightingObjectShotSize","lightingObjectAngle","lightingObjectHeight","lightingObjectMovement","lightingObjectFocus","lightingObjectRotation"]
-    .forEach(id=>["input","change"].forEach(ev=>$(id).addEventListener(ev,selectedLightingChange)));
+  $("useSelectedCameraViewBtn").onclick=useSelectedCameraView;
+
+  [
+    "lightingObjectLabel","lightingObjectKelvin","lightingObjectIntensity","lightingObjectBeam",
+    "lightingObjectHeight3d","lightingObjectTilt","lightingObjectLens","lightingObjectShotSize",
+    "lightingObjectAngle","lightingObjectHeight","lightingObjectMovement","lightingObjectFocus",
+    "lightingCameraHeight3d","lightingCameraTilt","lightingSubjectHeight3d","lightingSubjectScale",
+    "lightingObjectRotation"
+  ].forEach(id=>["input","change"].forEach(ev=>$(id).addEventListener(ev,selectedLightingChange)));
+
   $("deleteLightingObjectBtn").onclick=deleteSelectedLightingObject;
   $("lightingCanvas").addEventListener("pointermove",moveLightingDrag);
   $("lightingCanvas").addEventListener("pointerup",endLightingDrag);
   $("lightingCanvas").addEventListener("pointercancel",endLightingDrag);
-  $("lightingCanvas").addEventListener("pointerdown",e=>{if(e.target.classList?.contains("lighting-bg")){app.lighting.selectedId=null;renderLightingInspector();renderLightingCanvas()}});
-  $("centerLightingViewBtn").onclick=()=>$("lightingCanvas").scrollIntoView({block:"center",behavior:"smooth"});
+  $("lightingCanvas").addEventListener("pointerdown",e=>{
+    if(e.target.classList?.contains("lighting-bg")){
+      app.lighting.selectedId=null;renderLightingObjectList();renderLightingInspector();renderLightingCanvas()
+    }
+  });
+
   $("exportLightingPngBtn").onclick=exportLightingPng;
   $("exportLightingSvgBtn").onclick=exportLightingSvg;
   $("exportLightingJsonBtn").onclick=exportLightingJson;

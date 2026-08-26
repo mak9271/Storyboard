@@ -222,30 +222,117 @@ summary{padding:16px 17px;font-weight:850;cursor:pointer;list-style:none}summary
 @media(max-width:600px){.chat-context-grid{grid-template-columns:1fr}}
 
 
-/* v3.7 — Lighting Diagram Workspace */
-.lighting-diagram-launch{display:flex;align-items:center;justify-content:space-between;gap:18px;border:1px solid #24434f;background:linear-gradient(135deg,#0d171c,#101316);border-radius:13px;padding:13px 14px}
-.lighting-diagram-launch strong{display:block;color:var(--text);font-size:13px;margin-bottom:4px}.lighting-diagram-launch small{display:block;color:var(--muted);font-size:11px;line-height:1.45}
-.lighting-diagram-btn{white-space:nowrap;background:linear-gradient(135deg,var(--cyan),var(--cyan2));border-color:#2cd3ff;color:#03131a}
-.lighting-workspace-modal{max-width:none;width:100vw;height:100vh;padding:0;border:0;background:rgba(0,0,0,.76)}.lighting-workspace-modal::backdrop{background:rgba(0,0,0,.78)}
-.lighting-workspace-card{width:calc(100vw - 24px);height:calc(100vh - 24px);max-width:none;max-height:none;margin:12px;display:flex;flex-direction:column;overflow:hidden;padding:16px}
-.lighting-workspace-head{flex:0 0 auto}.lighting-workspace-head h2{margin-bottom:5px}.lighting-shot-context{font-size:11px;color:var(--muted)}
-.lighting-topbar{display:grid;grid-template-columns:minmax(180px,240px) minmax(200px,1fr) minmax(230px,1fr) auto;gap:10px;align-items:end;padding:10px 0 12px;border-bottom:1px solid var(--line)}
-.lighting-top-field label{margin-bottom:5px}.lighting-top-actions{display:flex;gap:6px;align-items:center}
-.lighting-layout{display:grid;grid-template-columns:280px minmax(0,1fr);gap:13px;min-height:0;flex:1;padding-top:12px}
-.lighting-toolbox{overflow:auto;border:1px solid var(--line);background:#0b0d0f;border-radius:14px;padding:11px}
-.lighting-tool-section{padding:11px 8px 14px;border-bottom:1px solid #20252a}.lighting-tool-section:last-child{border-bottom:0}.lighting-tool-title{font-size:9px;letter-spacing:.15em;color:#78838d;font-weight:900;margin-bottom:10px}
-.lighting-add-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px}.lighting-tool-btn{border:1px solid var(--line);background:#14181b;color:var(--text);border-radius:9px;padding:9px;font-size:11px}
-.lighting-tool-section .btn.wide{margin-top:7px;font-size:11px}.lighting-camera-summary{border:1px solid #22323b;background:#0d1216;border-radius:10px;padding:9px;margin-bottom:8px}
-.lighting-camera-summary strong,.lighting-camera-summary span{display:block}.lighting-camera-summary strong{font-size:16px;color:var(--cyan);margin-bottom:3px}.lighting-camera-summary span{font-size:10px;color:var(--muted)}
-.lighting-inspector-empty{color:var(--muted);font-size:11px;padding:7px 0 16px}.lighting-range-row{margin-top:10px}.lighting-range-row label{display:flex;justify-content:space-between;gap:10px}.lighting-range-row label span{color:var(--cyan);font-variant-numeric:tabular-nums}
-.lighting-toolbox input[type=range]{padding:0;height:24px;background:transparent;border:0}
-.lighting-stage-wrap{min-width:0;min-height:0;display:flex;flex-direction:column}.lighting-stage-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
-.lighting-stage-toolbar strong,.lighting-stage-toolbar span{display:block}.lighting-stage-toolbar strong{font-size:14px}.lighting-stage-toolbar span{font-size:10px;color:var(--muted);margin-top:3px}
-.lighting-stage{flex:1;min-height:380px;overflow:auto;border:1px solid #313941;border-radius:14px;background:#07090b;box-shadow:inset 0 0 0 1px rgba(255,255,255,.02)}
-#lightingCanvas{display:block;width:100%;min-width:820px;min-height:540px;touch-action:none;user-select:none}
-.lighting-legend{display:flex;align-items:center;gap:16px;flex-wrap:wrap;color:var(--muted);font-size:9px;padding:8px 3px 0}.lighting-legend i{display:inline-block;width:13px;height:8px;border-radius:3px;margin-right:4px;vertical-align:middle}
-.legend-camera{background:var(--cyan)}.legend-light{background:#ffd8a1}.legend-subject{background:#f1c8a7}
-.lighting-footer{display:grid;grid-template-columns:minmax(260px,1fr) auto;gap:12px;align-items:end;border-top:1px solid var(--line);padding-top:11px;margin-top:10px}.lighting-footer textarea{min-height:55px}
-.lighting-export-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
-@media(max-width:1050px){.lighting-topbar{grid-template-columns:1fr 1fr}.lighting-top-actions{grid-column:1/-1}.lighting-layout{grid-template-columns:230px minmax(0,1fr)}}
-@media(max-width:760px){.lighting-workspace-card{width:100vw;height:100vh;margin:0;border-radius:0;padding:12px}.lighting-layout{display:flex;flex-direction:column;overflow:auto}.lighting-toolbox{max-height:none;overflow:visible}.lighting-stage{min-height:460px}.lighting-stage-wrap{min-height:560px}.lighting-topbar{grid-template-columns:1fr}.lighting-top-actions{grid-column:auto;flex-wrap:wrap}.lighting-footer{grid-template-columns:1fr}.lighting-export-actions{justify-content:stretch}.lighting-export-actions .btn{flex:1}.lighting-diagram-launch{align-items:flex-start;flex-direction:column}.lighting-diagram-btn{width:100%}}
+
+
+/* v3.8 — Full-screen Lighting Studio */
+.lighting-studio-modal{
+  position:fixed;inset:0;width:100vw;height:100vh;max-width:none;max-height:none;
+  margin:0;padding:0;border:0;background:#080a0c;color:var(--text)
+}
+.lighting-studio-modal::backdrop{background:#080a0c}
+.lighting-studio-shell{position:relative;width:100%;height:100%;overflow:hidden;background:#080a0c}
+.lighting-studio-stage{position:absolute;inset:0}
+.lighting-plan-view,.lighting-camera-view{position:absolute;inset:0;background:#080a0c}
+#lightingCanvas{display:block;width:100%;height:100%;touch-action:none;user-select:none}
+.lighting-studio-toolbar{
+  position:absolute;z-index:30;left:14px;right:14px;top:14px;height:48px;
+  display:flex;align-items:center;gap:8px;pointer-events:none
+}
+.lighting-studio-toolbar>*{pointer-events:auto}
+.lighting-icon-action,.lighting-mode-btn,.lighting-add-btn,.lighting-save-float{
+  border:1px solid rgba(255,255,255,.13);background:rgba(12,15,17,.88);backdrop-filter:blur(14px);
+  color:#edf5f8;border-radius:11px;height:40px;padding:0 13px;font:700 11px/1 inherit;cursor:pointer
+}
+.lighting-icon-action{width:40px;padding:0;font-size:17px}
+.lighting-view-switch{display:flex;padding:3px;border-radius:12px;background:rgba(9,12,14,.78);border:1px solid rgba(255,255,255,.10)}
+.lighting-mode-btn{border:0;background:transparent;height:34px}
+.lighting-mode-btn.active{background:#1c2b31;color:#6fe2ff}
+.lighting-add-actions{display:flex;gap:6px}
+.lighting-add-btn span{color:#58dfff;margin-right:5px;font-size:14px}
+.lighting-add-btn:hover{border-color:#3b8ca4;background:#142027}
+.lighting-add-btn.subtle{color:#b9c4ca}
+.lighting-save-float{margin-left:auto;background:#24c8ef;color:#031217;border-color:#55dcff;min-width:68px}
+.lighting-studio-notice{
+  position:absolute;z-index:40;top:70px;left:50%;transform:translateX(-50%);
+  background:#11181c;border:1px solid #304550;color:#dce7ec;border-radius:9px;padding:8px 12px;font-size:11px
+}
+.lighting-object-drawer{
+  position:absolute;z-index:35;right:14px;top:76px;bottom:14px;width:326px;
+  background:rgba(10,13,15,.94);backdrop-filter:blur(18px);border:1px solid rgba(255,255,255,.12);
+  border-radius:14px;box-shadow:0 18px 60px rgba(0,0,0,.42);overflow:hidden;
+  transition:width .18s ease,background .18s ease
+}
+.lighting-object-drawer.collapsed{width:176px;height:42px;bottom:auto}
+.lighting-drawer-header{
+  width:100%;height:42px;border:0;border-bottom:1px solid rgba(255,255,255,.08);
+  background:transparent;color:#9ba8af;padding:0 13px;display:flex;align-items:center;justify-content:space-between;
+  font:800 9px/1 inherit;letter-spacing:.13em;cursor:pointer
+}
+.lighting-object-drawer.collapsed .lighting-drawer-header{border-bottom:0}
+.lighting-drawer-body{height:calc(100% - 42px);overflow:auto;padding:10px}
+.lighting-diagram-minihead{display:grid;gap:6px;padding-bottom:10px;border-bottom:1px solid #20272b}
+.lighting-diagram-minihead input,.lighting-diagram-minihead select,
+.lighting-object-inspector input,.lighting-object-inspector select,.lighting-output-section textarea{
+  background:#111519;border:1px solid #293138;color:#e7eef1;border-radius:8px;padding:8px;font-size:10px
+}
+.lighting-mini-actions,.lighting-output-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.lighting-mini-actions button,.lighting-output-grid button,.lighting-camera-from-shot button,.lighting-wide-action,.lighting-delete-object{
+  border:1px solid #303a40;background:#151a1d;color:#dce5e9;border-radius:8px;padding:8px;font-size:10px;cursor:pointer
+}
+.lighting-drawer-section{padding:11px 0;border-bottom:1px solid #20272b}
+.lighting-drawer-section:last-child{border-bottom:0}
+.lighting-section-title{font-size:9px;letter-spacing:.13em;font-weight:900;color:#69777f;margin-bottom:8px}
+.lighting-object-group{margin-bottom:10px}
+.lighting-object-group-title{display:flex;justify-content:space-between;color:#748188;font-size:8px;font-weight:900;letter-spacing:.12em;margin-bottom:4px}
+.lighting-object-row{
+  width:100%;display:grid;grid-template-columns:28px 1fr;align-items:center;text-align:left;gap:7px;
+  border:1px solid transparent;background:#0e1215;color:#dce5e9;border-radius:9px;padding:7px;margin-bottom:4px;cursor:pointer
+}
+.lighting-object-row:hover{background:#141a1e}.lighting-object-row.active{border-color:#245d6f;background:#122028}
+.lighting-object-row-icon{display:grid;place-items:center;width:27px;height:27px;border-radius:7px;background:#1b2328;color:#65ddfa;font-size:15px}
+.lighting-object-row strong,.lighting-object-row small{display:block}.lighting-object-row strong{font-size:10px}.lighting-object-row small{font-size:8px;color:#75848c;margin-top:2px}
+.lighting-object-empty{font-size:9px;color:#536168;padding:4px 6px}
+.lighting-inspector-empty{font-size:10px;color:#69777f;padding:6px 0 13px}
+.lighting-object-inspector label{display:flex;justify-content:space-between;color:#8c999f;font-size:9px;margin:9px 0 5px}
+.lighting-object-inspector input[type=range]{width:100%;height:22px;padding:0;border:0;background:transparent}
+.lighting-property-pair{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.lighting-catalog-group{margin-bottom:8px}.lighting-catalog-group-title{font-size:8px;color:#627078;margin:5px 0}
+.lighting-catalog-items{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+.lighting-catalog-chip{
+  border:1px solid #293239;background:#101519;color:#87949b;border-radius:8px;min-height:53px;padding:5px 2px;cursor:pointer
+}
+.lighting-catalog-chip span,.lighting-catalog-chip small{display:block}.lighting-catalog-chip span{font-size:18px;color:#b6c3c9}.lighting-catalog-chip small{font-size:7px;margin-top:3px}
+.lighting-catalog-chip.active{border-color:#2b8baa;background:#12303a;color:#dff7ff}.lighting-catalog-chip.active span{color:#61ddff}
+.lighting-modifier-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+.lighting-modifier-chip{border:1px solid #293239;background:#101519;color:#909ca2;border-radius:7px;padding:7px 4px;font-size:8px;cursor:pointer}
+.lighting-modifier-chip.active{border-color:#8b6f4a;background:#2c241a;color:#ffe1ad}
+.lighting-camera-from-shot{display:grid;grid-template-columns:1fr auto;gap:6px;align-items:center;border:1px solid #27343b;border-radius:9px;padding:7px;margin:8px 0}
+.lighting-camera-from-shot strong,.lighting-camera-from-shot span{display:block}.lighting-camera-from-shot strong{color:#61ddff;font-size:13px}.lighting-camera-from-shot span{font-size:8px;color:#718087}
+.lighting-delete-object{width:100%;margin-top:12px;color:#ff9e9e;border-color:#5a3030}
+.lighting-output-section textarea{width:100%;resize:vertical;min-height:54px;margin-bottom:6px}
+.lighting-camera-view{background:#050607}
+.lighting-3d-viewport{position:absolute;inset:0}.lighting-3d-viewport canvas{display:block;width:100%;height:100%;outline:none}
+.lighting-3d-loading,.lighting-3d-error{
+  position:absolute;z-index:5;left:50%;top:50%;transform:translate(-50%,-50%);
+  background:#11171a;border:1px solid #314149;padding:12px 15px;border-radius:10px;font-size:11px;color:#d7e0e4
+}
+.lighting-3d-error{color:#ffb7b7;border-color:#5a3131;max-width:320px;text-align:center}
+.lighting-camera-hud{
+  position:absolute;z-index:4;left:18px;bottom:18px;background:rgba(6,9,10,.72);backdrop-filter:blur(10px);
+  border:1px solid rgba(255,255,255,.11);border-radius:10px;padding:8px 11px;pointer-events:none
+}
+.lighting-camera-hud strong,.lighting-camera-hud span{display:block}.lighting-camera-hud strong{font-size:11px}.lighting-camera-hud span{font-size:9px;color:#84939b;margin-top:2px}
+.lighting-camera-controls-hint{
+  position:absolute;z-index:4;left:50%;bottom:18px;transform:translateX(-50%);
+  background:rgba(6,9,10,.62);border:1px solid rgba(255,255,255,.08);border-radius:999px;padding:7px 12px;color:#77858d;font-size:9px;pointer-events:none
+}
+@media(max-width:760px){
+  .lighting-studio-toolbar{left:8px;right:8px;top:8px;gap:5px;overflow-x:auto}
+  .lighting-view-switch{flex:none}.lighting-add-actions{flex:none}
+  .lighting-add-btn{padding:0 9px;font-size:9px}.lighting-save-float{position:fixed;right:8px;bottom:8px;z-index:50}
+  .lighting-object-drawer{right:8px;top:64px;bottom:8px;width:min(310px,calc(100vw - 16px))}
+  .lighting-object-drawer.collapsed{width:168px}
+  .lighting-property-pair{grid-template-columns:1fr}
+  .lighting-catalog-items{grid-template-columns:repeat(3,1fr)}
+  .lighting-camera-controls-hint{display:none}
+}
