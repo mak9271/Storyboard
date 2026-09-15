@@ -12,12 +12,17 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="styles.css?v=417" />
+  <link rel="stylesheet" href="styles.css?v=420" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0"></script>
   <script src="config.js?v=410"></script>
-  <meta name="storyboard-build" content="v4.1.7-ai-usage-counter" />
+  <meta name="storyboard-build" content="v4.2.0-bilingual-mobile" />
 </head>
 <body>
+
+  <button id="languageToggleBtn" class="language-toggle" type="button" aria-label="Switch language" data-i18n="off">
+    <span class="language-toggle-icon" aria-hidden="true">文</span>
+    <span id="languageToggleLabel">فارسی</span>
+  </button>
 
   <!-- AUTH -->
   <section id="authView" class="auth-view" hidden>
@@ -32,7 +37,7 @@
       </div>
 
       <div class="auth-card">
-        <div class="auth-tabs">
+        <div id="authTabs" class="auth-tabs">
           <button id="loginTabBtn" class="seg active">Sign In</button>
           <button id="signupTabBtn" class="seg">Create Account</button>
         </div>
@@ -61,6 +66,20 @@
           <label>Password</label>
           <input id="signupPassword" type="password" autocomplete="new-password" minlength="8" required />
           <button class="btn wide" type="submit">Create Account</button>
+        </form>
+
+        <form id="passwordRecoveryForm" hidden>
+          <div class="password-recovery-head">
+            <div class="eyebrow">PASSWORD RECOVERY</div>
+            <h2>Choose a new password</h2>
+            <p id="recoveryAccountLabel">Enter a new password for this Storyboard account.</p>
+          </div>
+          <label>New Password</label>
+          <input id="recoveryPassword" type="password" autocomplete="new-password" minlength="8" required />
+          <label>Confirm New Password</label>
+          <input id="recoveryPasswordConfirm" type="password" autocomplete="new-password" minlength="8" required />
+          <button id="updatePasswordBtn" class="btn wide" type="submit">Update Password</button>
+          <button id="cancelPasswordRecoveryBtn" class="text-btn center" type="button">Back to Sign In</button>
         </form>
 
         <div id="authMessage" class="notice" hidden></div>
@@ -195,6 +214,13 @@
           <h1>Storyboard Shot Builder</h1>
         </div>
       </div>
+
+      <div class="editor-mobile-context" aria-live="polite">
+        <strong id="mobileEditorTitle">Storyboard</strong>
+        <small id="mobileEditorSubtitle">Shot</small>
+      </div>
+
+      <button id="mobileMoreBtn" class="icon-btn mobile-more-btn" type="button" aria-label="More editor actions" aria-expanded="false">•••</button>
 
       <div class="top-actions editor-actions">
         <button id="sheetToggleBtn" class="btn ghost sheet-toggle">Storyboard Sheet</button>
@@ -443,11 +469,12 @@
       </section>
     </main>
 
-    <nav class="mobile-nav">
-      <button id="prevShotBtn">← Prev</button>
-      <button id="mobileAddShotBtn">＋ Shot</button>
-      <button id="mobileSheetBtn" class="mobile-sheet-toggle">Sheet</button>
-      <button id="nextShotBtn">Next →</button>
+    <nav class="mobile-nav" aria-label="Editor sections">
+      <button id="mobileScenesBtn" type="button" data-mobile-screen="scenes"><span aria-hidden="true">☷</span><small>Scenes</small></button>
+      <button id="prevShotBtn" type="button"><span aria-hidden="true">‹</span><small>Prev</small></button>
+      <button id="mobileShotBtn" type="button" data-mobile-screen="shot" class="active"><span aria-hidden="true">▣</span><small>Shot</small></button>
+      <button id="nextShotBtn" type="button"><span aria-hidden="true">›</span><small>Next</small></button>
+      <button id="mobileSheetBtn" type="button" data-mobile-screen="sheet" class="mobile-sheet-toggle"><span aria-hidden="true">▦</span><small>Sheet</small></button>
     </nav>
   </section>
 
@@ -807,6 +834,7 @@
     </div>
   </dialog>
 
-  <script src="app.js?v=417"></script>
+  <script src="i18n.js?v=420"></script>
+  <script src="app.js?v=420"></script>
 </body>
 </html>

@@ -1,4 +1,4 @@
-# Storyboard Shot Builder v4.1.7 — Daily AI Usage Counter
+# Storyboard Shot Builder v4.2.0 — Persian/English UI + Mobile App Layout
 
 Base: **only** `storyboard-v3.9.1-github(1).zip`, as requested. All v3.9.1 editor, collaboration, scene-delete and Lighting Studio behavior is preserved.
 
@@ -13,6 +13,10 @@ v4.1.5 aligns the Worker request with Cloudflare's FLUX.2 Klein binding contract
 v4.1.6 fixes Visual Bible previews disappearing after another reference is generated or an item is locked. Realtime project reloads now preserve an unchanged reference's signed preview URL, rebuild any missing signed URLs while the Visual Bible is open, and rerender the open Visual Bible with the refreshed records. Stored image paths are not removed by Generate or Lock.
 
 v4.1.7 shows each signed-in user's daily generated/used count and effective remaining allowance in the project sidebar, below the shot generator, and inside AI Visual Bible. The remaining number respects both the personal allowance and the shared app pool. Admins see their own audited generation count plus **Unlimited** remaining because their support generations bypass both pools. Counts refresh after every generation and whenever the tab becomes active.
+
+v4.1.8 completes the Supabase Forgot Password flow. The app now recognizes the `PASSWORD_RECOVERY` auth event, opens a dedicated new-password screen, validates password confirmation, updates the authenticated recovery user through Supabase, removes auth tokens from the address bar, signs out the temporary recovery session, and returns the user to Sign In. Expired or already-used links show a clear error instead of an empty app URL.
+
+v4.2.0 adds a persistent Persian/English language switch, a complete RTL Persian interface, localized runtime notices and dialogs, and Calibri typography in both languages. Canonical database values remain English so existing projects, Workers AI prompts and exports stay compatible. The mobile editor is now a viewport-contained app: Scenes, Shot and Sheet are separate full-height screens, the editor actions live in a compact top-bar menu, bottom navigation switches screens, scrolling stays inside the active screen, and dialogs open full-screen instead of as floating browser windows. The obsolete admin quota-bypass banner sentence was removed.
 
 ## Multi-admin support
 
@@ -55,7 +59,11 @@ v4.1.7 shows each signed-in user's daily generated/used count and effective rema
 
 ## Deployment order — IMPORTANT
 
-**Updating from v4.1.3, v4.1.4, v4.1.5 or v4.1.6:** run the new `supabase-v4.1.7-ai-usage-status.sql`, replace the GitHub files, wait for the Cloudflare deployment, then hard-refresh. The page should load `app.js?v=417`.
+**Updating from v4.1.8 to v4.2.0:** no new SQL is required and no existing SQL query should be deleted. Replace the GitHub files, wait for Cloudflare deployment, and hard-refresh. The page should load `i18n.js?v=420`, `app.js?v=420` and `styles.css?v=420`.
+
+**Updating from v4.1.7:** no new SQL is required for v4.1.8 or v4.2.0. Replace the GitHub files, wait for Cloudflare deployment, and hard-refresh.
+
+**Updating from v4.1.3, v4.1.4, v4.1.5 or v4.1.6:** run `supabase-v4.1.7-ai-usage-status.sql`, replace the GitHub files, wait for the Cloudflare deployment, then hard-refresh.
 
 1. In Supabase, open your Storyboard project, then open **SQL Editor** and click **New query**.
 2. Name the query exactly **Storyboard v4.1.7 - AI Usage Counter** and leave **Save query** enabled so it remains available later.
@@ -75,6 +83,8 @@ v4.1.7 shows each signed-in user's daily generated/used count and effective rema
 11. Open a cloud project, create one location and any recurring characters in **AI Visual Bible**, generate/upload each reference, review it, and press **Lock**.
 12. In a shot, choose the locked location, choose the relevant locked characters, complete the shot description, and press **Generate Storyboard**.
 
+For password recovery, Supabase **Authentication → URL Configuration** should use `https://storyboard.mak9271.workers.dev` as the Site URL and include `https://storyboard.mak9271.workers.dev/` in Redirect URLs. After deploying, request a fresh reset email because an older reset link may already be consumed or expired.
+
 No Cloudflare API token, account ID, Supabase password or service-role key belongs in the repository. The Supabase publishable key in `config.js` / `wrangler.toml` is intentionally public and every data operation is still protected by JWT + RLS.
 
 ## Validation
@@ -85,7 +95,7 @@ npm run check
 npx wrangler deploy --dry-run
 ```
 
-The automated checks cover HTML/JavaScript wiring, admin UI/RPC wiring, admin SQL authorization/audit/quota controls, prompt continuity, aspect sizing, UUID validation, authentication guard behavior, locked-reference multipart assembly and Cloudflare deploy configuration.
+The automated checks cover HTML/JavaScript wiring, Persian/English value safety, RTL/mobile full-screen navigation, removal of obsolete quota copy, admin UI/RPC wiring, admin SQL authorization/audit/quota controls, password recovery, prompt continuity, aspect sizing, UUID validation, authentication guard behavior, locked-reference multipart assembly and Cloudflare deploy configuration.
 
 ## Current v4 limits
 

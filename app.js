@@ -1,4 +1,4 @@
-// Storyboard Shot Builder v4.1.7 — visible daily AI generation usage
+// Storyboard Shot Builder v4.2.0 — bilingual interface + app-like mobile workspace
 const OPTIONS = {
   shotSize:["ECU · Extreme Close Up","CU · Close Up","MCU · Medium Close Up","MS · Medium Shot","MLS · Medium Long Shot","WS · Wide Shot","EWS · Extreme Wide Shot","OTS · Over The Shoulder","POV · Point of View","Insert","Top Shot"],
   angle:["Eye Level","High Angle","Low Angle","Top / Bird's Eye","Dutch Angle","Ground Level","Overhead","Custom"],
@@ -19,16 +19,26 @@ const $ = id => document.getElementById(id);
 const cfg = window.APP_CONFIG || {};
 const cloudConfigured = !!(cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY && window.supabase);
 const sb = cloudConfigured ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, {auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}}) : null;
+const initialAuthSearch=new URLSearchParams(location.search),initialAuthHash=new URLSearchParams(location.hash.replace(/^#/,""));
+const initialAuthType=initialAuthHash.get("type")||initialAuthSearch.get("type")||"";
+const initialAuthError=initialAuthHash.get("error_description")||initialAuthSearch.get("error_description")||"";
 
 let app = {
   mode: "local",
   session: null,
+  passwordRecovery: {
+    active: initialAuthType==="recovery"||initialAuthSearch.get("recovery")==="1",
+    error: initialAuthError,
+    verified: false,
+    updating: false
+  },
   profile: null,
   projects: [],
   current: null,
   activeSceneId: null,
   activeShotId: null,
   sheetOpen: false,
+  mobileScreen: "shot",
   realtimeChannel: null,
   presenceChannel: null,
   chatChannel: null,
@@ -131,7 +141,12 @@ function allShots(){return (app.current?.scenes||[]).flatMap(scene=>scene.shots.
 function shortValue(v){return (v||"").split(" · ")[0]}
 function escapeHtml(str){return String(str??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
 function show(el, yes=true){if(el) el.hidden=!yes}
-function setMsg(id,msg,type=""){const el=$(id); if(!msg){el.hidden=true;el.textContent="";return} el.hidden=false;el.textContent=msg;el.className="notice"+(type?` ${type}`:"")}
+function uiText(value){return window.storyboardI18n?.t(value)??String(value??"")}
+function uiLocale(){return window.storyboardI18n?.locale||"en-US"}
+function uiAlert(message){return window.alert(uiText(message))}
+function uiConfirm(message){return window.confirm(uiText(message))}
+function uiPrompt(message,defaultValue){return window.prompt(uiText(message),defaultValue===undefined?undefined:uiText(defaultValue))}
+function setMsg(id,msg,type=""){const el=$(id); if(!msg){el.hidden=true;el.textContent="";return} el.hidden=false;el.textContent=uiText(msg);el.className="notice"+(type?` ${type}`:"")}
 function can(key){return app.isOwner || adminSupporting() || !!app.permissions?.[key]}
 const SIGNED_IMAGE_TTL_SECONDS = 3600;
 const SIGNED_IMAGE_REFRESH_MS = 45 * 60 * 1000;
@@ -374,39 +389,100 @@ async function start(){
     showAuth();
     return;
   }
-  const {data:{session}}=await sb.auth.getSession();
-  app.session=session;
   sb.auth.onAuthStateChange(async(event,session)=>{
     const previousUserId=app.session?.user?.id||null;
     app.session=session;
+    if(event==="PASSWORD_RECOVERY"){
+      app.passwordRecovery.active=true;app.passwordRecovery.error="";app.passwordRecovery.verified=true;showPasswordRecovery();return
+    }
     if(!session){app.profile=null;app.current=null;resetAdminState();resetAiState();unsubscribeRealtime();unsubscribeChatRealtime();unsubscribeChatNoticeRealtime();unsubscribeLightingRealtime();updateChatBadges(0,false);showAuth();return}
     // INITIAL_SESSION is already handled by getSession() below. Token refreshes must
     // never kick an editor back to the Projects screen.
-    if(event==="INITIAL_SESSION"||event==="TOKEN_REFRESHED"||event==="USER_UPDATED")return;
+    if(event==="INITIAL_SESSION"||event==="TOKEN_REFRESHED"||event==="USER_UPDATED"){if(app.passwordRecovery.active)showPasswordRecovery();return}
     // Supabase can emit SIGNED_IN again when a background browser tab regains
     // focus. Do not rebuild the app and send an already signed-in admin home.
     if(event==="SIGNED_IN"){
+      if(app.passwordRecovery.active){showPasswordRecovery();return}
       if(previousUserId===session.user.id&&app.profile)return;
       await afterLogin()
     }
   });
+  const {data:{session}}=await sb.auth.getSession();
+  app.session=session;
+  if(app.passwordRecovery.active){showPasswordRecovery();return}
+  if(initialAuthError){showAuth();setMsg("authMessage",initialAuthError,"warning");cleanAuthCallbackUrl();return}
   if(session) await afterLogin(); else showAuth();
 }
 function showAuth(){
   show($("authView")); show($("projectsView"),false); show($("adminView"),false); show($("editorView"),false);
+  document.body.dataset.appView="auth";closeEditorActions();
+  renderPasswordRecoveryUi()
+}
+function renderPasswordRecoveryUi(){
+  const active=!!app.passwordRecovery.active,ready=active&&app.passwordRecovery.verified&&!!app.session&&!app.passwordRecovery.error&&!app.passwordRecovery.updating;
+  $("authTabs").hidden=active;$("passwordRecoveryForm").hidden=!active;$("continueOfflineBtn").hidden=active;
+  if(active){$("loginForm").hidden=true;$("signupForm").hidden=true}
+  else{const login=$("loginTabBtn").classList.contains("active");$("loginForm").hidden=!login;$("signupForm").hidden=login}
+  $("recoveryAccountLabel").textContent=app.session?.user?.email?`Set a new password for ${app.session.user.email}.`:"Enter a new password for this Storyboard account.";
+  $("recoveryPassword").disabled=active&&!ready;$("recoveryPasswordConfirm").disabled=active&&!ready;$("updatePasswordBtn").disabled=active&&!ready;
+  $("updatePasswordBtn").textContent=app.passwordRecovery.updating?"Updating Password…":"Update Password"
+}
+function showPasswordRecovery(message=""){
+  app.passwordRecovery.active=true;showAuth();
+  const verifying=!message&&!app.passwordRecovery.error&&!app.passwordRecovery.verified,notice=message||app.passwordRecovery.error||(verifying?"Verifying your password-reset link…":!app.session?"This password-reset link is invalid or has expired. Request a new link from Forgot password.":"");
+  setMsg("authMessage",notice,notice&&!verifying?"warning":"");
+  if(app.session&&!notice)requestAnimationFrame(()=>$("recoveryPassword").focus())
+}
+function cleanAuthCallbackUrl(){
+  const url=new URL(location.href),keys=["code","type","token","token_hash","access_token","refresh_token","expires_in","expires_at","token_type","error","error_code","error_description","recovery"];
+  keys.forEach(key=>url.searchParams.delete(key));url.hash="";history.replaceState({},document.title,`${url.pathname}${url.search}`)
 }
 function showProjects(){
   show($("authView"),false); show($("projectsView")); show($("adminView"),false); show($("editorView"),false);
+  document.body.dataset.appView="projects";closeEditorActions();
   renderAdminSupportBar();
 }
 function showAdminView(){
   show($("authView"),false); show($("projectsView"),false); show($("adminView")); show($("editorView"),false);
+  document.body.dataset.appView="admin";closeEditorActions();
   renderAdminSupportBar();
 }
 function showEditor(){
   show($("authView"),false); show($("projectsView"),false); show($("adminView"),false); show($("editorView"));
+  document.body.dataset.appView="editor";
   renderAdminSupportBar();
   renderEditor();
+}
+
+function isMobileEditor(){return window.matchMedia("(max-width: 950px)").matches}
+function closeEditorActions(){
+  $("editorView")?.classList.remove("editor-actions-open");
+  if($("mobileMoreBtn"))$("mobileMoreBtn").setAttribute("aria-expanded","false")
+}
+function toggleEditorActions(){
+  const editor=$("editorView"),open=!editor.classList.contains("editor-actions-open");
+  editor.classList.toggle("editor-actions-open",open);$("mobileMoreBtn").setAttribute("aria-expanded",String(open))
+}
+function syncMobileEditorUi(){
+  const editor=$("editorView");if(!editor)return;
+  const screen=app.sheetOpen?"sheet":(app.mobileScreen||"shot");
+  editor.dataset.mobileScreen=screen;
+  editor.classList.toggle("mobile-sheet-open",app.sheetOpen);
+  $("mobileScenesBtn")?.classList.toggle("active",screen==="scenes");
+  $("mobileShotBtn")?.classList.toggle("active",screen==="shot");
+  $("mobileSheetBtn")?.classList.toggle("active",screen==="sheet");
+}
+function setMobileEditorScreen(screen){
+  if(!["scenes","shot","sheet"].includes(screen))screen="shot";
+  if(screen==="sheet")app.sheetOpen=true;
+  else{app.sheetOpen=false;app.mobileScreen=screen}
+  $("sheetPanel").hidden=!app.sheetOpen;
+  if(app.sheetOpen)renderSheet();
+  updateSheetButtons();closeEditorActions();syncMobileEditorUi();rememberWorkspace();
+  requestAnimationFrame(()=>{
+    const target=screen==="scenes"?document.querySelector(".sidebar"):screen==="shot"?document.querySelector(".workspace"):$("sheetPanel");
+    if(target)target.scrollTop=0
+  })
 }
 async function afterLogin(){
   app.mode="cloud";
@@ -492,9 +568,26 @@ async function doSignup(e){
 }
 async function forgotPassword(){
   if(!cloudConfigured)return;
-  const email=prompt("Enter your email address:"); if(!email)return;
-  const {error}=await sb.auth.resetPasswordForEmail(email,{redirectTo:cfg.SITE_URL||location.origin});
-  setMsg("authMessage",error?error.message:"Password reset email sent.",error?"warning":"");
+  const email=uiPrompt("Enter your email address:"); if(!email)return;
+  const redirectTo=`${String(cfg.SITE_URL||location.origin).replace(/\/$/,"")}/`;
+  const {error}=await sb.auth.resetPasswordForEmail(email.trim(),{redirectTo});
+  setMsg("authMessage",error?error.message:"Password reset email sent. Open the newest link; reset links can expire or be used only once.",error?"warning":"");
+}
+async function updateRecoveredPassword(event){
+  event.preventDefault();if(!cloudConfigured)return;
+  const password=$("recoveryPassword").value,confirmation=$("recoveryPasswordConfirm").value;
+  if(!app.passwordRecovery.verified||!app.session)return showPasswordRecovery("This password-reset link is invalid or has expired. Request a new link from Forgot password.");
+  if(password.length<8)return setMsg("authMessage","Use a password with at least 8 characters.","warning");
+  if(password!==confirmation)return setMsg("authMessage","The two passwords do not match.","warning");
+  app.passwordRecovery.updating=true;renderPasswordRecoveryUi();setMsg("authMessage","Updating your password…");
+  const {error}=await sb.auth.updateUser({password});
+  if(error){app.passwordRecovery.updating=false;renderPasswordRecoveryUi();setMsg("authMessage",error.message||"Could not update the password.","warning");return}
+  app.passwordRecovery={active:false,error:"",verified:false,updating:false};cleanAuthCallbackUrl();$("recoveryPassword").value="";$("recoveryPasswordConfirm").value="";
+  await sb.auth.signOut({scope:"local"});toggleAuthTab("login");showAuth();setMsg("authMessage","Password updated. Sign in with your new password.")
+}
+async function cancelPasswordRecovery(){
+  app.passwordRecovery={active:false,error:"",verified:false,updating:false};cleanAuthCallbackUrl();$("recoveryPassword").value="";$("recoveryPasswordConfirm").value="";
+  if(sb&&app.session)await sb.auth.signOut({scope:"local"});toggleAuthTab("login");showAuth();setMsg("authMessage","Password reset canceled.")
 }
 function continueOffline(){
   app.mode="local";resetAdminState();resetAiState();app.projects=getLocalProjects();app.current=app.projects[0];selectFirst();app.permissions=fullPermissions();app.isOwner=true;showEditor()
@@ -523,7 +616,7 @@ async function loadCloudProjects(){
     ?projectQuery.or(`owner_id.eq.${app.session.user.id},id.in.(${membershipIds.join(",")})`)
     :projectQuery.eq("owner_id",app.session.user.id);
   const {data,error}=await projectQuery;
-  if(error){console.error(error);alert(`Could not load projects: ${error.message}`);return}
+  if(error){console.error(error);uiAlert(`Could not load projects: ${error.message}`);return}
 
   const membershipSet=new Set(membershipIds);
   const mapped=(data||[]).filter(row=>row.owner_id===app.session.user.id||membershipSet.has(row.id)).map(row=>{
@@ -586,7 +679,7 @@ function renderProjects(){
         <p>${escapeHtml(projectAspectText(p))} · ${escapeHtml(p.style||"")}</p>
         ${m.status?`<div class="project-status">${escapeHtml(m.status)}</div>`:""}
         ${tags?`<div class="tag-row">${tags}</div>`:""}
-        <p class="project-updated">Updated ${new Date(p.updated_at||Date.now()).toLocaleDateString()}</p>
+        <p class="project-updated">Updated ${new Date(p.updated_at||Date.now()).toLocaleDateString(uiLocale())}</p>
       </button>
       <div class="project-card-actions">
         <button type="button" class="mini-btn details">Details</button>
@@ -669,7 +762,7 @@ function renderAdminUserProjects(rows){
   if(!rows.length){wrap.innerHTML=adminEmpty("This user has no projects.");return}
   rows.forEach(project=>{
     const row=document.createElement("div");row.className="admin-project-row";
-    const updated=project.updated_at?new Date(project.updated_at).toLocaleString():"Unknown update time";
+    const updated=project.updated_at?new Date(project.updated_at).toLocaleString(uiLocale()):"Unknown update time";
     row.innerHTML=`<div><strong>${escapeHtml(project.name||"Untitled Project")}</strong><small>${escapeHtml(project.access_role||"owner")} · ${escapeHtml(project.folder||"General")} · ${updated}</small></div><span class="member-actions"><button type="button" class="btn open-admin-project">Open Support</button><button type="button" class="btn ghost admin-danger delete-admin-project">Delete</button></span>`;
     row.querySelector(".open-admin-project").onclick=()=>openAdminSupportProject(project);
     row.querySelector(".delete-admin-project").onclick=()=>deleteAdminProject(project);
@@ -684,7 +777,7 @@ async function openAdminSupportProject(project){
   app.admin.supportProjectId=project.id;app.admin.supportUserId=user.user_id;app.admin.supportUsername=user.username;app.admin.supportProjectName=project.name||"Untitled Project";
   app.current=null;
   try{await openCloudProject(project.id,{preserveSelection:true});if(app.current?.id!==project.id)throw new Error("Project access did not open.")}
-  catch(err){await closeAdminSupport(false);alert(err.message||"Could not open this project.")}
+  catch(err){await closeAdminSupport(false);uiAlert(err.message||"Could not open this project.")}
 }
 async function closeAdminSupport(reopen=true){
   const projectId=app.admin.supportProjectId;
@@ -695,7 +788,7 @@ async function closeAdminSupport(reopen=true){
 }
 async function deleteAdminProject(project){
   const user=app.admin.selectedUser;if(!user||!project)return;
-  if(!confirm(`Permanently delete "${project.name}" from @${user.username}? This cannot be undone.`))return;
+  if(!uiConfirm(`Permanently delete "${project.name}" from @${user.username}? This cannot be undone.`))return;
   setMsg("adminCenterNotice","Deleting project and stored media…");
   let supportOpened=false;
   try{
@@ -732,7 +825,7 @@ async function addAdmin(event){
   $("adminAddUsername").value="";setMsg("adminCenterNotice",`@${username} is now an active ${role}.`);await Promise.all([loadAdminTeam(),loadAdminActivity()])
 }
 async function removeAdmin(admin){
-  if(!confirm(`Remove @${admin.username} from the support team?`))return;
+  if(!uiConfirm(`Remove @${admin.username} from the support team?`))return;
   const {error}=await sb.rpc("storyboard_admin_remove",{p_user_id:admin.user_id});
   if(error){setMsg("adminCenterNotice",error.message||"Could not remove this admin.","warning");return}
   setMsg("adminCenterNotice",`@${admin.username} removed from the support team.`);await Promise.all([loadAdminTeam(),loadAdminActivity()])
@@ -744,19 +837,19 @@ async function loadAdminActivity(){
   wrap.innerHTML="";(data||[]).forEach(item=>{
     const row=document.createElement("div");row.className="admin-activity-row";
     const context=[item.target_username?`@${item.target_username}`:"",item.project_name||item.details?.project_name||""].filter(Boolean).join(" · ");
-    row.innerHTML=`<div><strong>${escapeHtml(String(item.action||"admin action").replaceAll("_"," "))}</strong><small>@${escapeHtml(item.admin_username||"admin")}${context?` · ${escapeHtml(context)}`:""}</small></div><time>${new Date(item.created_at).toLocaleString()}</time>`;wrap.appendChild(row)
+    row.innerHTML=`<div><strong>${escapeHtml(String(item.action||"admin action").replaceAll("_"," "))}</strong><small>@${escapeHtml(item.admin_username||"admin")}${context?` · ${escapeHtml(context)}`:""}</small></div><time>${new Date(item.created_at).toLocaleString(uiLocale())}</time>`;wrap.appendChild(row)
   });
   if(!(data||[]).length)wrap.innerHTML=adminEmpty("No administrative activity yet.")
 }
 async function createCloudProject(){
-  const name=prompt("Project name:","Untitled Storyboard");if(!name)return;
+  const name=uiPrompt("Project name:","Untitled Storyboard");if(!name)return;
   const myPositions=(app.projects||[]).filter(p=>p.owner_id===app.session.user.id).map(p=>Number(p.position||0));
   const position=Math.max(0,...myPositions)+1;
   const {data:p,error}=await sb.from("projects").insert({owner_id:app.session.user.id,name,aspect:"3:4 Portrait",aspect_width:3,aspect_height:4,style:"Storyboard B&W",position,is_favorite:false,folder:"General",tags:[],metadata:{director:"",cinematographer:"",writer:"",production:"",status:"Planning",notes:""}}).select().single();
-  if(error){alert(error.message);return}
-  const {data:s,error:se}=await sb.from("scenes").insert({project_id:p.id,scene_number:1,title:"Scene 1",description:"",position:1,collapsed:false}).select().single(); if(se){alert(se.message);return}
+  if(error){uiAlert(error.message);return}
+  const {data:s,error:se}=await sb.from("scenes").insert({project_id:p.id,scene_number:1,title:"Scene 1",description:"",position:1,collapsed:false}).select().single(); if(se){uiAlert(se.message);return}
   const shot=blankShot(1);
-  const {error:shErr}=await sb.from("shots").insert({project_id:p.id,scene_id:s.id,shot_number:1,position:1,data:shot});if(shErr){alert(shErr.message);return}
+  const {error:shErr}=await sb.from("shots").insert({project_id:p.id,scene_id:s.id,shot_number:1,position:1,data:shot});if(shErr){uiAlert(shErr.message);return}
   await loadCloudProjects();await openCloudProject(p.id)
 }
 async function openCloudProject(id,options={}){
@@ -769,9 +862,9 @@ async function openCloudProject(id,options={}){
   stopSignedImageRefresh();
   unsubscribeChatNoticeRealtime();
   updateChatBadges(0,false);
-  const {data:p,error}=await sb.from("projects").select("*").eq("id",id).single();if(error){alert(error.message);return}
-  const {data:scenes,error:se}=await sb.from("scenes").select("*").eq("project_id",id).order("position");if(se){alert(se.message);return}
-  const {data:shots,error:sh}=await sb.from("shots").select("*").eq("project_id",id).order("position");if(sh){alert(sh.message);return}
+  const {data:p,error}=await sb.from("projects").select("*").eq("id",id).single();if(error){uiAlert(error.message);return}
+  const {data:scenes,error:se}=await sb.from("scenes").select("*").eq("project_id",id).order("position");if(se){uiAlert(se.message);return}
+  const {data:shots,error:sh}=await sb.from("shots").select("*").eq("project_id",id).order("position");if(sh){uiAlert(sh.message);return}
   const signed=await Promise.all((shots||[]).map(async row=>{
     let image=null;if(row.image_path){const {data}=await sb.storage.from("storyboards").createSignedUrl(row.image_path,SIGNED_IMAGE_TTL_SECONDS);image=data?.signedUrl||null}
     const shotData={...blankShot(row.shot_number),...(row.data||{})};
@@ -796,6 +889,7 @@ async function openCloudProject(id,options={}){
   app.activeSceneId=preferredScene?.id||null;
   const preferredShot=preferredScene?.shots.find(s=>s.id===preferredShotId) || preferredScene?.shots[0] || null;
   app.activeShotId=preferredShot?.id||null;
+  if(!sameProject){app.mobileScreen="shot";if(options.sheetOpen===undefined)app.sheetOpen=false}
   if(options.sheetOpen!==undefined)app.sheetOpen=!!options.sheetOpen;
   showEditor();
   if($("aiBibleModal")?.open)renderAiVisualBible();
@@ -920,6 +1014,7 @@ function renderEditor(){
   $("customAspectFields").hidden=$("projectAspect").value!=="Custom";
   if($("projectFolderBadge"))$("projectFolderBadge").textContent=app.current.folder||"General";
   renderSceneList();renderSceneSettings();renderShot();renderSheet();updateSheetButtons();applyPermissionLocks();
+  syncMobileEditorUi();
   if(app.mode==="cloud"){rememberWorkspace();syncPresence()}
 }
 function renderSceneList(){
@@ -958,7 +1053,7 @@ function renderSceneList(){
       const b=document.createElement("button");b.type="button";b.className="shot-item"+(shot.id===app.activeShotId?" active":"");
       const th=document.createElement("span");th.className="shot-thumb";if(shot.image)th.style.backgroundImage=`url(${shot.image})`;
       const txt=document.createElement("span");txt.className="shot-item-text";txt.innerHTML=`<strong>Shot ${shot.shotNo}</strong><small>${shortValue(shot.shotSize)} · ${shot.duration||"No duration"}</small>`;
-      b.append(th,txt);b.onclick=()=>{app.activeSceneId=scene.id;app.activeShotId=shot.id;renderEditor();rememberWorkspace()};
+      b.append(th,txt);b.onclick=()=>{app.activeSceneId=scene.id;app.activeShotId=shot.id;app.mobileScreen="shot";app.sheetOpen=false;renderEditor();rememberWorkspace()};
       const controls=document.createElement("span");controls.className="shot-inline-actions";
       controls.innerHTML=`<button type="button" class="shot-up" title="Move shot up" ${shotIndex===0?"disabled":""}>↑</button><button type="button" class="shot-down" title="Move shot down" ${shotIndex===ordered.length-1?"disabled":""}>↓</button>`;
       controls.querySelector(".shot-up").onclick=()=>moveShotById(scene.id,shot.id,-1);
@@ -978,6 +1073,8 @@ function renderShot(){
   SHOT_FIELDS.forEach(id=>{if($(id))$(id).value=s[id]??""});
   $("shotKicker").textContent=`SCENE ${String(sc.number).padStart(2,"0")} · SHOT ${String(s.shotNo).padStart(2,"0")}`;
   $("shotTitle").textContent=`Shot ${s.shotNo}`;
+  $("mobileEditorTitle").textContent=app.current.name||"Storyboard";
+  $("mobileEditorSubtitle").textContent=`Scene ${sc.number} · Shot ${s.shotNo}`;
   $("quickSize").textContent=shortValue(s.shotSize);$("quickAngle").textContent=s.angle;$("quickLens").textContent=s.lens;$("quickMove").textContent=s.movement;
   $("frameMeta").textContent=`${projectAspectText(app.current)} · ${shortValue(s.shotSize)} · ${s.angle}`;
   const f=$("storyFrame");f.style.aspectRatio=`${aspectNumbers(app.current).w}/${aspectNumbers(app.current).h}`;
@@ -1002,7 +1099,7 @@ function applyPermissionLocks(){
   $("sceneNumber").readOnly=true;$("sceneNumber").disabled=false;
   ["sceneTitle","sceneDescription"].forEach(id=>$(id).disabled=sceneLocked);
   ["addSceneBtn","deleteSceneBtn"].forEach(id=>$(id).disabled=sceneLocked);
-  ["addShotBtn","mobileAddShotBtn","duplicateShotBtn","moveShotUpBtn","moveShotDownBtn","deleteShotBtn"].forEach(id=>$(id).disabled=shotLocked);
+  ["addShotBtn","duplicateShotBtn","moveShotUpBtn","moveShotDownBtn","deleteShotBtn"].forEach(id=>{if($(id))$(id).disabled=shotLocked});
   $("pasteShotBtn").disabled=shotLocked||!app.shotClipboard;
   $("copyShotBtn").disabled=!currentShot();
   SHOT_FIELDS.forEach(id=>{if($(id))$(id).disabled=shotLocked});
@@ -1092,7 +1189,7 @@ async function persistSceneOrder(){
       const {error}=await sb.from("scenes").update({scene_number:s.number,position:s.position,collapsed:!!s.collapsed}).eq("id",s.id);
       if(error)throw error
     }
-  }catch(err){alert(`Could not save scene order: ${err.message}`)}finally{app.suppressRealtime--}
+  }catch(err){uiAlert(`Could not save scene order: ${err.message}`)}finally{app.suppressRealtime--}
   renderEditor();
 }
 async function persistShotOrder(scene){
@@ -1104,7 +1201,7 @@ async function persistShotOrder(scene){
       const {error}=await sb.from("shots").update({shot_number:s.shotNo,position:s.position,data:shotDbData(s)}).eq("id",s.id);
       if(error)throw error
     }
-  }catch(err){alert(`Could not save shot order: ${err.message}`)}finally{app.suppressRealtime--}
+  }catch(err){uiAlert(`Could not save shot order: ${err.message}`)}finally{app.suppressRealtime--}
   renderEditor();
 }
 async function addScene(){
@@ -1112,14 +1209,14 @@ async function addScene(){
   if(app.mode==="local"){
     const s=blankScene(no);s.position=pos;app.current.scenes.push(s);normalizeSceneOrder();app.activeSceneId=s.id;app.activeShotId=s.shots[0].id;saveLocal();renderEditor();return
   }
-  const {data:s,error}=await sb.from("scenes").insert({project_id:app.current.id,scene_number:no,title:`Scene ${no}`,description:"",position:pos,collapsed:false}).select().single();if(error){alert(error.message);return}
-  const {data:sh,error:er}=await sb.from("shots").insert({project_id:app.current.id,scene_id:s.id,shot_number:1,position:1,data:blankShot(1)}).select().single();if(er){alert(er.message);return}
+  const {data:s,error}=await sb.from("scenes").insert({project_id:app.current.id,scene_number:no,title:`Scene ${no}`,description:"",position:pos,collapsed:false}).select().single();if(error){uiAlert(error.message);return}
+  const {data:sh,error:er}=await sb.from("shots").insert({project_id:app.current.id,scene_id:s.id,shot_number:1,position:1,data:blankShot(1)}).select().single();if(er){uiAlert(er.message);return}
   await openCloudProject(app.current.id);app.activeSceneId=s.id;app.activeShotId=sh.id;renderEditor()
 }
 async function renameScene(sceneId){
   if(!can("scenes"))return;const s=app.current.scenes.find(x=>x.id===sceneId);if(!s)return;
-  const title=prompt("Scene title:",s.title||`Scene ${s.number}`);if(title===null)return;s.title=title.trim()||`Scene ${s.number}`;
-  if(app.mode==="cloud"){const {error}=await sb.from("scenes").update({title:s.title}).eq("id",s.id);if(error)return alert(error.message)}else saveLocal();
+  const title=uiPrompt("Scene title:",s.title||`Scene ${s.number}`);if(title===null)return;s.title=title.trim()||`Scene ${s.number}`;
+  if(app.mode==="cloud"){const {error}=await sb.from("scenes").update({title:s.title}).eq("id",s.id);if(error)return uiAlert(error.message)}else saveLocal();
   renderEditor()
 }
 async function duplicateScene(sceneId){
@@ -1144,7 +1241,7 @@ async function duplicateScene(sceneId){
     await openCloudProject(app.current.id);normalizeSceneOrder();
     for(const s of app.current.scenes){const {error:e}=await sb.from("scenes").update({scene_number:s.number,position:s.position}).eq("id",s.id);if(e)throw e}
     await openCloudProject(app.current.id);app.activeSceneId=newScene.id;app.activeShotId=firstShotId;renderEditor()
-  }catch(err){alert(`Could not duplicate scene: ${err.message}`)}finally{app.suppressRealtime--}
+  }catch(err){uiAlert(`Could not duplicate scene: ${err.message}`)}finally{app.suppressRealtime--}
 }
 async function moveScene(sceneId,delta){
   if(!can("scenes"))return;const arr=app.current.scenes.sort((a,b)=>a.position-b.position),i=arr.findIndex(x=>x.id===sceneId),j=i+delta;if(i<0||j<0||j>=arr.length)return;
@@ -1152,11 +1249,11 @@ async function moveScene(sceneId,delta){
 }
 async function deleteScene(sceneId=app.activeSceneId){
   if(!can("scenes"))return;
-  if(app.current.scenes.length===1){alert("At least one scene must remain.");return}
+  if(app.current.scenes.length===1){uiAlert("At least one scene must remain.");return}
   const s=app.current.scenes.find(x=>x.id===sceneId)||currentScene();
   if(!s)return;
   const label=s.title?.trim()?`Scene ${s.number} · ${s.title.trim()}`:`Scene ${s.number}`;
-  if(!confirm(`Delete ${label} and all ${s.shots.length} of its shot${s.shots.length===1?"":"s"}?\n\nThis cannot be undone.`))return;
+  if(!uiConfirm(`Delete ${label} and all ${s.shots.length} of its shot${s.shots.length===1?"":"s"}?\n\nThis cannot be undone.`))return;
 
   if(app.mode==="local"){
     app.current.scenes=app.current.scenes.filter(x=>x.id!==s.id);
@@ -1185,7 +1282,7 @@ async function deleteScene(sceneId=app.activeSceneId){
 
     await openCloudProject(app.current.id)
   }catch(err){
-    alert(`Could not delete scene: ${err.message}`)
+    uiAlert(`Could not delete scene: ${err.message}`)
   }finally{
     app.suppressRealtime--
   }
@@ -1218,13 +1315,13 @@ async function addShotToScene(sceneId){
   if(!can("shots"))return;const sc=app.current?.scenes.find(s=>s.id===sceneId);if(!sc)return;const no=sc.shots.length+1,pos=no;
   app.activeSceneId=sc.id;sc.collapsed=false;
   if(app.mode==="local"){const sh=blankShot(no);sh.position=pos;sc.shots.push(sh);app.activeShotId=sh.id;saveLocal();renderEditor();rememberWorkspace();return}
-  const sh=blankShot(no);app.ignoreRealtimeUntil=Date.now()+1400;const {data,error}=await sb.from("shots").insert({project_id:app.current.id,scene_id:sc.id,shot_number:no,position:pos,data:shotDbData(sh)}).select().single();if(error){alert(error.message);return}
+  const sh=blankShot(no);app.ignoreRealtimeUntil=Date.now()+1400;const {data,error}=await sb.from("shots").insert({project_id:app.current.id,scene_id:sc.id,shot_number:no,position:pos,data:shotDbData(sh)}).select().single();if(error){uiAlert(error.message);return}
   await openCloudProject(app.current.id,{sceneId:sc.id,shotId:data.id,preserveSelection:true});rememberWorkspace()
 }
 async function deleteSelectedShotFromScene(sceneId){
   const sc=app.current?.scenes.find(s=>s.id===sceneId);if(!sc||sc.shots.length<=1)return;
   const selected=sc.shots.find(s=>s.id===app.activeShotId);
-  if(!selected){app.activeSceneId=sc.id;app.activeShotId=[...sc.shots].sort((a,b)=>a.position-b.position)[0]?.id||null;renderEditor();alert("Select the shot you want to delete, then press − again.");return}
+  if(!selected){app.activeSceneId=sc.id;app.activeShotId=[...sc.shots].sort((a,b)=>a.position-b.position)[0]?.id||null;renderEditor();uiAlert("Select the shot you want to delete, then press − again.");return}
   app.activeSceneId=sc.id;await deleteShot()
 }
 async function moveShotById(sceneId,shotId,delta){
@@ -1243,7 +1340,7 @@ async function insertShotCopy(source,afterIndex){
     await openCloudProject(app.current.id);const target=app.current.scenes.find(x=>x.id===sc.id);
     if(target){normalizeShotNumbers(target);for(const s of target.shots){const {error:e}=await sb.from("shots").update({shot_number:s.shotNo,position:s.position,data:shotDbData(s)}).eq("id",s.id);if(e)throw e}}
     await openCloudProject(app.current.id);app.activeSceneId=sc.id;app.activeShotId=row.id;renderEditor()
-  }catch(err){alert(`Could not duplicate shot: ${err.message}`)}finally{app.suppressRealtime--}
+  }catch(err){uiAlert(`Could not duplicate shot: ${err.message}`)}finally{app.suppressRealtime--}
 }
 async function duplicateShot(){
   if(!can("shots"))return;const s=currentShot(),sc=currentScene();if(!s)return;const idx=sc.shots.sort((a,b)=>a.position-b.position).findIndex(x=>x.id===s.id);await insertShotCopy(s,idx)
@@ -1258,7 +1355,7 @@ async function moveShot(delta){
   const sc=currentScene(),s=currentShot();if(!sc||!s)return;await moveShotById(sc.id,s.id,delta)
 }
 async function deleteShot(){
-  if(!can("shots"))return;const s=currentShot(),sc=currentScene();if(sc.shots.length===1){alert("Each scene needs at least one shot.");return}if(!confirm(`Delete Shot ${s.shotNo}?`))return;
+  if(!can("shots"))return;const s=currentShot(),sc=currentScene();if(sc.shots.length===1){uiAlert("Each scene needs at least one shot.");return}if(!uiConfirm(`Delete Shot ${s.shotNo}?`))return;
   const sorted=[...sc.shots].sort((a,b)=>a.position-b.position);const oldIndex=sorted.findIndex(x=>x.id===s.id);const nextId=sorted[oldIndex+1]?.id||sorted[oldIndex-1]?.id||null;
   if(app.mode==="local"){sc.shots=sc.shots.filter(x=>x.id!==s.id);normalizeShotNumbers(sc);app.activeShotId=nextId||sc.shots[0].id;saveLocal();renderEditor();return}
   app.suppressRealtime++;
@@ -1268,10 +1365,11 @@ async function deleteShot(){
     const remaining=sc.shots.filter(x=>x.id!==s.id).sort((a,b)=>a.position-b.position);remaining.forEach((x,i)=>{x.position=i+1;x.shotNo=i+1});
     for(const x of remaining){const {error:e}=await sb.from("shots").update({shot_number:x.shotNo,position:x.position,data:shotDbData(x)}).eq("id",x.id);if(e)throw e}
     await openCloudProject(app.current.id);app.activeSceneId=sc.id;app.activeShotId=nextId||currentScene()?.shots?.[0]?.id||null;renderEditor()
-  }catch(err){alert(`Could not delete shot: ${err.message}`)}finally{app.suppressRealtime--}
+  }catch(err){uiAlert(`Could not delete shot: ${err.message}`)}finally{app.suppressRealtime--}
 }
 function adjacentShot(delta){
-  const arr=allShots(),idx=arr.findIndex(x=>x.shot.id===app.activeShotId),target=arr[idx+delta];if(!target)return;app.activeSceneId=target.scene.id;app.activeShotId=target.shot.id;renderEditor();rememberWorkspace();window.scrollTo({top:0,behavior:"smooth"})
+  const arr=allShots(),idx=arr.findIndex(x=>x.shot.id===app.activeShotId),target=arr[idx+delta];if(!target)return;app.activeSceneId=target.scene.id;app.activeShotId=target.shot.id;app.mobileScreen="shot";app.sheetOpen=false;renderEditor();rememberWorkspace();
+  const workspace=document.querySelector(".workspace");if(isMobileEditor()&&workspace)workspace.scrollTo({top:0,behavior:"smooth"});else window.scrollTo({top:0,behavior:"smooth"})
 }
 
 /* ---------- IMAGES ---------- */
@@ -1280,13 +1378,13 @@ async function loadImage(e){
   if(app.mode==="local"){
     const r=new FileReader();r.onload=()=>{s.image=r.result;saveLocal();renderEditor()};r.readAsDataURL(file);e.target.value="";return
   }
-  if(!/^image\/(jpeg|png|webp)$/.test(file.type)||file.size>12*1024*1024){e.target.value="";return alert("Use a JPEG, PNG or WebP image up to 12 MB.")}
+  if(!/^image\/(jpeg|png|webp)$/.test(file.type)||file.size>12*1024*1024){e.target.value="";return uiAlert("Use a JPEG, PNG or WebP image up to 12 MB.")}
   try{
     const optimized=await optimizeImageBlob(file,1024,.82),path=`${app.current.id}/${s.id}/${Date.now()}-manual.webp`,oldPath=s.imagePath;
     const {error}=await sb.storage.from("storyboards").upload(path,optimized,{upsert:false,contentType:"image/webp",cacheControl:"31536000"});if(error)throw error;
     const {error:u}=await sb.from("shots").update({image_path:path}).eq("id",s.id);if(u){await removeMediaPaths([path]);throw u}
     s.imagePath=path;const {data}=await sb.storage.from("storyboards").createSignedUrl(path,SIGNED_IMAGE_TTL_SECONDS);s.image=data?.signedUrl||URL.createObjectURL(optimized);await removeMediaPaths([oldPath]);renderEditor()
-  }catch(err){alert(err.message||"Could not save image.")}finally{e.target.value=""}
+  }catch(err){uiAlert(err.message||"Could not save image.")}finally{e.target.value=""}
 }
 async function removeImage(){
   if(!can("media"))return;const s=currentShot();
@@ -1367,7 +1465,7 @@ async function loadAiVisualBible(projectId=app.current?.id){
   if($("aiBibleModal")?.open)await Promise.all([...app.ai.characters,...app.ai.locations].filter(x=>x.reference_path&&!x.referenceUrl).map(signAiAsset))
 }
 async function openAiVisualBible(){
-  if(app.mode!=="cloud")return alert("AI generation is available for signed-in cloud projects.");
+  if(app.mode!=="cloud")return uiAlert("AI generation is available for signed-in cloud projects.");
   if(app.ai.ready&&!app.ai.generating)setMsg("aiBibleNotice","");
   renderAiVisualBible();$("aiBibleModal").showModal();
   await Promise.all([...app.ai.characters,...app.ai.locations].filter(x=>x.reference_path&&!x.referenceUrl).map(signAiAsset));renderAiVisualBible()
@@ -1438,7 +1536,7 @@ async function toggleAiAssetLock(type,id){
   if(error)return setMsg("aiBibleNotice",error.message,"warning");asset.locked=locked;asset.style_snapshot=style_snapshot;setMsg("aiBibleNotice",`${asset.name} ${locked?`locked for ${app.current.style}`:"unlocked for editing"}.`);renderAiVisualBible();renderShot();applyPermissionLocks()
 }
 async function deleteAiAsset(type,id){
-  const asset=aiCollection(type).find(x=>x.id===id);if(!asset||!can("media")||!confirm(`Delete ${asset.name} from the AI Visual Bible?`))return;
+  const asset=aiCollection(type).find(x=>x.id===id);if(!asset||!can("media")||!uiConfirm(`Delete ${asset.name} from the AI Visual Bible?`))return;
   const {error}=await sb.from(aiTable(type)).delete().eq("id",id).eq("project_id",app.current.id);if(error)return setMsg("aiBibleNotice",error.message,"warning");
   await removeMediaPaths([asset.reference_path]);app.ai[type==="character"?"characters":"locations"]=aiCollection(type).filter(x=>x.id!==id);
   for(const {shot} of allShots()){
@@ -1485,7 +1583,7 @@ async function requestAiImage(payload){
 }
 function generationBalanceMessage(remaining){
   if(remaining===null||remaining===undefined||remaining==="")return "";
-  if(Number(remaining)<0)return app.admin.isAdmin?" Admin quota bypass is active.":"";
+  if(Number(remaining)<0)return "";
   return ` ${remaining} generation(s) remain today.`
 }
 async function generateAiReference(type,id){
@@ -1546,10 +1644,13 @@ async function generateShotImage(){
 /* ---------- SHEET TOGGLE ---------- */
 function toggleSheet(force){
   app.sheetOpen=typeof force==="boolean"?force:!app.sheetOpen;$("sheetPanel").hidden=!app.sheetOpen;updateSheetButtons();rememberWorkspace();
-  if(app.sheetOpen){renderSheet();requestAnimationFrame(()=>$("sheetPanel").scrollIntoView({behavior:"smooth",block:"start"}))}
+  if(isMobileEditor()){
+    app.mobileScreen=app.sheetOpen?"sheet":"shot";syncMobileEditorUi();closeEditorActions();
+    if(app.sheetOpen){renderSheet();requestAnimationFrame(()=>{$("sheetPanel").scrollTop=0})}
+  }else if(app.sheetOpen){renderSheet();requestAnimationFrame(()=>$("sheetPanel").scrollIntoView({behavior:"smooth",block:"start"}))}
 }
 function updateSheetButtons(){
-  $("sheetToggleBtn").classList.toggle("sheet-on",app.sheetOpen);$("mobileSheetBtn").classList.toggle("sheet-on",app.sheetOpen);$("sheetPanel").hidden=!app.sheetOpen
+  $("sheetToggleBtn").classList.toggle("sheet-on",app.sheetOpen);$("mobileSheetBtn").classList.toggle("sheet-on",app.sheetOpen);$("sheetPanel").hidden=!app.sheetOpen;syncMobileEditorUi()
 }
 function sheetCols(per){return per>=8?"cols-3":"cols-2"}
 function renderSheet(){
@@ -1622,7 +1723,7 @@ async function renderChatMessages(){
     const mine=row.user_id===app.session.user.id,pr=profiles.find(p=>p.id===row.user_id)||{},name=pr.display_name||pr.username||(mine?"You":"Collaborator");
     const item=document.createElement("div");item.className="chat-message"+(mine?" mine":"");
     const ref=row.context_type&&row.context_label?`<button type="button" class="chat-ref" data-type="${escapeHtml(row.context_type)}" data-id="${escapeHtml(row.context_id||"")}">↗ ${escapeHtml(row.context_label)}</button>`:"";
-    item.innerHTML=`<div class="chat-meta"><strong>${escapeHtml(name)}</strong><span>${new Date(row.created_at).toLocaleString()}</span></div>${ref}<div class="chat-body">${renderChatBody(row.body)}</div>`;
+    item.innerHTML=`<div class="chat-meta"><strong>${escapeHtml(name)}</strong><span>${new Date(row.created_at).toLocaleString(uiLocale())}</span></div>${ref}<div class="chat-body">${renderChatBody(row.body)}</div>`;
     item.querySelector(".chat-ref")?.addEventListener("click",e=>jumpToChatReference(e.currentTarget.dataset.type,e.currentTarget.dataset.id));
     box.appendChild(item)
   }
@@ -1656,7 +1757,7 @@ function subscribeChatRealtime(){
 }
 function unsubscribeChatRealtime(){if(sb&&app.chatChannel){sb.removeChannel(app.chatChannel);app.chatChannel=null}}
 async function openCollab(){
-  if(app.mode!=="cloud"){alert("Collaboration becomes available after Supabase cloud accounts are connected.");return}
+  if(app.mode!=="cloud"){uiAlert("Collaboration becomes available after Supabase cloud accounts are connected.");return}
   $("collabModal").showModal();setMsg("collabMessage","");$("shareLinkBox").hidden=true;
   $("collabOwnerTools").hidden=!(app.isOwner||can("members"));
   setCollabTab("chat");subscribeChatRealtime()
@@ -1672,8 +1773,8 @@ async function renderMembers(){
     const manage=app.isOwner||can("members");
     row.innerHTML=`<span><strong>${escapeHtml(pr.display_name||pr.username||"Member")}</strong><small>${pr.username?"@"+escapeHtml(pr.username):""}</small></span>${manage?'<span class="member-actions"><button type="button" class="btn ghost edit-member">Access</button><button type="button" class="btn ghost remove-member">Remove</button></span>':`<span class="member-role-label">${escapeHtml(m.role||"member")}</span>`}`;
     if(manage){
-      row.querySelector(".edit-member").onclick=async()=>{const preset=prompt("Set role: viewer, editor or custom","editor");if(!preset)return;let perms=preset==="viewer"?blankPermissions():preset==="editor"?editorPermissions():m.permissions||editorPermissions();const rpc=adminSupporting()?"storyboard_admin_update_project_member":"update_project_member_access";const {error}=await sb.rpc(rpc,{p_project_id:pid,p_user_id:m.user_id,p_role:preset,p_permissions:perms});if(error)setMsg("collabMessage",error.message,"warning");else renderMembers()};
-      row.querySelector(".remove-member").onclick=async()=>{if(!confirm("Remove this collaborator?"))return;const rpc=adminSupporting()?"storyboard_admin_remove_project_member":"remove_project_member";const {error}=await sb.rpc(rpc,{p_project_id:pid,p_user_id:m.user_id});if(error)setMsg("collabMessage",error.message,"warning");else renderMembers()};
+      row.querySelector(".edit-member").onclick=async()=>{const preset=uiPrompt("Set role: viewer, editor or custom","editor");if(!preset)return;let perms=preset==="viewer"?blankPermissions():preset==="editor"?editorPermissions():m.permissions||editorPermissions();const rpc=adminSupporting()?"storyboard_admin_update_project_member":"update_project_member_access";const {error}=await sb.rpc(rpc,{p_project_id:pid,p_user_id:m.user_id,p_role:preset,p_permissions:perms});if(error)setMsg("collabMessage",error.message,"warning");else renderMembers()};
+      row.querySelector(".remove-member").onclick=async()=>{if(!uiConfirm("Remove this collaborator?"))return;const rpc=adminSupporting()?"storyboard_admin_remove_project_member":"remove_project_member";const {error}=await sb.rpc(rpc,{p_project_id:pid,p_user_id:m.user_id});if(error)setMsg("collabMessage",error.message,"warning");else renderMembers()};
     }
     wrap.appendChild(row)
   })
@@ -1704,10 +1805,10 @@ function exportJSON(){const blob=new Blob([JSON.stringify(app.current,null,2)],{
 async function importJSON(e){
   const file=e.target.files[0];if(!file)return;const r=new FileReader();r.onload=async()=>{try{
     const x=JSON.parse(r.result);if(!x.scenes&&!x.shots)throw new Error("Unsupported file");
-    if(app.mode==="cloud"){alert("Cloud JSON import will be added after the account backend is connected. For now, import is available in Offline mode.");return}
+    if(app.mode==="cloud"){uiAlert("Cloud JSON import will be added after the account backend is connected. For now, import is available in Offline mode.");return}
     const p=x.scenes?x:blankProject(x.project?.name||"Imported");if(!x.scenes)p.scenes=[{id:uid(),number:1,title:"Scene 1",description:"",position:1,shots:x.shots.map((s,i)=>({...blankShot(i+1),...s,id:uid()}))}];
     p.id=uid();app.current=p;app.projects.push(p);selectFirst();saveLocal();renderEditor()
-  }catch(err){alert("Invalid storyboard JSON.")}};r.readAsText(file);e.target.value=""
+  }catch(err){uiAlert("Invalid storyboard JSON.")}};r.readAsText(file);e.target.value=""
 }
 
 
@@ -1745,13 +1846,13 @@ async function createCloudProjectFromJSON(projectData){
 async function importJSONOnline(file){
   const text=await file.text();const data=JSON.parse(text);if(!data.scenes&&!data.shots)throw new Error("Unsupported storyboard JSON.");
   if(app.mode==="cloud"){
-    const id=await createCloudProjectFromJSON(data);await loadCloudProjects();await openCloudProject(id);alert("Storyboard imported successfully. Images can be added manually to each shot.")
+    const id=await createCloudProjectFromJSON(data);await loadCloudProjects();await openCloudProject(id);uiAlert("Storyboard imported successfully. Images can be added manually to each shot.")
   }else{
     const p={...blankProject(data.name||"Imported Storyboard"),...data,id:uid(),owner_id:null};
     p.tags=normalizeTags(p.tags);p.metadata=projectMeta(p);p.folder=p.folder||"General";p.isFavorite=!!(p.isFavorite??p.is_favorite);
     let scenes=Array.isArray(p.scenes)?p.scenes:[];if(!scenes.length)scenes=[{title:"Scene 1",shots:Array.isArray(data.shots)?data.shots:[]}];
     p.scenes=scenes.map((sc,si)=>({...blankScene(si+1),...sc,id:uid(),number:si+1,position:si+1,collapsed:!!sc.collapsed,shots:(Array.isArray(sc.shots)&&sc.shots.length?sc.shots:[blankShot(1)]).map((sh,i)=>({...blankShot(i+1),...sh,id:uid(),shotNo:i+1,position:i+1}))}));
-    app.current=p;app.projects.push(p);selectFirst();saveLocal();renderEditor();alert("Storyboard imported locally.")
+    app.current=p;app.projects.push(p);selectFirst();saveLocal();renderEditor();uiAlert("Storyboard imported locally.")
   }
 }
 
@@ -2217,7 +2318,7 @@ async function openLightingWorkspace(options={}){
   subscribeLightingRealtime()
 }
 function closeLightingWorkspace(){
-  if(app.lighting.dirty&&!confirm("Close Lighting Diagram without saving the latest changes?"))return;
+  if(app.lighting.dirty&&!uiConfirm("Close Lighting Diagram without saving the latest changes?"))return;
   stopLightingPlayback(true);stopLighting3D();unsubscribeLightingRealtime();$("lightingDiagramModal").close()
 }
 function toggleLightingDrawer(force){
@@ -2257,11 +2358,11 @@ async function saveLightingDiagram(){
   setMsg("lightingDiagramNotice","Saved.");setTimeout(()=>setMsg("lightingDiagramNotice",""),1200)
 }
 async function createNewLightingDiagram(){
-  if(app.lighting.dirty&&!confirm("Create a new diagram without saving the latest changes?"))return;
+  if(app.lighting.dirty&&!uiConfirm("Create a new diagram without saving the latest changes?"))return;
   setLightingCurrent(newLightingDiagramObject());applyLightingPermissions()
 }
 async function deleteLightingDiagram(){
-  const d=app.lighting.current;if(!d||!lightingCanEdit()||!confirm(`Delete "${d.name}"?`))return;
+  const d=app.lighting.current;if(!d||!lightingCanEdit()||!uiConfirm(`Delete "${d.name}"?`))return;
   if(app.mode==="cloud"&&d.persisted){
     const {error}=await sb.from("lighting_diagrams").delete().eq("id",d.id);
     if(error){setMsg("lightingDiagramNotice",error.message,"warning");return}
@@ -3012,7 +3113,7 @@ function exportLightingJson(){const d=deepClone(app.lighting.current);delete d.p
 function exportLightingPng(){
   const blob=new Blob([lightingExportSvgString()],{type:"image/svg+xml;charset=utf-8"}),url=URL.createObjectURL(blob),img=new Image();
   img.onload=()=>{const c=document.createElement("canvas");c.width=2400;c.height=1600;const ctx=c.getContext("2d");ctx.fillStyle="#080a0c";ctx.fillRect(0,0,c.width,c.height);ctx.drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(url);c.toBlob(p=>lightingDownload(p,`${slugName(app.lighting.current?.name)}.png`),"image/png")};
-  img.onerror=()=>{URL.revokeObjectURL(url);alert("Could not export PNG. Try SVG instead.")};img.src=url
+  img.onerror=()=>{URL.revokeObjectURL(url);uiAlert("Could not export PNG. Try SVG instead.")};img.src=url
 }
 async function copyLightingShareLink(){
   if(!app.lighting.current)return;
@@ -3020,7 +3121,7 @@ async function copyLightingShareLink(){
   if(!app.lighting.current.persisted&&app.mode==="cloud"){setMsg("lightingDiagramNotice","Save before sharing.","warning");return}
   const u=new URL(location.href);u.search="";u.searchParams.set("project",app.current.id);u.searchParams.set("diagram",app.lighting.current.id);
   try{await navigator.clipboard.writeText(u.toString());setMsg("lightingDiagramNotice","Share link copied.")}
-  catch(e){prompt("Copy this diagram link:",u.toString())}
+  catch(e){uiPrompt("Copy this diagram link:",u.toString())}
 }
 function subscribeLightingRealtime(){
   unsubscribeLightingRealtime();if(!sb||app.mode!=="cloud"||!app.current)return;
@@ -3034,7 +3135,7 @@ function unsubscribeLightingRealtime(){if(sb&&app.lighting.channel){sb.removeCha
 async function openPendingLightingLink(){
   if(!app.pendingLightingProject)return false;
   const pid=app.pendingLightingProject,did=app.pendingLightingDiagram;
-  if(!app.projects.some(p=>p.id===pid)){alert("You do not have access to this lighting diagram project.");return false}
+  if(!app.projects.some(p=>p.id===pid)){uiAlert("You do not have access to this lighting diagram project.");return false}
   await openCloudProject(pid,{preserveSelection:true});await openLightingWorkspace({diagramId:did});
   app.pendingLightingProject=null;app.pendingLightingDiagram=null;history.replaceState({},document.title,location.pathname);return true
 }
@@ -3066,13 +3167,13 @@ function setupProjectDrag(){
   })
 }
 async function renameProject(id){
-  const p=app.projects.find(x=>x.id===id);if(!p||!projectCanEdit(p))return;const name=prompt("New project name:",p.name);if(!name?.trim())return;
+  const p=app.projects.find(x=>x.id===id);if(!p||!projectCanEdit(p))return;const name=uiPrompt("New project name:",p.name);if(!name?.trim())return;
   const clean=name.trim();
-  if(app.mode==="cloud"){const {error}=await sb.from("projects").update({name:clean,updated_at:new Date().toISOString()}).eq("id",id);if(error)return alert(error.message)}
+  if(app.mode==="cloud"){const {error}=await sb.from("projects").update({name:clean,updated_at:new Date().toISOString()}).eq("id",id);if(error)return uiAlert(error.message)}
   p.name=clean;if(app.current?.id===id)app.current.name=clean;if(app.mode==="local")saveLocal();renderProjects()
 }
 async function deleteProject(id){
-  const p=app.projects.find(x=>x.id===id);if(!p||!projectIsOwner(p)||!confirm(`Delete "${p.name}"? This cannot be undone.`))return;
+  const p=app.projects.find(x=>x.id===id);if(!p||!projectIsOwner(p)||!uiConfirm(`Delete "${p.name}"? This cannot be undone.`))return;
   if(app.mode==="cloud"){
     app.suppressRealtime++;
     try{
@@ -3087,7 +3188,7 @@ async function deleteProject(id){
         const {data:deleted,error}=await sb.from("projects").delete().eq("id",id).eq("owner_id",app.session.user.id).select("id");
         if(error)throw error;if(!deleted?.length)throw new Error("Project was not deleted. Run the v3.5 Supabase migration and try again.")
       }
-    }catch(err){alert(`Could not delete project: ${err.message}`);app.suppressRealtime--;return}
+    }catch(err){uiAlert(`Could not delete project: ${err.message}`);app.suppressRealtime--;return}
     app.suppressRealtime--
   }
   app.projects=app.projects.filter(x=>x.id!==id);if(app.current?.id===id)app.current=null;
@@ -3096,7 +3197,7 @@ async function deleteProject(id){
 }
 async function toggleFavorite(id){
   const p=app.projects.find(x=>x.id===id);if(!p||!projectCanEdit(p))return;const old=p.isFavorite;p.isFavorite=!old;
-  if(app.mode==="cloud"){const {error}=await sb.from("projects").update({is_favorite:p.isFavorite,updated_at:new Date().toISOString()}).eq("id",id);if(error){p.isFavorite=old;return alert(error.message)}}
+  if(app.mode==="cloud"){const {error}=await sb.from("projects").update({is_favorite:p.isFavorite,updated_at:new Date().toISOString()}).eq("id",id);if(error){p.isFavorite=old;return uiAlert(error.message)}}
   else localStorage.setItem("storyboard-v3-projects",JSON.stringify(app.projects));renderProjects()
 }
 async function duplicateProject(id){
@@ -3134,7 +3235,7 @@ async function duplicateProject(id){
       }
     }
     await loadCloudProjects();await openCloudProject(newP.id)
-  }catch(err){alert(`Could not duplicate project: ${err.message}`)}finally{app.suppressRealtime--}
+  }catch(err){uiAlert(`Could not duplicate project: ${err.message}`)}finally{app.suppressRealtime--}
 }
 function openProjectDetails(id){
   const p=(app.current?.id===id?app.current:app.projects.find(x=>x.id===id));if(!p)return;app.detailsProjectId=id;const m=projectMeta(p);
@@ -3149,7 +3250,7 @@ async function saveProjectDetails(){
   p.name=$("detailProjectName").value.trim()||p.name;p.folder=$("detailProjectFolder").value.trim()||"General";p.tags=normalizeTags($("detailProjectTags").value);p.isFavorite=$("detailFavorite").checked;
   p.metadata={director:$("detailDirector").value.trim(),cinematographer:$("detailCinematographer").value.trim(),writer:$("detailWriter").value.trim(),production:$("detailProduction").value.trim(),status:$("detailStatus").value,notes:$("detailNotes").value.trim()};
   if(app.mode==="cloud"){
-    const {error}=await sb.from("projects").update({name:p.name,folder:p.folder,tags:p.tags,is_favorite:p.isFavorite,metadata:p.metadata,updated_at:new Date().toISOString()}).eq("id",id);if(error)return alert(error.message)
+    const {error}=await sb.from("projects").update({name:p.name,folder:p.folder,tags:p.tags,is_favorite:p.isFavorite,metadata:p.metadata,updated_at:new Date().toISOString()}).eq("id",id);if(error)return uiAlert(error.message)
   }else saveLocal();
   if(app.current?.id===id){app.current={...app.current,...p};$("projectName").value=p.name;if($("projectFolderBadge"))$("projectFolderBadge").textContent=p.folder}
   p.updated_at=new Date().toISOString();const listP=app.projects.find(x=>x.id===id);if(listP)Object.assign(listP,p);$("projectDetailsModal").close();renderProjects()
@@ -3157,8 +3258,11 @@ async function saveProjectDetails(){
 
 /* ---------- EVENTS ---------- */
 function bind(){
+  $("mobileMoreBtn").onclick=toggleEditorActions;
+  $("mobileScenesBtn").onclick=()=>setMobileEditorScreen("scenes");
+  $("mobileShotBtn").onclick=()=>setMobileEditorScreen("shot");
   $("loginTabBtn").onclick=()=>toggleAuthTab("login");$("signupTabBtn").onclick=()=>toggleAuthTab("signup");$("loginEmailMode").onclick=()=>setLoginKind("email");$("loginUsernameMode").onclick=()=>setLoginKind("username");
-  $("loginForm").onsubmit=doLogin;$("signupForm").onsubmit=doSignup;$("forgotPasswordBtn").onclick=forgotPassword;$("continueOfflineBtn").onclick=continueOffline;
+  $("loginForm").onsubmit=doLogin;$("signupForm").onsubmit=doSignup;$("passwordRecoveryForm").onsubmit=updateRecoveredPassword;$("cancelPasswordRecoveryBtn").onclick=cancelPasswordRecovery;$("forgotPasswordBtn").onclick=forgotPassword;$("continueOfflineBtn").onclick=continueOffline;
   $("logoutBtn").onclick=logout;$("newCloudProjectBtn").onclick=createCloudProject;$("emptyNewProjectBtn").onclick=createCloudProject;
   $("accountBtn").onclick=()=>$("accountModal").showModal();$("closeAccountBtn").onclick=()=>$("accountModal").close();
   $("adminCenterBtn").onclick=openAdminCenter;$("backFromAdminBtn").onclick=async()=>{rememberProjectsView();await loadCloudProjects();showProjects()};
@@ -3175,7 +3279,7 @@ function bind(){
   ["sceneTitle","sceneDescription"].forEach(id=>{["input","change"].forEach(ev=>$(id).addEventListener(ev,onSceneChange))});
   SHOT_FIELDS.filter(id=>id!=="shotNo").forEach(id=>{if($(id))["input","change"].forEach(ev=>$(id).addEventListener(ev,()=>onShotChange(id)))});
   $("addSceneBtn").onclick=addScene;$("deleteSceneBtn").onclick=()=>deleteScene();$("collapseAllScenesBtn").onclick=()=>deleteScene();$("expandAllScenesBtn").onclick=toggleAllScenes;
-  $("addShotBtn").onclick=addShot;$("mobileAddShotBtn").onclick=addShot;$("duplicateShotBtn").onclick=duplicateShot;$("copyShotBtn").onclick=copyShot;$("pasteShotBtn").onclick=pasteShot;$("moveShotUpBtn").onclick=()=>moveShot(-1);$("moveShotDownBtn").onclick=()=>moveShot(1);$("deleteShotBtn").onclick=deleteShot;
+  $("addShotBtn").onclick=async()=>{await addShot();if(isMobileEditor())setMobileEditorScreen("shot")};$("duplicateShotBtn").onclick=duplicateShot;$("copyShotBtn").onclick=copyShot;$("pasteShotBtn").onclick=pasteShot;$("moveShotUpBtn").onclick=()=>moveShot(-1);$("moveShotDownBtn").onclick=()=>moveShot(1);$("deleteShotBtn").onclick=deleteShot;
   $("prevShotBtn").onclick=()=>adjacentShot(-1);$("nextShotBtn").onclick=()=>adjacentShot(1);
   $("frameImageInput").onchange=loadImage;$("removeImageBtn").onclick=removeImage;
 
@@ -3194,7 +3298,7 @@ function bind(){
   $("saveLightingDiagramBtn").onclick=saveLightingDiagram;
   $("deleteLightingDiagramBtn").onclick=deleteLightingDiagram;
   $("lightingDiagramSelect").onchange=e=>{
-    if(app.lighting.dirty&&!confirm("Switch diagrams without saving the latest changes?")){renderLightingDiagramList();return}
+    if(app.lighting.dirty&&!uiConfirm("Switch diagrams without saving the latest changes?")){renderLightingDiagramList();return}
     const d=app.lighting.diagrams.find(x=>x.id===e.target.value);if(d)setLightingCurrent(d)
   };
   $("lightingDiagramName").oninput=e=>{if(!app.lighting.current)return;app.lighting.current.name=e.target.value;markLightingDirty()};
@@ -3234,8 +3338,8 @@ function bind(){
   $("exportLightingJsonBtn").onclick=exportLightingJson;
   $("shareLightingDiagramBtn").onclick=copyLightingShareLink;
 
-  $("sheetToggleBtn").onclick=()=>toggleSheet();$("mobileSheetBtn").onclick=()=>toggleSheet();$("closeSheetBtn").onclick=()=>toggleSheet(false);$("shotsPerPage").onchange=renderSheet;$("printSheetBtn").onclick=()=>window.print();
-  $("exportBtn").onclick=exportJSON;$("importInput").onchange=e=>{const f=e.target.files[0];if(f)importJSONOnline(f).catch(err=>alert(err.message||"Import failed."));e.target.value="";};
+  $("sheetToggleBtn").onclick=()=>isMobileEditor()?setMobileEditorScreen("sheet"):toggleSheet();$("mobileSheetBtn").onclick=()=>setMobileEditorScreen("sheet");$("closeSheetBtn").onclick=()=>isMobileEditor()?setMobileEditorScreen("shot"):toggleSheet(false);$("shotsPerPage").onchange=renderSheet;$("printSheetBtn").onclick=()=>window.print();
+  $("exportBtn").onclick=exportJSON;$("importInput").onchange=e=>{const f=e.target.files[0];if(f)importJSONOnline(f).catch(err=>uiAlert(err.message||"Import failed."));e.target.value="";};
   document.querySelectorAll("[data-focus]").forEach(b=>b.onclick=()=>{$(b.dataset.focus).focus();$(b.dataset.focus).scrollIntoView({behavior:"smooth",block:"center"})});
   $("collaborateBtn").onclick=openCollab;$("addMemberBtn").onclick=addMemberByUsername;$("createShareLinkBtn").onclick=createShareLink;$("copyShareLinkBtn").onclick=async()=>{await navigator.clipboard.writeText($("shareLinkOutput").value);setMsg("collabMessage","Invite link copied.")};
   $("permissionPreset").onchange=e=>{if(e.target.value!=="custom")setPermissionPreset(e.target.value)};
@@ -3255,6 +3359,18 @@ function bind(){
   });
   window.addEventListener("storage",e=>{
     if(app.current&&e.key===chatReadKey(app.current.id))refreshChatNotificationBadge()
+  });
+  window.addEventListener("resize",()=>{if(!isMobileEditor())closeEditorActions();syncMobileEditorUi()});
+  window.addEventListener("storyboard:languagechange",()=>{
+    if(app.current)renderEditor();
+    if(!$("projectsView").hidden)renderProjects();
+    if(!$("adminView").hidden&&app.admin.isAdmin){renderAdminUserResults(app.admin.users);loadAdminTeam();loadAdminActivity()}
+    renderAiUsage();window.storyboardI18n?.translateTree(document.body)
+  });
+  document.addEventListener("click",e=>{
+    if(!$("editorView")?.classList.contains("editor-actions-open"))return;
+    if(e.target.closest(".editor-actions,.mobile-more-btn"))return;
+    closeEditorActions()
   });
   window.addEventListener("pagehide",()=>rememberWorkspace())
 }
