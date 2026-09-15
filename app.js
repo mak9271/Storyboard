@@ -1,7 +1,7 @@
-// Storyboard Shot Builder v3.8.2.3 — fixed playback, rotate gestures, God View and framing
+// Storyboard Shot Builder v3.9 — security hardening, conflict detection, presence and signed-media refresh
 const OPTIONS = {
   shotSize:["ECU · Extreme Close Up","CU · Close Up","MCU · Medium Close Up","MS · Medium Shot","MLS · Medium Long Shot","WS · Wide Shot","EWS · Extreme Wide Shot","OTS · Over The Shoulder","POV · Point of View","Insert","Top Shot"],
-  angle:["Eye Level","High Angle","Low Angle","Top / Bird's Eye","Dutch Angle","Ground Level","Overhead"],
+  angle:["Eye Level","High Angle","Low Angle","Top / Bird's Eye","Dutch Angle","Ground Level","Overhead","Custom"],
   cameraHeight:["Eye Level","Chest Level","Waist Level","Table Level","Ground Level","Overhead","Custom"],
   lens:["18mm","24mm","28mm","35mm","40mm","50mm","65mm","85mm","100mm","135mm","Wide","Normal","Telephoto"],
   focus:["Shallow Focus","Deep Focus","Rack Focus","Selective Focus","Soft Focus","Split Diopter","Auto / Unspecified"],
@@ -30,6 +30,7 @@ let app = {
   activeShotId: null,
   sheetOpen: false,
   realtimeChannel: null,
+  presenceChannel: null,
   chatChannel: null,
   chatNoticeChannel: null,
   collabTab: "chat",
@@ -62,6 +63,9 @@ let app = {
   ignoreRealtimeUntil: 0
 };
 let autosaveTimer = null;
+let signedImageRefreshTimer = null;
+let presenceTrackTimer = null;
+let lastPresenceSignature = "";
 
 function uid(){return (crypto.randomUUID ? crypto.randomUUID() : "id-"+Date.now()+"-"+Math.random().toString(16).slice(2))}
 function fullPermissions(){return {project_settings:true,scenes:true,shots:true,media:true,members:true}}
@@ -94,6 +98,9 @@ function escapeHtml(str){return String(str??"").replace(/[&<>"']/g,m=>({"&":"&am
 function show(el, yes=true){if(el) el.hidden=!yes}
 function setMsg(id,msg,type=""){const el=$(id); if(!msg){el.hidden=true;el.textContent="";return} el.hidden=false;el.textContent=msg;el.className="notice"+(type?` ${type}`:"")}
 function can(key){return app.isOwner || !!app.permissions?.[key]}
+const SIGNED_IMAGE_TTL_SECONDS = 3600;
+const SIGNED_IMAGE_REFRESH_MS = 45 * 60 * 1000;
+function conflictMessage(kind){return `This ${kind} was changed by another collaborator. I reloaded the latest version so you can review it before editing again.`}
 
 /* ---------- CHAT NOTIFICATIONS + MENTIONS ---------- */
 function chatReadKey(projectId=app.current?.id){
@@ -417,7 +424,7 @@ async function forgotPassword(){
 function continueOffline(){
   app.mode="local";app.projects=getLocalProjects();app.current=app.projects[0];selectFirst();app.permissions=fullPermissions();app.isOwner=true;showEditor()
 }
-async function logout(){if(sb&&app.mode==="cloud")await sb.auth.signOut();else showAuth()}
+async function logout(){unsubscribePresence();stopSignedImageRefresh();if(sb&&app.mode==="cloud")await sb.auth.signOut();else showAuth()}
 
 /* ---------- CLOUD PROJECTS ---------- */
 function normalizeProjectRecord(p){
@@ -536,17 +543,19 @@ async function openCloudProject(id,options={}){
   const preferredShotId=options.shotId || (sameProject&&options.preserveSelection!==false?app.activeShotId:null);
   const restoreScroll=Number.isFinite(Number(options.scrollY))?Number(options.scrollY):(sameProject?window.scrollY:null);
   unsubscribeRealtime();
+  unsubscribePresence();
+  stopSignedImageRefresh();
   unsubscribeChatNoticeRealtime();
   updateChatBadges(0,false);
   const {data:p,error}=await sb.from("projects").select("*").eq("id",id).single();if(error){alert(error.message);return}
   const {data:scenes,error:se}=await sb.from("scenes").select("*").eq("project_id",id).order("position");if(se){alert(se.message);return}
   const {data:shots,error:sh}=await sb.from("shots").select("*").eq("project_id",id).order("position");if(sh){alert(sh.message);return}
   const signed=await Promise.all((shots||[]).map(async row=>{
-    let image=null;if(row.image_path){const {data}=await sb.storage.from("storyboards").createSignedUrl(row.image_path,604800);image=data?.signedUrl||null}
+    let image=null;if(row.image_path){const {data}=await sb.storage.from("storyboards").createSignedUrl(row.image_path,SIGNED_IMAGE_TTL_SECONDS);image=data?.signedUrl||null}
     const shotData={...blankShot(row.shot_number),...(row.data||{})};
-    return {...shotData,id:row.id,shotNo:row.shot_number,position:row.position,imagePath:row.image_path,image}
+    return {...shotData,id:row.id,shotNo:row.shot_number,position:row.position,version:Number(row.version||1),imagePath:row.image_path,image}
   }));
-  const sceneObjects=(scenes||[]).map(s=>({id:s.id,number:s.scene_number,title:s.title||`Scene ${s.scene_number}`,description:s.description||"",position:Number(s.position||s.scene_number||1),collapsed:!!s.collapsed,shots:signed.filter(x=>(shots||[]).find(r=>r.id===x.id)?.scene_id===s.id)}));
+  const sceneObjects=(scenes||[]).map(s=>({id:s.id,number:s.scene_number,title:s.title||`Scene ${s.scene_number}`,description:s.description||"",position:Number(s.position||s.scene_number||1),collapsed:!!s.collapsed,version:Number(s.version||1),shots:signed.filter(x=>(shots||[]).find(r=>r.id===x.id)?.scene_id===s.id)}));
   sceneObjects.sort((a,b)=>a.position-b.position).forEach((scene,i)=>{
     scene.position=i+1;scene.number=i+1;
     scene.shots.sort((a,b)=>a.position-b.position).forEach((shot,j)=>{shot.position=j+1;shot.shotNo=j+1})
@@ -565,6 +574,8 @@ async function openCloudProject(id,options={}){
   showEditor();
   restoreAccordionState(options.openDetails);
   subscribeRealtime();
+  subscribePresence();
+  startSignedImageRefresh();
   setupChatNotifications();
   rememberWorkspace();
   if(restoreScroll!==null)setTimeout(()=>window.scrollTo({top:restoreScroll,left:0,behavior:"auto"}),0)
@@ -579,6 +590,84 @@ function subscribeRealtime(){
     .subscribe()
 }
 function unsubscribeRealtime(){if(sb&&app.realtimeChannel){sb.removeChannel(app.realtimeChannel);app.realtimeChannel=null}}
+
+function unsubscribePresence(){
+  clearTimeout(presenceTrackTimer);
+  lastPresenceSignature="";
+  if(sb&&app.presenceChannel){sb.removeChannel(app.presenceChannel);app.presenceChannel=null}
+  renderShotPresence()
+}
+function presencePayload(){
+  return {
+    user_id:app.session?.user?.id||"",
+    username:app.profile?.username||"",
+    display_name:app.profile?.display_name||app.profile?.username||"Collaborator",
+    scene_id:app.activeSceneId||null,
+    shot_id:app.activeShotId||null,
+    editing:true,
+    online_at:new Date().toISOString()
+  }
+}
+function syncPresence(force=false){
+  if(!app.presenceChannel||app.mode!=="cloud"||!app.current)return;
+  const signature=`${app.current.id}|${app.activeSceneId||""}|${app.activeShotId||""}`;
+  if(!force&&signature===lastPresenceSignature)return;
+  lastPresenceSignature=signature;
+  clearTimeout(presenceTrackTimer);
+  presenceTrackTimer=setTimeout(()=>app.presenceChannel?.track(presencePayload()),80)
+}
+function renderShotPresence(){
+  const el=$("shotPresence");if(!el)return;
+  if(!app.presenceChannel||!app.activeShotId){el.hidden=true;el.textContent="";return}
+  const state=app.presenceChannel.presenceState?.()||{};
+  const people=[];
+  for(const rows of Object.values(state)){
+    for(const row of rows||[]){
+      if(row.user_id===app.session?.user?.id)continue;
+      if(row.shot_id===app.activeShotId)people.push(row)
+    }
+  }
+  const unique=[...new Map(people.map(p=>[p.user_id,p])).values()];
+  if(!unique.length){el.hidden=true;el.textContent="";return}
+  const names=unique.slice(0,3).map(p=>p.display_name||p.username||"Collaborator");
+  el.textContent=`● ${names.join(", ")} ${unique.length===1?"is":"are"} editing this shot${unique.length>3?` +${unique.length-3}`:""}`;
+  el.hidden=false
+}
+function subscribePresence(){
+  unsubscribePresence();
+  if(!sb||app.mode!=="cloud"||!app.current||!app.session)return;
+  const pid=app.current.id;
+  app.presenceChannel=sb.channel(`storyboard-presence-${pid}`,{config:{presence:{key:app.session.user.id}}})
+    .on("presence",{event:"sync"},renderShotPresence)
+    .on("presence",{event:"join"},renderShotPresence)
+    .on("presence",{event:"leave"},renderShotPresence)
+    .subscribe(async status=>{
+      if(status==="SUBSCRIBED"){
+        lastPresenceSignature=`${app.current?.id||""}|${app.activeSceneId||""}|${app.activeShotId||""}`;
+        await app.presenceChannel.track(presencePayload());
+        renderShotPresence()
+      }
+    })
+}
+async function refreshSignedImages(){
+  if(app.mode!=="cloud"||!app.current)return;
+  const jobs=[];
+  for(const {shot} of allShots()){
+    if(!shot.imagePath)continue;
+    jobs.push((async()=>{
+      const {data,error}=await sb.storage.from("storyboards").createSignedUrl(shot.imagePath,SIGNED_IMAGE_TTL_SECONDS);
+      if(!error&&data?.signedUrl)shot.image=data.signedUrl
+    })())
+  }
+  await Promise.all(jobs);
+  renderSceneList();renderShot();if(app.sheetOpen)renderSheet()
+}
+function stopSignedImageRefresh(){if(signedImageRefreshTimer){clearInterval(signedImageRefreshTimer);signedImageRefreshTimer=null}}
+function startSignedImageRefresh(){
+  stopSignedImageRefresh();
+  if(app.mode!=="cloud"||!app.current)return;
+  signedImageRefreshTimer=setInterval(()=>refreshSignedImages().catch(console.warn),SIGNED_IMAGE_REFRESH_MS)
+}
 let refreshTimer=null;
 function remoteRefresh(){if(app.suppressRealtime>0||Date.now()<app.ignoreRealtimeUntil)return;clearTimeout(refreshTimer);const pid=app.current?.id,sceneId=app.activeSceneId,shotId=app.activeShotId,scrollY=window.scrollY;refreshTimer=setTimeout(()=>{if(app.current?.id===pid&&app.suppressRealtime===0)openCloudProject(pid,{sceneId,shotId,scrollY,preserveSelection:true,openDetails:openAccordionIds(),sheetOpen:app.sheetOpen})},700)}
 
@@ -592,7 +681,7 @@ function renderEditor(){
   $("customAspectFields").hidden=$("projectAspect").value!=="Custom";
   if($("projectFolderBadge"))$("projectFolderBadge").textContent=app.current.folder||"General";
   renderSceneList();renderSceneSettings();renderShot();renderSheet();updateSheetButtons();applyPermissionLocks();
-  if(app.mode==="cloud")rememberWorkspace()
+  if(app.mode==="cloud"){rememberWorkspace();syncPresence()}
 }
 function renderSceneList(){
   const wrap=$("sceneList");wrap.innerHTML="";
@@ -693,10 +782,21 @@ async function saveCloud(kind){
   if(kind==="project"&&can("project_settings")){
     await sb.from("projects").update({name:app.current.name,aspect:app.current.aspect,aspect_width:app.current.aspectWidth,aspect_height:app.current.aspectHeight,style:app.current.style,folder:app.current.folder||"General",tags:app.current.tags||[],metadata:projectMeta(app.current),is_favorite:!!app.current.isFavorite,updated_at:new Date().toISOString()}).eq("id",app.current.id)
   }else if(kind==="scene"&&can("scenes")){
-    const s=currentScene();await sb.from("scenes").update({scene_number:s.number,title:s.title,description:s.description,position:s.position,collapsed:!!s.collapsed}).eq("id",s.id)
+    const s=currentScene();if(!s)return;
+    const {data,error}=await sb.rpc("update_storyboard_scene",{p_scene_id:s.id,p_expected_version:Number(s.version||1),p_title:s.title||"",p_description:s.description||""});
+    if(error){
+      if(String(error.message||"").includes("EDIT_CONFLICT")){setMsg("editorNotice",conflictMessage("scene"),"warning");await openCloudProject(app.current.id,{sceneId:s.id,shotId:app.activeShotId,preserveSelection:true});return}
+      setMsg("editorNotice",error.message||"Could not save scene.","warning");return
+    }
+    s.version=Number(data||s.version+1)
   }else if(kind==="shot"&&can("shots")){
-    const s=currentShot();const data=shotDbData(s);
-    await sb.from("shots").update({shot_number:Number(s.shotNo)||1,position:s.position,data}).eq("id",s.id)
+    const s=currentShot();if(!s)return;const data=shotDbData(s);
+    const {data:newVersion,error}=await sb.rpc("update_storyboard_shot",{p_shot_id:s.id,p_expected_version:Number(s.version||1),p_data:data});
+    if(error){
+      if(String(error.message||"").includes("EDIT_CONFLICT")){setMsg("editorNotice",conflictMessage("shot"),"warning");await openCloudProject(app.current.id,{sceneId:app.activeSceneId,shotId:s.id,preserveSelection:true});return}
+      setMsg("editorNotice",error.message||"Could not save shot.","warning");return
+    }
+    s.version=Number(newVersion||s.version+1)
   }
 }
 function onProjectChange(){
@@ -904,7 +1004,7 @@ async function loadImage(e){
   const safe=file.name.replace(/[^a-zA-Z0-9._-]/g,"-"),path=`${app.current.id}/${s.id}/${Date.now()}-${safe}`;
   const {error}=await sb.storage.from("storyboards").upload(path,file,{upsert:true,contentType:file.type});if(error){alert(error.message);return}
   const {error:u}=await sb.from("shots").update({image_path:path}).eq("id",s.id);if(u){alert(u.message);return}
-  s.imagePath=path;const {data}=await sb.storage.from("storyboards").createSignedUrl(path,604800);s.image=data?.signedUrl||null;renderEditor();e.target.value=""
+  s.imagePath=path;const {data}=await sb.storage.from("storyboards").createSignedUrl(path,SIGNED_IMAGE_TTL_SECONDS);s.image=data?.signedUrl||null;renderEditor();e.target.value=""
 }
 async function removeImage(){
   if(!can("media"))return;const s=currentShot();
@@ -1041,25 +1141,23 @@ async function renderMembers(){
     const manage=app.isOwner||can("members");
     row.innerHTML=`<span><strong>${escapeHtml(pr.display_name||pr.username||"Member")}</strong><small>${pr.username?"@"+escapeHtml(pr.username):""}</small></span>${manage?'<span class="member-actions"><button type="button" class="btn ghost edit-member">Access</button><button type="button" class="btn ghost remove-member">Remove</button></span>':`<span class="member-role-label">${escapeHtml(m.role||"member")}</span>`}`;
     if(manage){
-      row.querySelector(".edit-member").onclick=async()=>{const preset=prompt("Set role: viewer, editor or custom","editor");if(!preset)return;let perms=preset==="viewer"?blankPermissions():preset==="editor"?editorPermissions():m.permissions||editorPermissions();const {error}=await sb.from("project_members").update({role:preset,permissions:perms}).eq("project_id",pid).eq("user_id",m.user_id);if(error)setMsg("collabMessage",error.message,"warning");else renderMembers()};
-      row.querySelector(".remove-member").onclick=async()=>{if(!confirm("Remove this collaborator?"))return;const {error}=await sb.from("project_members").delete().eq("project_id",pid).eq("user_id",m.user_id);if(error)setMsg("collabMessage",error.message,"warning");else renderMembers()};
+      row.querySelector(".edit-member").onclick=async()=>{const preset=prompt("Set role: viewer, editor or custom","editor");if(!preset)return;let perms=preset==="viewer"?blankPermissions():preset==="editor"?editorPermissions():m.permissions||editorPermissions();const {error}=await sb.rpc("update_project_member_access",{p_project_id:pid,p_user_id:m.user_id,p_role:preset,p_permissions:perms});if(error)setMsg("collabMessage",error.message,"warning");else renderMembers()};
+      row.querySelector(".remove-member").onclick=async()=>{if(!confirm("Remove this collaborator?"))return;const {error}=await sb.rpc("remove_project_member",{p_project_id:pid,p_user_id:m.user_id});if(error)setMsg("collabMessage",error.message,"warning");else renderMembers()};
     }
     wrap.appendChild(row)
   })
 }
 async function addMemberByUsername(){
   const username=$("inviteUsername").value.trim().toLowerCase();if(!username)return;
-  const {data:p,error}=await sb.from("profiles").select("id,username").eq("username",username).maybeSingle();if(error||!p){setMsg("collabMessage","User not found.","warning");return}
-  if(p.id===app.current.owner_id){setMsg("collabMessage","That user is already the owner.","warning");return}
   const preset=$("permissionPreset").value,perms=permissionPreset(preset);
-  const {error:e}=await sb.from("project_members").upsert({project_id:app.current.id,user_id:p.id,role:preset,permissions:perms,invited_by:app.session.user.id},{onConflict:"project_id,user_id"});
+  const {error:e}=await sb.rpc("add_project_member_by_username",{p_project_id:app.current.id,p_username:username,p_role:preset,p_permissions:perms});
   if(e)setMsg("collabMessage",e.message,"warning");else{setMsg("collabMessage",`@${username} added.`);$("inviteUsername").value="";renderMembers()}
 }
 async function createShareLink(){
   const preset=$("permissionPreset").value,perms=permissionPreset(preset),email=$("inviteEmail").value.trim()||null;
-  const {data,error}=await sb.from("project_invites").insert({project_id:app.current.id,invitee_email:email,role:preset,permissions:perms,created_by:app.session.user.id}).select("token").single();
+  const {data,error}=await sb.rpc("create_project_invite",{p_project_id:app.current.id,p_invitee_email:email,p_role:preset,p_permissions:perms});
   if(error){setMsg("collabMessage",error.message,"warning");return}
-  const url=`${cfg.SITE_URL||location.origin}/?invite=${data.token}`;$("shareLinkOutput").value=url;$("shareLinkBox").hidden=false
+  const url=`${cfg.SITE_URL||location.origin}/?invite=${data}`;$("shareLinkOutput").value=url;$("shareLinkBox").hidden=false
 }
 async function acceptPendingInvite(){
   const token=app.pendingInvite;if(!token)return;
@@ -1231,13 +1329,129 @@ function subjectFaceTargetY(subject,shotSize){
   if(s.includes("wide")||s.includes("top shot"))return h*0.5;
   return h*0.7
 }
-function cameraHeightMeters(label){
-  const map={"Eye Level":1.65,"Chest Level":1.35,"Waist Level":1.0,"Table Level":0.75,"Ground Level":0.2,"Overhead":2.8,"Custom":1.65};
-  return map[label]||1.65
+function subjectScaledHeight(subject){
+  return Number(subject?.height3d||1.75)*(Number(subject?.scale||100)/100)
 }
-function cameraAngleTilt(label){
-  const map={"Eye Level":0,"High Angle":-18,"Low Angle":16,"Top / Bird's Eye":-70,"Dutch Angle":0,"Ground Level":9,"Overhead":-45};
+function subjectEyeHeight(subject){
+  return subjectScaledHeight(subject)*0.93
+}
+function subjectChestHeight(subject){
+  return subjectScaledHeight(subject)*0.72
+}
+function subjectWaistHeight(subject){
+  return subjectScaledHeight(subject)*0.52
+}
+function cameraHeightMeters(label,subject=null){
+  const h=subjectScaledHeight(subject),eye=subjectEyeHeight(subject);
+  const map={
+    "Eye Level":eye,
+    "Chest Level":subjectChestHeight(subject),
+    "Waist Level":subjectWaistHeight(subject),
+    "Table Level":Math.max(.65,h*.42),
+    "Ground Level":.15,
+    "Overhead":Math.min(6,h+1.25),
+    "Custom":null
+  };
+  const v=map[label];
+  return v==null?1.65:v
+}
+function cameraAnglePitch(label){
+  const map={
+    "Eye Level":0,
+    "High Angle":-24,
+    "Low Angle":18,
+    "Top / Bird's Eye":-76,
+    "Dutch Angle":0,
+    "Ground Level":14,
+    "Overhead":-52,
+    "Custom":null
+  };
   return map[label]??0
+}
+function cameraAngleRoll(label){
+  return label==="Dutch Angle"?15:0
+}
+function cameraFramingDistanceMeters(camera,subject){
+  if(!camera||!subject)return 3;
+  const subjectHeight=subjectScaledHeight(subject);
+  const cropH=shotFrameCropMeters(camera.shotSize,subjectHeight);
+  const occupy=shotFrameTargetRatio(camera.shotSize);
+  const visibleH=Math.max(.12,cropH/Math.max(.1,occupy));
+  const vfov=Math.max(8,cameraVerticalFov(camera.lens));
+  return Math.max(.22,(visibleH/2)/Math.tan(vfov*Math.PI/360))
+}
+function cameraAimHeight(camera,subject){
+  const h=subjectScaledHeight(subject),s=String(camera?.shotSize||"").toLowerCase();
+  if(s.includes("extreme close")||s.startsWith("cu"))return subjectEyeHeight(subject);
+  if(s.includes("medium close"))return h*.80;
+  if(s.includes("medium shot"))return h*.65;
+  if(s.includes("medium long"))return h*.55;
+  if(s.includes("wide")||s.includes("top shot"))return h*.50;
+  return h*.70
+}
+function cameraTargetHeight(camera,subject){
+  if(camera?.angle==="Eye Level")return subjectEyeHeight(subject);
+  return cameraAimHeight(camera,subject)
+}
+function cameraGroundDistanceForFrame(camera,subject){
+  const total=cameraFramingDistanceMeters(camera,subject);
+  const targetY=cameraTargetHeight(camera,subject);
+  const vertical=targetY-Number(camera?.height3d||1.65);
+  const sq=total*total-vertical*vertical;
+  return Math.max(.18,Math.sqrt(Math.max(.035,sq)))
+}
+function pointCameraTowardSubject(camera,subject){
+  if(!camera||!subject)return;
+  const horizontal=cameraGroundDistanceForFrame(camera,subject);
+  const targetY=cameraTargetHeight(camera,subject);
+  camera.tilt=Math.atan2(targetY-Number(camera.height3d||1.65),horizontal)*180/Math.PI
+}
+function reframeCameraDistance(camera,{force=true}={}){
+  const subject=findLightingSubject(camera);
+  if(!camera||!subject)return;
+  if(!force&&camera.autoFrame===false)return;
+  const distance=cameraGroundDistanceForFrame(camera,subject);
+  const yaw=Number(camera.rotation||0)*Math.PI/180;
+  camera.x=Number(subject.x||600)-Math.cos(yaw)*distance*100;
+  camera.y=Number(subject.y||400)-Math.sin(yaw)*distance*100;
+  camera.x=Math.max(20,Math.min(1180,camera.x));
+  camera.y=Math.max(20,Math.min(780,camera.y));
+  camera.autoFrame=true
+}
+function applyCameraHeightPreset(camera,label){
+  const subject=findLightingSubject(camera);if(!camera||!subject)return;
+  if(label==="Custom")return;
+  camera.cameraHeight=label;
+  camera.height3d=cameraHeightMeters(label,subject);
+  reframeCameraDistance(camera,{force:true});
+  pointCameraTowardSubject(camera,subject)
+}
+function applyCameraAnglePreset(camera,label){
+  const subject=findLightingSubject(camera);if(!camera||!subject)return;
+  camera.angle=label;
+  camera.roll=cameraAngleRoll(label);
+  if(label==="Custom")return;
+
+  const total=cameraFramingDistanceMeters(camera,subject);
+  const targetY=(label==="Eye Level")?subjectEyeHeight(subject):cameraAimHeight(camera,subject);
+  const pitch=cameraAnglePitch(label);
+  const absPitch=Math.abs(pitch)*Math.PI/180;
+
+  if(label==="Eye Level"){
+    camera.cameraHeight="Eye Level";
+    camera.height3d=subjectEyeHeight(subject);
+    camera.tilt=0;
+  }else if(label==="Ground Level"){
+    camera.cameraHeight="Ground Level";
+    camera.height3d=.15;
+  }else{
+    const sign=pitch<0?1:-1;
+    const vertical=Math.min(total*.92,Math.sin(absPitch)*total);
+    camera.height3d=Math.max(.1,Math.min(6,targetY+sign*vertical));
+    camera.cameraHeight="Custom";
+  }
+  reframeCameraDistance(camera,{force:true});
+  pointCameraTowardSubject(camera,subject)
 }
 function kelvinToRgb(kelvin){
   let t=Math.max(1000,Math.min(40000,Number(kelvin)||5600))/100,r,g,b;
@@ -1250,8 +1464,9 @@ function polarPoint(x,y,len,deg){const a=deg*Math.PI/180;return {x:x+Math.cos(a)
 
 function normalizeLightingObject(o){
   if(o.type==="camera"){
-    if(o.height3d==null)o.height3d=cameraHeightMeters(o.cameraHeight);
-    if(o.tilt==null)o.tilt=cameraAngleTilt(o.angle);
+    if(o.height3d==null)o.height3d=1.65;
+    if(o.tilt==null)o.tilt=0;
+    if(o.roll==null)o.roll=cameraAngleRoll(o.angle);
     if(o.autoFrame==null)o.autoFrame=true;
   }else if(o.type==="light"){
     if(o.height3d==null)o.height3d=2.2;
@@ -1381,7 +1596,7 @@ function renderLightingObjectList(){
         </button>`).join(""):`<div class="lighting-object-empty">No ${title.toLowerCase()}</div>`}
     </div>`
   }).join("");
-  el.querySelectorAll("[data-lighting-select]").forEach(b=>b.onclick=()=>selectLightingObject(b.dataset.lightingSelect,true))
+  el.querySelectorAll("[data-lighting-select]").forEach(b=>b.onclick=()=>selectLightingObject(b.dataset.lightingSelect,false))
 }
 function renderFixtureCatalog(){
   const el=$("lightingFixtureCatalog"),o=lightingSelected();if(!el||!o||o.type!=="light")return;
@@ -1416,6 +1631,16 @@ function renderModifierCatalog(){
 }
 function setLightingCurrent(diagram){
   app.lighting.current=normalizeLightingDiagram(diagram);
+  for(const cam of app.lighting.current.data.objects.filter(o=>o.type==="camera")){
+    if(cam.autoFrame!==false){
+      const subject=findLightingSubject(cam);
+      if(subject){
+        if(cam.cameraHeight!=="Custom")cam.height3d=cameraHeightMeters(cam.cameraHeight,subject);
+        reframeCameraDistance(cam,{force:true});
+        if(cam.angle!=="Custom")pointCameraTowardSubject(cam,subject)
+      }
+    }
+  }
   const firstCam=app.lighting.current.data.objects.find(o=>o.type==="camera");
   app.lighting.activeCameraId=firstCam?.id||null;
   app.lighting.selectedId=firstCam?.id||app.lighting.current.data.objects[0]?.id||null;
@@ -1472,7 +1697,6 @@ function selectLightingObject(id,openDrawer=false){
   app.lighting.selectedId=id;
   const o=lightingSelected();
   if(o?.type==="camera"&&!app.lighting.activeCameraId)app.lighting.activeCameraId=o.id;
-  if(openDrawer&&app.lighting.drawerCollapsed)toggleLightingDrawer(false);
   renderLightingObjectList();renderLightingInspector();renderLightingCanvas();syncLighting3D()
 }
 function markLightingDirty(){app.lighting.dirty=true;$("saveLightingDiagramBtn").textContent="Save •"}
@@ -1527,8 +1751,15 @@ function applyLightingPermissions(){
 function addLightingObject(o){
   const d=app.lighting.current;if(!d||!lightingCanEdit())return;
   d.data.objects.push(normalizeLightingObject(o));app.lighting.selectedId=o.id;
-  if(o.type==="camera")app.lighting.activeCameraId=o.id;
-  markLightingDirty();toggleLightingDrawer(false);renderLightingObjectList();renderLightingInspector();renderLightingCanvas();syncLighting3D()
+  if(o.type==="camera"){
+    app.lighting.activeCameraId=o.id;
+    const subject=findLightingSubject(o);
+    if(subject){
+      if(o.cameraHeight!=="Custom")o.height3d=cameraHeightMeters(o.cameraHeight,subject);
+      applyCameraAnglePreset(o,o.angle||"Eye Level")
+    }
+  }
+  markLightingDirty();renderLightingObjectList();renderLightingInspector();renderLightingCanvas();syncLighting3D()
 }
 function addLightingFixture(){
   const n=app.lighting.current?.data?.objects?.filter(o=>o.type==="light").length||0;
@@ -1554,10 +1785,14 @@ function applyCurrentShotToCamera(){
   Object.assign(c,{
     lens:s.lens||"50mm",shotSize:s.shotSize||"CU · Close Up",angle:s.angle||"Eye Level",
     cameraHeight:s.cameraHeight||"Eye Level",movement:s.movement||"Static",focus:s.focus||"Shallow Focus",
-    height3d:cameraHeightMeters(s.cameraHeight),tilt:cameraAngleTilt(s.angle),
-    label:`Camera · ${shortValue(s.shotSize)} · ${s.lens||"50mm"}`,
-    autoFrame:true
+    label:`Camera · ${shortValue(s.shotSize)} · ${s.lens||"50mm"}`,autoFrame:true
   });
+  const subject=findLightingSubject(c);
+  if(subject){
+    if(c.cameraHeight!=="Custom")c.height3d=cameraHeightMeters(c.cameraHeight,subject);
+    applyCameraAnglePreset(c,c.angle||"Eye Level");
+    reframeCameraDistance(c,{force:true})
+  }
   app.lighting.selectedId=c.id;app.lighting.activeCameraId=c.id;
   markLightingDirty();renderLightingObjectList();renderLightingInspector();renderLightingCanvas();syncLighting3D()
 }
@@ -1570,10 +1805,11 @@ function updateLightingLinkedShot(){
   const [sceneId,shotId]=String($("lightingLinkedShot").value||"").split("|");
   d.scene_id=sceneId||null;d.shot_id=shotId||null;markLightingDirty()
 }
-function selectedLightingChange(){
+function selectedLightingChange(sourceId=""){
   const o=lightingSelected();if(!o||!lightingCanEdit())return;
   o.label=$("lightingObjectLabel").value.trim()||o.type;
   o.rotation=Number($("lightingObjectRotation").value)||0;
+
   if(o.type==="light"){
     o.kelvin=Number($("lightingObjectKelvin").value)||5600;
     o.intensity=Number($("lightingObjectIntensity").value)||70;
@@ -1587,14 +1823,41 @@ function selectedLightingChange(){
     o.cameraHeight=$("lightingObjectHeight").value;
     o.movement=$("lightingObjectMovement").value;
     o.focus=$("lightingObjectFocus").value;
-    o.height3d=Number($("lightingCameraHeight3d").value)||1.65;
-    o.tilt=Number($("lightingCameraTilt").value)||0;
-    o.autoFrame=true
+
+    if(sourceId==="lightingCameraHeight3d"){
+      o.height3d=Number($("lightingCameraHeight3d").value)||1.65;
+      o.cameraHeight="Custom";
+      o.autoFrame=true;
+      reframeCameraDistance(o,{force:true})
+    }else if(sourceId==="lightingCameraTilt"){
+      o.tilt=Number($("lightingCameraTilt").value)||0;
+      o.angle="Custom";
+      o.roll=0;
+      o.autoFrame=false
+    }else if(sourceId==="lightingObjectAngle"){
+      applyCameraAnglePreset(o,o.angle)
+    }else if(sourceId==="lightingObjectHeight"){
+      applyCameraHeightPreset(o,o.cameraHeight)
+    }else if(sourceId==="lightingObjectLens"||sourceId==="lightingObjectShotSize"){
+      o.autoFrame=true;
+      reframeCameraDistance(o,{force:true});
+      const subject=findLightingSubject(o);
+      if(subject&&o.angle!=="Custom")pointCameraTowardSubject(o,subject)
+    }else{
+      o.height3d=Number($("lightingCameraHeight3d").value)||Number(o.height3d)||1.65;
+      o.tilt=Number($("lightingCameraTilt").value)||Number(o.tilt)||0
+    }
   }else if(o.type==="subject"){
     o.height3d=Number($("lightingSubjectHeight3d").value)||1.75;
     o.scale=Number($("lightingSubjectScale").value)||100;
-    o.gender=$("lightingSubjectGender").value||"female"
+    o.gender=$("lightingSubjectGender").value||"female";
+    for(const cam of app.lighting.current.data.objects.filter(x=>x.type==="camera"&&x.autoFrame!==false)){
+      if(cam.cameraHeight!=="Custom")cam.height3d=cameraHeightMeters(cam.cameraHeight,o);
+      reframeCameraDistance(cam,{force:true});
+      if(cam.angle!=="Custom")pointCameraTowardSubject(cam,o)
+    }
   }
+
   markLightingDirty();renderLightingObjectList();renderLightingInspector(false);renderLightingCanvas();syncLighting3D()
 }
 function renderLightingInspector(updateInputs=true){
@@ -1743,7 +2006,7 @@ function lightingSvgPoint(e){
 function normalizeDegrees(v){return ((Number(v||0)%360)+360)%360}
 function angleBetween2d(a,b){return Math.atan2(b.y-a.y,b.x-a.x)*180/Math.PI}
 function startLightingRotateHandle(e,id){
-  selectLightingObject(id,true);
+  selectLightingObject(id,false);
   if(!lightingCanEdit())return;
   const o=lightingSelected();if(!o)return;
   e.preventDefault();e.stopPropagation();
@@ -1757,7 +2020,7 @@ function startLightingRotateHandle(e,id){
   $("lightingCanvas").setPointerCapture?.(e.pointerId)
 }
 function startLightingDrag(e,id){
-  selectLightingObject(id,true);
+  selectLightingObject(id,false);
   if(!lightingCanEdit())return;
   const o=lightingSelected();if(!o)return;
   e.preventDefault();
@@ -1800,6 +2063,7 @@ function moveLightingDrag(e){
   if(d.pointerId!==e.pointerId)return;
   o.x=Math.max(25,Math.min(1175,d.objectX+p.x-d.startX));
   o.y=Math.max(25,Math.min(775,d.objectY+p.y-d.startY));
+  if(o.type==="camera")o.autoFrame=false;
   markLightingDirty();renderLightingCanvas();syncLighting3D()
 }
 function endLightingDrag(e){
@@ -2102,38 +2366,31 @@ function updateThreeCameraFromObject(){
   if(!state?.camera||!camObj)return;
   const THREE=state.THREE;
   const p=planToWorld(camObj);
-  const yaw=Number(camObj.rotation||0)*Math.PI/180,tilt=Number(camObj.tilt||0)*Math.PI/180;
-  const dir=state.threeDir||(state.threeDir=new THREE.Vector3());
-  dir.set(Math.cos(yaw)*Math.cos(tilt),Math.sin(tilt),Math.sin(yaw)*Math.cos(tilt)).normalize();
-
-  const subject=findLightingSubject(camObj);
-  let cameraPos=new THREE.Vector3(p.x,Number(camObj.height3d||1.65),p.z);
-  let targetPos=cameraPos.clone().add(dir);
-
-  if(subject&&camObj.autoFrame!==false){
-    const sp=planToWorld(subject);
-    const subjectScale=(Number(subject.scale||100)/100);
-    const subjectHeight=Number(subject.height3d||1.75)*subjectScale;
-    const cropH=shotFrameCropMeters(camObj.shotSize,subjectHeight);
-    const occupy=shotFrameTargetRatio(camObj.shotSize);
-    const visibleH=Math.max(0.12,cropH/occupy);
-    const distance=(visibleH/2)/Math.tan(THREE.MathUtils.degToRad(Math.max(8,cameraVerticalFov(camObj.lens))/2));
-    const targetY=subjectFaceTargetY(subject,camObj.shotSize);
-    targetPos=new THREE.Vector3(sp.x,targetY,sp.z);
-    cameraPos=targetPos.clone().sub(dir.clone().multiplyScalar(distance));
-    if(camObj.cameraHeight==="Ground Level")cameraPos.y=Math.min(cameraPos.y,0.35);
-    if(camObj.cameraHeight==="Overhead")cameraPos.y=Math.max(cameraPos.y,targetY+distance*0.45);
-    camObj.x=(cameraPos.x*100)+600;
-    camObj.y=(cameraPos.z*100)+400;
-    camObj.height3d=Math.max(.1,Math.min(6,cameraPos.y))
-  }
+  const cameraPos=new THREE.Vector3(p.x,Number(camObj.height3d||1.65),p.z);
 
   state.camera.position.copy(cameraPos);
   state.camera.fov=cameraVerticalFov(camObj.lens);
-  state.camera.lookAt(targetPos);
+
+  const yaw=Number(camObj.rotation||0)*Math.PI/180;
+  const pitch=Number(camObj.tilt||0)*Math.PI/180;
+  const dir=state.threeDir||(state.threeDir=new THREE.Vector3());
+  dir.set(
+    Math.cos(yaw)*Math.cos(pitch),
+    Math.sin(pitch),
+    Math.sin(yaw)*Math.cos(pitch)
+  ).normalize();
+
+  state.camera.up.set(0,1,0);
+  state.camera.lookAt(cameraPos.clone().add(dir));
+
+  if(Number(camObj.roll||0)){
+    state.camera.rotateZ(THREE.MathUtils.degToRad(Number(camObj.roll||0)))
+  }
+
   state.camera.updateProjectionMatrix();
   $("lightingCameraHudTitle").textContent=camObj.label||"Camera View";
-  $("lightingCameraHudMeta").textContent=`${camObj.lens||"50mm"} · ${camObj.angle||"Eye Level"} · ${escapeHtml(shortValue(camObj.shotSize||""))}`
+  $("lightingCameraHudMeta").textContent=
+    `${camObj.lens||"50mm"} · ${camObj.angle||"Custom"} · ${shortValue(camObj.shotSize||"")} · ${Number(camObj.height3d||1.65).toFixed(2)} m`
 }
 
 function resizeThreeRenderer(){
@@ -2181,7 +2438,8 @@ function bindThreeControls(canvas){
     const dx=e.clientX-drag.x,dy=e.clientY-drag.y;drag.x=e.clientX;drag.y=e.clientY;
     camObj.rotation=(Number(camObj.rotation||0)+dx*.22);
     camObj.tilt=Math.max(-89,Math.min(89,Number(camObj.tilt||0)-dy*.18));
-    camObj.autoFrame=false;
+    camObj.angle="Custom";
+    camObj.roll=0;
     camObj.autoFrame=false;
     markLightingDirty();updateThreeCameraFromObject();renderLightingInspector();renderLightingCanvas()
   });
@@ -2351,7 +2609,7 @@ function bind(){
   $("loginForm").onsubmit=doLogin;$("signupForm").onsubmit=doSignup;$("forgotPasswordBtn").onclick=forgotPassword;$("continueOfflineBtn").onclick=continueOffline;
   $("logoutBtn").onclick=logout;$("newCloudProjectBtn").onclick=createCloudProject;$("emptyNewProjectBtn").onclick=createCloudProject;
   $("accountBtn").onclick=()=>$("accountModal").showModal();$("closeAccountBtn").onclick=()=>$("accountModal").close();
-  $("backProjectsBtn").onclick=async()=>{unsubscribeRealtime();unsubscribeChatRealtime();unsubscribeChatNoticeRealtime();unsubscribeLightingRealtime();updateChatBadges(0,false);if(app.mode==="cloud"){rememberProjectsView();await loadCloudProjects();showProjects()}else showAuth()};
+  $("backProjectsBtn").onclick=async()=>{unsubscribeRealtime();unsubscribePresence();stopSignedImageRefresh();unsubscribeChatRealtime();unsubscribeChatNoticeRealtime();unsubscribeLightingRealtime();updateChatBadges(0,false);if(app.mode==="cloud"){rememberProjectsView();await loadCloudProjects();showProjects()}else showAuth()};
   $("projectSearch").oninput=e=>{app.projectSearch=e.target.value;renderProjects()};
   $("projectFilter").onchange=e=>{app.projectFilter=e.target.value;renderProjects()};
   $("projectFolderFilter").onchange=e=>{app.projectFolder=e.target.value;renderProjects()};
@@ -2399,7 +2657,7 @@ function bind(){
     "lightingObjectAngle","lightingObjectHeight","lightingObjectMovement","lightingObjectFocus",
     "lightingCameraHeight3d","lightingCameraTilt","lightingSubjectHeight3d","lightingSubjectScale",
     "lightingSubjectGender","lightingObjectRotation"
-  ].forEach(id=>["input","change"].forEach(ev=>$(id).addEventListener(ev,selectedLightingChange)));
+  ].forEach(id=>["input","change"].forEach(ev=>$(id).addEventListener(ev,()=>selectedLightingChange(id))));
 
   $("deleteLightingObjectBtn").onclick=deleteSelectedLightingObject;
   $("lightingCanvas").addEventListener("pointermove",moveLightingDrag);

@@ -5,16 +5,17 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="theme-color" content="#050607" />
   <meta name="description" content="Storyboard Shot Builder — collaborative pre-production planning." />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://xpqhsnyyjpfxpxvvrvsz.supabase.co; connect-src 'self' https://xpqhsnyyjpfxpxvvrvsz.supabase.co wss://xpqhsnyyjpfxpxvvrvsz.supabase.co https://cdn.jsdelivr.net; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none';" />
   <title>Storyboard Shot Builder</title>
 
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="styles.css?v=3823" />
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="config.js?v=3823"></script>
-  <meta name="storyboard-build" content="v3.8.2.3-fixed" />
+  <link rel="stylesheet" href="styles.css?v=39" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0"></script>
+  <script src="config.js?v=39"></script>
+  <meta name="storyboard-build" content="v3.9-security-collaboration" />
 </head>
 <body>
 
@@ -232,6 +233,7 @@
           <div>
             <div id="shotKicker" class="eyebrow">SCENE 01 · SHOT 01</div>
             <h2 id="shotTitle">Shot 1</h2>
+            <div id="shotPresence" class="shot-presence" hidden></div>
           </div>
           <div class="shot-nav shot-manage-actions">
             <button id="addShotBtn" class="btn ghost">＋ Shot</button>
@@ -597,7 +599,7 @@
                 </div>
                 <div class="lighting-property-pair">
                   <div>
-                    <label>Physical Height <span id="lightingCameraHeightValue">1.65 m</span></label>
+                    <label>Physical Height from Ground <span id="lightingCameraHeightValue">1.65 m</span></label>
                     <input id="lightingCameraHeight3d" type="range" min="0.1" max="6" step="0.05" />
                   </div>
                   <div>
@@ -670,6 +672,6 @@
     </div>
   </dialog>
 
-  <script src="app.js?v=3823"></script>
+  <script src="app.js?v=39"></script>
 </body>
 </html>
