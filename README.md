@@ -1,10 +1,12 @@
-# Storyboard Shot Builder v4.1.3 — Admin Users Fix + Persistent Admin Center + Per-shot AI References
+# Storyboard Shot Builder v4.1.4 — Visible AI Generation Status
 
 Base: **only** `storyboard-v3.9.1-github(1).zip`, as requested. All v3.9.1 editor, collaboration, scene-delete and Lighting Studio behavior is preserved.
 
 v4.1.2 excluded `node_modules` and other repository-only files from Static Assets so Cloudflare does not attempt to upload the 148 MiB `workerd` binary.
 
 v4.1.3 fixes Admin Center RPC return types, lists accounts from `auth.users` even when a profile is incomplete, keeps Admin Center open across tab focus/session events and page reloads, and places each shot's required location plus optional characters beside its primary settings.
+
+v4.1.4 fixes a UI bug that immediately erased Visual Bible generation progress and errors. Each character/location card now keeps its own generating, success or exact error message beside the clicked button, uses a visible animated state, validates that the server actually returned an image, and stops a stalled request after three minutes.
 
 ## Multi-admin support
 
@@ -45,6 +47,8 @@ v4.1.3 fixes Admin Center RPC return types, lists accounts from `auth.users` eve
 5. Only `shots.image_path` plus small generation metadata is stored in Postgres. The Storyboard Sheet reads the same signed image URL.
 
 ## Deployment order — IMPORTANT
+
+**Updating from v4.1.3:** no new SQL is required. Replace the GitHub files and wait for the Cloudflare deployment. A hard refresh should then load `app.js?v=414`.
 
 1. **Existing v4.1.1/v4.1.2 installation:** run only `supabase-v4.1.3-admin-users-fix.sql` in Supabase SQL Editor. It is safe to run again and does not remove data.
 2. **Fresh installation:** run `supabase-v4.0-ai.sql`, then `supabase-v4.1-admin.sql`, then `supabase-v4.1.3-admin-users-fix.sql` in that order.

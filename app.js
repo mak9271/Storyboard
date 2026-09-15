@@ -1,4 +1,4 @@
-// Storyboard Shot Builder v4.1.3 — type-safe admin directory + persistent admin view
+// Storyboard Shot Builder v4.1.4 — visible AI generation progress and errors
 const OPTIONS = {
   shotSize:["ECU · Extreme Close Up","CU · Close Up","MCU · Medium Close Up","MS · Medium Shot","MLS · Medium Long Shot","WS · Wide Shot","EWS · Extreme Wide Shot","OTS · Over The Shoulder","POV · Point of View","Insert","Top Shot"],
   angle:["Eye Level","High Angle","Low Angle","Top / Bird's Eye","Dutch Angle","Ground Level","Overhead","Custom"],
@@ -56,6 +56,7 @@ let app = {
     ready: false,
     loading: false,
     generating: false,
+    generatingAssetId: null,
     characters: [],
     locations: [],
     migrationMessage: "Run supabase-v4.0-ai.sql to enable AI Visual Bible."
@@ -348,7 +349,7 @@ function saveLocal(){
   if(idx>=0)app.projects[idx]=app.current; else app.projects.push(app.current);
   localStorage.setItem("storyboard-v3-projects",JSON.stringify(app.projects));
 }
-function resetAiState(){app.ai.ready=false;app.ai.loading=false;app.ai.generating=false;app.ai.characters=[];app.ai.locations=[]}
+function resetAiState(){app.ai.ready=false;app.ai.loading=false;app.ai.generating=false;app.ai.generatingAssetId=null;app.ai.characters=[];app.ai.locations=[]}
 function selectFirst(){
   const sc=app.current?.scenes?.[0]; app.activeSceneId=sc?.id||null; app.activeShotId=sc?.shots?.[0]?.id||null
 }
@@ -1284,7 +1285,7 @@ async function removeImage(){
 function aiTable(type){return type==="character"?"project_ai_characters":"project_ai_locations"}
 function aiCollection(type){return type==="character"?app.ai.characters:app.ai.locations}
 function aiFolder(type){return type==="character"?"characters":"locations"}
-function normalizeAiAsset(row,type){return {...row,type,locked:!!row.locked,referenceUrl:null}}
+function normalizeAiAsset(row,type){return {...row,type,locked:!!row.locked,referenceUrl:null,generationStatus:"",generationStatusKind:""}}
 async function signAiAsset(asset){
   if(!asset?.reference_path)return asset;asset.referenceUrl=null;
   const {data,error}=await sb.storage.from("storyboards").createSignedUrl(asset.reference_path,SIGNED_IMAGE_TTL_SECONDS);
@@ -1311,11 +1312,12 @@ async function loadAiVisualBible(projectId=app.current?.id){
 }
 async function openAiVisualBible(){
   if(app.mode!=="cloud")return alert("AI generation is available for signed-in cloud projects.");
+  if(app.ai.ready&&!app.ai.generating)setMsg("aiBibleNotice","");
   renderAiVisualBible();$("aiBibleModal").showModal();
   await Promise.all([...app.ai.characters,...app.ai.locations].filter(x=>x.reference_path&&!x.referenceUrl).map(signAiAsset));renderAiVisualBible()
 }
 function aiAssetCard(asset,type){
-  const editable=can("media"),locked=!!asset.locked,styleMatches=!locked||asset.style_snapshot===app.current.style,hasReference=!!asset.reference_path;
+  const editable=can("media"),locked=!!asset.locked,styleMatches=!locked||asset.style_snapshot===app.current.style,hasReference=!!asset.reference_path,generatingThis=app.ai.generating&&app.ai.generatingAssetId===asset.id;
   const card=document.createElement("article");card.className="ai-asset-card"+(locked?" is-locked":"");card.dataset.assetId=asset.id;card.dataset.assetType=type;
   card.innerHTML=`
     <div class="ai-asset-preview">
@@ -1326,11 +1328,12 @@ function aiAssetCard(asset,type){
       <input class="ai-asset-name" value="${escapeHtml(asset.name||"")}" maxlength="80" aria-label="Name" ${!editable||locked?"disabled":""}>
       <textarea class="ai-asset-description" maxlength="1400" aria-label="Stable visual description" ${!editable||locked?"disabled":""}>${escapeHtml(asset.description||"")}</textarea>
       <div class="ai-asset-actions">
-        <button type="button" class="generate" ${!editable||locked||app.ai.generating?"disabled":""}>${hasReference?"Regenerate":"Generate Reference"}</button>
+        <button type="button" class="generate${generatingThis?" is-generating":""}" ${!editable||locked||app.ai.generating?"disabled":""}>${generatingThis?"Generating…":hasReference?"Regenerate":"Generate Reference"}</button>
         <label class="ai-upload-label ${!editable||locked?"disabled":""}">Upload<input class="ai-reference-input" type="file" accept="image/jpeg,image/png,image/webp" hidden ${!editable||locked?"disabled":""}></label>
         <button type="button" class="lock" ${!editable||(!hasReference&&!locked)?"disabled":""}>${locked?"Unlock":"Lock"}</button>
         <button type="button" class="delete" ${!editable?"disabled":""}>Delete</button>
       </div>
+      <div class="ai-asset-status${asset.generationStatusKind?` ${escapeHtml(asset.generationStatusKind)}`:""}" role="status" aria-live="polite" ${asset.generationStatus?"":"hidden"}>${escapeHtml(asset.generationStatus||"")}</div>
     </div>`;
   const name=card.querySelector(".ai-asset-name"),description=card.querySelector(".ai-asset-description");
   [name,description].forEach(el=>el.addEventListener("change",()=>updateAiAssetText(type,asset.id,name.value,description.value)));
@@ -1342,7 +1345,10 @@ function aiAssetCard(asset,type){
 }
 function renderAiVisualBible(){
   const ready=app.ai.ready,editable=can("media")&&ready;
-  setMsg("aiBibleNotice",ready?"":app.ai.migrationMessage,ready?"":"warning");
+  // Do not clear a running/success/error message here. This function is called
+  // immediately after a click and again in finally; clearing it made generation
+  // look as if the button did nothing.
+  if(!ready)setMsg("aiBibleNotice",app.ai.migrationMessage,"warning");
   $("addAiCharacterBtn").disabled=!editable;$("addAiLocationBtn").disabled=!editable;
   ["newAiCharacterName","newAiCharacterDescription","newAiLocationName","newAiLocationDescription"].forEach(id=>$(id).disabled=!editable);
   const groups=[["character","aiCharacterList"],["location","aiLocationList"]];
@@ -1407,9 +1413,17 @@ async function uploadAiReference(type,id,event){
 }
 async function requestAiImage(payload){
   const {data:{session}}=await sb.auth.getSession();if(!session?.access_token)throw new Error("Your session expired. Sign in again.");
-  const response=await fetch("/api/ai/generate",{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${session.access_token}`},body:JSON.stringify(payload)});
-  if(!response.ok){let message=`AI request failed (${response.status}).`;try{const body=await response.json();message=body.error||message;if(body.remaining!==undefined)message+=` ${body.remaining} generation(s) remain today.`}catch(e){}throw new Error(message)}
-  return {blob:await response.blob(),remaining:response.headers.get("X-AI-Remaining"),model:response.headers.get("X-AI-Model")||"flux-2-klein-4b",promptHash:response.headers.get("X-AI-Prompt-Hash")||""}
+  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),180000);
+  try{
+    const response=await fetch("/api/ai/generate",{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${session.access_token}`},body:JSON.stringify(payload),signal:controller.signal});
+    if(!response.ok){let message=`AI request failed (${response.status}).`;try{const body=await response.json();message=body.error||message;if(body.remaining!==undefined)message+=` ${body.remaining} generation(s) remain today.`}catch(e){}throw new Error(message)}
+    const contentType=(response.headers.get("Content-Type")||"").toLowerCase();if(!contentType.startsWith("image/"))throw new Error("AI returned an invalid response instead of an image.");
+    return {blob:await response.blob(),remaining:response.headers.get("X-AI-Remaining"),model:response.headers.get("X-AI-Model")||"flux-2-klein-4b",promptHash:response.headers.get("X-AI-Prompt-Hash")||""}
+  }catch(error){
+    if(error?.name==="AbortError")throw new Error("AI generation took more than 3 minutes. Please try again.");
+    if(error instanceof TypeError)throw new Error("Could not reach the AI service. Check your connection, then try again.");
+    throw error
+  }finally{clearTimeout(timeout)}
 }
 function generationBalanceMessage(remaining){
   if(remaining===null||remaining===undefined||remaining==="")return "";
@@ -1418,12 +1432,12 @@ function generationBalanceMessage(remaining){
 }
 async function generateAiReference(type,id){
   const asset=aiCollection(type).find(x=>x.id===id);if(!asset||asset.locked||!can("media")||app.ai.generating)return;
-  app.suppressRealtime++;app.ai.generating=true;setMsg("aiBibleNotice",`Generating ${asset.name} reference…`);renderAiVisualBible();
+  app.suppressRealtime++;app.ai.generating=true;app.ai.generatingAssetId=id;asset.generationStatus=`Generating ${asset.name} reference… Keep this window open.`;asset.generationStatusKind="loading";setMsg("aiBibleNotice",asset.generationStatus);renderAiVisualBible();
   try{
     const result=await requestAiImage({mode:`${type}_reference`,project_id:app.current.id,asset_id:id});
-    await storeAiReference(type,asset,result.blob);setMsg("aiBibleNotice",`${asset.name} reference generated. Review and lock it.${generationBalanceMessage(result.remaining)}`);renderShot()
-  }catch(err){setMsg("aiBibleNotice",err.message||"Reference generation failed.","warning")}
-  finally{app.ai.generating=false;app.suppressRealtime=Math.max(0,app.suppressRealtime-1);renderAiVisualBible();applyPermissionLocks()}
+    await storeAiReference(type,asset,result.blob);asset.generationStatus=`Reference generated. Review it, then press Lock.${generationBalanceMessage(result.remaining)}`;asset.generationStatusKind="success";setMsg("aiBibleNotice",`${asset.name} reference generated. Review and lock it.${generationBalanceMessage(result.remaining)}`);renderShot()
+  }catch(err){asset.generationStatus=err.message||"Reference generation failed.";asset.generationStatusKind="error";setMsg("aiBibleNotice",asset.generationStatus,"warning")}
+  finally{app.ai.generating=false;app.ai.generatingAssetId=null;app.suppressRealtime=Math.max(0,app.suppressRealtime-1);renderAiVisualBible();applyPermissionLocks()}
 }
 function renderAiShotControls(){
   const shot=currentShot(),characters=$("shotCharacterPicker"),location=$("aiLocationId");if(!shot||!characters||!location)return;

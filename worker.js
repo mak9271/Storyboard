@@ -1,4 +1,4 @@
-// Storyboard v4.1.3 AI gateway. Admin quota bypass remains database-authorized; no service-role key is used.
+// Storyboard v4.1.4 AI gateway. Admin quota bypass remains database-authorized; no service-role key is used.
 const DEFAULT_MODEL = "@cf/black-forest-labs/flux-2-klein-4b";
 const ALLOWED_MODEL = new Set([DEFAULT_MODEL]);
 const MAX_JSON_BYTES = 96 * 1024;
