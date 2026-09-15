@@ -1,4 +1,4 @@
-// Storyboard Shot Builder v4.1.2 — isolated admin center + scoped support access
+// Storyboard Shot Builder v4.1.3 — type-safe admin directory + persistent admin view
 const OPTIONS = {
   shotSize:["ECU · Extreme Close Up","CU · Close Up","MCU · Medium Close Up","MS · Medium Shot","MLS · Medium Long Shot","WS · Wide Shot","EWS · Extreme Wide Shot","OTS · Over The Shoulder","POV · Point of View","Insert","Top Shot"],
   angle:["Eye Level","High Angle","Low Angle","Top / Bird's Eye","Dutch Angle","Ground Level","Overhead","Custom"],
@@ -279,6 +279,10 @@ async function setupChatNotifications(){
 /* ---------- WORKSPACE CONTINUITY ---------- */
 function workspaceKey(){return `storyboard-v3.6-workspace:${app.session?.user?.id||"local"}`}
 function currentEditorVisible(){return !!app.current && $("editorView") && !$("editorView").hidden}
+function currentWorkspaceView(){
+  if($("adminView")&&!$("adminView").hidden)return "admin";
+  return currentEditorVisible()?"editor":"projects"
+}
 function openAccordionIds(){return [...document.querySelectorAll(".accordion details")].filter(x=>x.open&&x.id).map(x=>x.id)}
 function readWorkspace(){
   try{return JSON.parse(localStorage.getItem(workspaceKey())||"null")}catch(e){return null}
@@ -288,7 +292,7 @@ function rememberWorkspace(overrides={}){
   const previous=readWorkspace()||{};
   const data={
     ...previous,
-    view:currentEditorVisible()?"editor":"projects",
+    view:currentWorkspaceView(),
     projectId:app.current?.id||previous.projectId||null,
     sceneId:app.activeSceneId||previous.sceneId||null,
     shotId:app.activeShotId||previous.shotId||null,
@@ -360,12 +364,18 @@ async function start(){
   const {data:{session}}=await sb.auth.getSession();
   app.session=session;
   sb.auth.onAuthStateChange(async(event,session)=>{
+    const previousUserId=app.session?.user?.id||null;
     app.session=session;
     if(!session){app.profile=null;app.current=null;resetAdminState();resetAiState();unsubscribeRealtime();unsubscribeChatRealtime();unsubscribeChatNoticeRealtime();unsubscribeLightingRealtime();updateChatBadges(0,false);showAuth();return}
     // INITIAL_SESSION is already handled by getSession() below. Token refreshes must
     // never kick an editor back to the Projects screen.
     if(event==="INITIAL_SESSION"||event==="TOKEN_REFRESHED"||event==="USER_UPDATED")return;
-    if(event==="SIGNED_IN")await afterLogin();
+    // Supabase can emit SIGNED_IN again when a background browser tab regains
+    // focus. Do not rebuild the app and send an already signed-in admin home.
+    if(event==="SIGNED_IN"){
+      if(previousUserId===session.user.id&&app.profile)return;
+      await afterLogin()
+    }
   });
   if(session) await afterLogin(); else showAuth();
 }
@@ -393,6 +403,7 @@ async function afterLogin(){
   if(app.pendingInvite){await acceptPendingInvite();showProjects();return}
   if(app.pendingLightingProject){const opened=await openPendingLightingLink();if(opened)return}
   const ws=readWorkspace();
+  if(ws?.view==="admin"&&app.admin.isAdmin){await openAdminCenter();return}
   const canRestore=ws?.view==="editor" && ws.projectId && app.projects.some(p=>p.id===ws.projectId);
   if(canRestore){
     await openCloudProject(ws.projectId,{sceneId:ws.sceneId,shotId:ws.shotId,scrollY:ws.scrollY,sheetOpen:ws.sheetOpen,openDetails:ws.openDetails,preserveSelection:true});
@@ -590,6 +601,7 @@ async function openAdminCenter(){
   $("adminAddForm").hidden=app.admin.role!=="superadmin";
   setMsg("adminCenterNotice","");
   showAdminView();
+  rememberWorkspace({view:"admin",scrollY:0});
   await Promise.all([loadAdminUsers(true),loadAdminTeam(),loadAdminActivity()]);
   if(app.admin.selectedUser)await loadAdminUserProjects()
 }
@@ -617,7 +629,7 @@ async function loadAdminUsers(reset=false){
 }
 function renderAdminUserResults(rows){
   const wrap=$("adminUserResults");wrap.innerHTML="";
-  if(!rows.length){wrap.innerHTML=adminEmpty("No matching username found.");return}
+  if(!rows.length){wrap.innerHTML=adminEmpty("No matching users found.");return}
   rows.forEach(user=>{
     const row=document.createElement("div");row.className="admin-result-row";
     row.innerHTML=`<div><strong>@${escapeHtml(user.username||"unknown")}</strong><small>${escapeHtml(user.display_name||"No display name")} · ${Number(user.project_count||0)} project${Number(user.project_count||0)===1?"":"s"}</small></div><button type="button" class="btn ghost">View Projects</button>`;
@@ -1423,7 +1435,9 @@ function renderAiShotControls(){
     label.innerHTML=`<input type="checkbox" value="${asset.id}" ${selected?"checked":""} ${available?"":"disabled"}><span>${escapeHtml(asset.name)}${available?"":styleMatches?" · not locked":" · style changed"}</span>`;
     label.querySelector("input").onchange=e=>{shot.aiCharacterIds=e.target.checked?[...new Set([...shot.aiCharacterIds,asset.id])]:shot.aiCharacterIds.filter(x=>x!==asset.id);onAiShotLinksChange()};characters.appendChild(label)
   }
-  const previous=shot.aiLocationId||"";location.innerHTML='<option value="">Choose project location…</option>';
+  const previous=shot.aiLocationId||"";
+  const locationPrompt=!app.ai.ready?"AI Visual Bible is unavailable":app.ai.locations.length?"Choose project location…":"No locations yet — open Visual Bible";
+  location.innerHTML=`<option value="">${locationPrompt}</option>`;
   for(const asset of app.ai.locations){const styleMatches=asset.style_snapshot===app.current.style,available=asset.locked&&asset.reference_path&&styleMatches,option=document.createElement("option");option.value=asset.id;option.textContent=asset.name+(available?"":styleMatches?" · not locked":" · style changed");option.disabled=!available;location.appendChild(option)}
   location.value=[...location.options].some(x=>x.value===previous)?previous:"";
   const state=aiShotReady(),status=$("aiGenerationStatus");status.textContent=app.ai.generating?"Generating the frame… Keep this tab open.":state.message;status.className="ai-generation-status"+(state.ready?"":" error");
@@ -3074,7 +3088,7 @@ function bind(){
   $("loginForm").onsubmit=doLogin;$("signupForm").onsubmit=doSignup;$("forgotPasswordBtn").onclick=forgotPassword;$("continueOfflineBtn").onclick=continueOffline;
   $("logoutBtn").onclick=logout;$("newCloudProjectBtn").onclick=createCloudProject;$("emptyNewProjectBtn").onclick=createCloudProject;
   $("accountBtn").onclick=()=>$("accountModal").showModal();$("closeAccountBtn").onclick=()=>$("accountModal").close();
-  $("adminCenterBtn").onclick=openAdminCenter;$("backFromAdminBtn").onclick=async()=>{await loadCloudProjects();showProjects()};
+  $("adminCenterBtn").onclick=openAdminCenter;$("backFromAdminBtn").onclick=async()=>{rememberProjectsView();await loadCloudProjects();showProjects()};
   $("adminAccountBtn").onclick=()=>$("accountModal").showModal();$("adminLogoutBtn").onclick=logout;
   $("adminUserSearchForm").onsubmit=searchAdminUsers;$("adminShowAllUsersBtn").onclick=showAllAdminUsers;$("adminLoadMoreUsersBtn").onclick=()=>loadAdminUsers(false);$("clearAdminUserBtn").onclick=clearAdminUser;$("adminAddForm").onsubmit=addAdmin;$("exitAdminSupportBtn").onclick=()=>closeAdminSupport(true);
   $("backProjectsBtn").onclick=async()=>{if(adminSupporting()){await closeAdminSupport(true);return}unsubscribeRealtime();unsubscribePresence();stopSignedImageRefresh();unsubscribeChatRealtime();unsubscribeChatNoticeRealtime();unsubscribeLightingRealtime();updateChatBadges(0,false);if(app.mode==="cloud"){rememberProjectsView();await loadCloudProjects();showProjects()}else showAuth()};

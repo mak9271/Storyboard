@@ -1,8 +1,10 @@
-# Storyboard Shot Builder v4.1.2 — Cloudflare Deploy Fix + Admin Center + Consistent AI Storyboards
+# Storyboard Shot Builder v4.1.3 — Admin Users Fix + Persistent Admin Center + Per-shot AI References
 
 Base: **only** `storyboard-v3.9.1-github(1).zip`, as requested. All v3.9.1 editor, collaboration, scene-delete and Lighting Studio behavior is preserved.
 
-v4.1.2 excludes `node_modules` and other repository-only files from Static Assets so Cloudflare does not attempt to upload the 148 MiB `workerd` binary. No Supabase SQL change is required when upgrading from v4.1.1.
+v4.1.2 excluded `node_modules` and other repository-only files from Static Assets so Cloudflare does not attempt to upload the 148 MiB `workerd` binary.
+
+v4.1.3 fixes Admin Center RPC return types, lists accounts from `auth.users` even when a profile is incomplete, keeps Admin Center open across tab focus/session events and page reloads, and places each shot's required location plus optional characters beside its primary settings.
 
 ## Multi-admin support
 
@@ -44,10 +46,9 @@ v4.1.2 excludes `node_modules` and other repository-only files from Static Asset
 
 ## Deployment order — IMPORTANT
 
-1. **Supabase SQL Editor:** if it has not already been run, run `supabase-v4.0-ai.sql` after the existing v3.9 security migration.
-2. For a fresh installation, run `supabase-v4.1-admin.sql` in Supabase SQL Editor.
-   If v4.1.0 was already installed, run only `supabase-v4.1.1-admin-fix.sql` to isolate customer projects and add the all-users directory.
-3. Still in SQL Editor, replace the placeholder with your actual Storyboard username and run this one-time bootstrap command:
+1. **Existing v4.1.1/v4.1.2 installation:** run only `supabase-v4.1.3-admin-users-fix.sql` in Supabase SQL Editor. It is safe to run again and does not remove data.
+2. **Fresh installation:** run `supabase-v4.0-ai.sql`, then `supabase-v4.1-admin.sql`, then `supabase-v4.1.3-admin-users-fix.sql` in that order.
+3. Only on a fresh installation, replace the placeholder with your actual Storyboard username and run this one-time bootstrap command:
 
    ```sql
    select public.storyboard_grant_first_superadmin('YOUR_APP_USERNAME');

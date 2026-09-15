@@ -4,8 +4,7 @@ node_modules/
 .env*
 worker.js
 wrangler.toml
-supabase-v4.0-ai.sql
-supabase-v4.1-admin.sql
+supabase-*.sql
 tests/
 README.md
 .wrangler/

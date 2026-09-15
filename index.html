@@ -12,10 +12,10 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="styles.css?v=412" />
+  <link rel="stylesheet" href="styles.css?v=413" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0"></script>
   <script src="config.js?v=410"></script>
-  <meta name="storyboard-build" content="v4.1.2-deploy-fix" />
+  <meta name="storyboard-build" content="v4.1.3-admin-users-fix" />
 </head>
 <body>
 
@@ -351,6 +351,17 @@
             </div>
             <label>One-line Shot Summary</label>
             <textarea id="summary" rows="5" placeholder="Example: Shahrzad looks toward the king in candlelight..."></textarea>
+            <div class="shot-ai-reference-panel">
+              <div class="shot-ai-reference-head">
+                <div><span class="eyebrow">AI REFERENCES FOR THIS SHOT</span><strong>Select location and characters</strong></div>
+                <button id="manageAiCharactersBtn" type="button" class="text-btn">Manage Visual Bible</button>
+              </div>
+              <label>Location · Required</label>
+              <select id="aiLocationId"><option value="">Choose project location…</option></select>
+              <label>Characters · Optional</label>
+              <div id="shotCharacterPicker" class="ai-reference-picker"></div>
+              <small class="field-help">Selections belong only to this shot. References must first be generated or uploaded and then locked in the AI Visual Bible.</small>
+            </div>
           </section>
         </div>
 
@@ -374,11 +385,6 @@
           <details id="subjectSection">
             <summary>SUBJECT · Character & Action</summary>
             <div class="form-grid">
-              <div class="span-2 ai-shot-reference-field">
-                <div class="ai-field-head"><label>Locked Project Characters</label><button id="manageAiCharactersBtn" type="button" class="text-btn">Manage Visual Bible</button></div>
-                <div id="shotCharacterPicker" class="ai-reference-picker"></div>
-                <small class="field-help">Only selected locked characters are sent as visual references for this shot.</small>
-              </div>
               <div class="span-2"><label>Main Subject</label><input id="subject" /></div>
               <div class="span-2"><label>Detailed Visual Description</label><textarea id="description" rows="4"></textarea></div>
               <div class="span-2"><label>Performance / Emotion</label><textarea id="performance" rows="3"></textarea></div>
@@ -391,7 +397,6 @@
             <summary>LIGHT & SPACE · Lighting, Time & Set</summary>
             <div class="form-grid">
               <div><label>Time of Day</label><select id="timeOfDay"></select></div>
-              <div><label>Locked Project Location · Required for AI</label><select id="aiLocationId"><option value="">Choose project location…</option></select></div>
               <div class="span-2"><label>Location Notes for This Shot</label><input id="location" placeholder="Only details within the selected location" /></div>
               <div><label>Light Source</label><select id="lightSource"></select></div>
               <div><label>Light Direction</label><select id="lightDirection"></select></div>
@@ -791,6 +796,6 @@
     </div>
   </dialog>
 
-  <script src="app.js?v=412"></script>
+  <script src="app.js?v=413"></script>
 </body>
 </html>
