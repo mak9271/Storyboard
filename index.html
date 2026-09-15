@@ -12,10 +12,10 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="styles.css?v=414" />
+  <link rel="stylesheet" href="styles.css?v=417" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0"></script>
   <script src="config.js?v=410"></script>
-  <meta name="storyboard-build" content="v4.1.6-visual-bible-preview-fix" />
+  <meta name="storyboard-build" content="v4.1.7-ai-usage-counter" />
 </head>
 <body>
 
@@ -241,6 +241,9 @@
           <input id="projectName" />
           <button id="projectDetailsBtn" type="button" class="btn ghost wide project-details-btn">Project Details · Folder · Tags</button>
           <button id="aiBibleBtn" type="button" class="btn ghost wide ai-bible-btn">AI Visual Bible · Characters · Locations</button>
+          <div class="ai-usage-summary compact" data-ai-usage-summary aria-live="polite">
+            <span class="ai-usage-message">Loading AI usage…</span>
+          </div>
           <div class="grid-2">
             <div>
               <label>Aspect Ratio</label>
@@ -339,6 +342,9 @@
               <button id="removeImageBtn" class="text-btn" hidden>Remove Shot Image</button>
             </div>
             <div id="aiGenerationStatus" class="ai-generation-status" aria-live="polite">Choose a locked project location before generating.</div>
+            <div class="ai-usage-summary frame-usage" data-ai-usage-summary aria-live="polite">
+              <span class="ai-usage-message">Loading AI usage…</span>
+            </div>
           </section>
 
           <section class="quick-card">
@@ -499,7 +505,12 @@
       </section>
 
       <div class="ai-bible-footer">
-        <span>Reference generation uses the same daily free-generation quota as shot generation.</span>
+        <div class="ai-bible-footer-copy">
+          <div class="ai-usage-summary" data-ai-usage-summary aria-live="polite">
+            <span class="ai-usage-message">Loading AI usage…</span>
+          </div>
+          <span>Reference generation uses the same daily free-generation quota as shot generation.</span>
+        </div>
         <button id="doneAiBibleBtn" type="button" class="btn">Done</button>
       </div>
     </div>
@@ -796,6 +807,6 @@
     </div>
   </dialog>
 
-  <script src="app.js?v=416"></script>
+  <script src="app.js?v=417"></script>
 </body>
 </html>

@@ -1,4 +1,4 @@
-# Storyboard Shot Builder v4.1.6 — Persistent Visual Bible Previews
+# Storyboard Shot Builder v4.1.7 — Daily AI Usage Counter
 
 Base: **only** `storyboard-v3.9.1-github(1).zip`, as requested. All v3.9.1 editor, collaboration, scene-delete and Lighting Studio behavior is preserved.
 
@@ -11,6 +11,8 @@ v4.1.4 fixes a UI bug that immediately erased Visual Bible generation progress a
 v4.1.5 aligns the Worker request with Cloudflare's FLUX.2 Klein binding contract: multipart is sent as a `ReadableStream` with its generated boundary, the unsupported `output_format` field is removed, reference images are named `input_image_0` through `input_image_3`, and stored Visual Bible references are resized below the model's 512×512 input limit.
 
 v4.1.6 fixes Visual Bible previews disappearing after another reference is generated or an item is locked. Realtime project reloads now preserve an unchanged reference's signed preview URL, rebuild any missing signed URLs while the Visual Bible is open, and rerender the open Visual Bible with the refreshed records. Stored image paths are not removed by Generate or Lock.
+
+v4.1.7 shows each signed-in user's daily generated/used count and effective remaining allowance in the project sidebar, below the shot generator, and inside AI Visual Bible. The remaining number respects both the personal allowance and the shared app pool. Admins see their own audited generation count plus **Unlimited** remaining because their support generations bypass both pools. Counts refresh after every generation and whenever the tab becomes active.
 
 ## Multi-admin support
 
@@ -38,6 +40,7 @@ v4.1.6 fixes Visual Bible previews disappearing after another reference is gener
 - Cloudflare Workers AI model: `@cf/black-forest-labs/flux-2-klein-4b`.
 - Supabase JWT validation and existing RLS permissions; no service-role key is used.
 - Atomic quota: 20 attempts per user per UTC day and 70 attempts across the app per UTC day. Edit the two constants inside `reserve_ai_generation` if usage testing supports a different limit.
+- Visible daily AI usage: generated/used and remaining counters appear in all generation areas and reset at 00:00 UTC.
 - Final shot images are resized to at most 1024 px; Visual Bible references are resized to at most 496 px for FLUX compatibility. Both are stored as WebP. Only the selected shot/reference image remains; a replaced image is deleted after the new one is safely linked.
 - Storyboard Sheet automatically uses the stored shot image and lazy-loads sheet frames.
 - Project duplication copies/remaps Visual Bible references and shot links. Project deletion removes shot and Visual Bible media.
@@ -52,22 +55,25 @@ v4.1.6 fixes Visual Bible previews disappearing after another reference is gener
 
 ## Deployment order — IMPORTANT
 
-**Updating from v4.1.3, v4.1.4 or v4.1.5:** no new SQL is required. Replace the GitHub files and wait for the Cloudflare deployment. A hard refresh should then load `app.js?v=416`.
+**Updating from v4.1.3, v4.1.4, v4.1.5 or v4.1.6:** run the new `supabase-v4.1.7-ai-usage-status.sql`, replace the GitHub files, wait for the Cloudflare deployment, then hard-refresh. The page should load `app.js?v=417`.
 
-1. **Existing v4.1.1/v4.1.2 installation:** run only `supabase-v4.1.3-admin-users-fix.sql` in Supabase SQL Editor. It is safe to run again and does not remove data.
-2. **Fresh installation:** run `supabase-v4.0-ai.sql`, then `supabase-v4.1-admin.sql`, then `supabase-v4.1.3-admin-users-fix.sql` in that order.
-3. Only on a fresh installation, replace the placeholder with your actual Storyboard username and run this one-time bootstrap command:
+1. In Supabase, open your Storyboard project, then open **SQL Editor** and click **New query**.
+2. Name the query exactly **Storyboard v4.1.7 - AI Usage Counter** and leave **Save query** enabled so it remains available later.
+3. Paste the complete contents of `supabase-v4.1.7-ai-usage-status.sql`, click **Run**, and wait for **Success. No rows returned**. It is safe to run again and does not delete or reset usage.
+4. **Existing v4.1.1/v4.1.2 installation:** first run `supabase-v4.1.3-admin-users-fix.sql`, then run `supabase-v4.1.7-ai-usage-status.sql`.
+5. **Fresh installation:** run `supabase-v4.0-ai.sql`, then `supabase-v4.1-admin.sql`, then `supabase-v4.1.3-admin-users-fix.sql`, and finally `supabase-v4.1.7-ai-usage-status.sql` in that order.
+6. Only on a fresh installation, replace the placeholder with your actual Storyboard username and run this one-time bootstrap command:
 
    ```sql
    select public.storyboard_grant_first_superadmin('YOUR_APP_USERNAME');
    ```
 
-4. Sign out and back in. **Admin Center** will appear on your Projects dashboard. It opens as a separate page with all users, search, project support access, the admin team and the audit log.
-5. **GitHub:** replace the repository root with the files in this package. Keep `worker.js`, `wrangler.toml` and `.assetsignore` in the root.
-6. **Cloudflare build/deploy command:** use `npx wrangler deploy` (do not keep the old assets-only command). `wrangler.toml` binds both static assets and Workers AI.
-7. If the Cloudflare Worker service is not named `storyboard`, change only the `name` field in `wrangler.toml` before deploying.
-8. Open a cloud project, create one location and any recurring characters in **AI Visual Bible**, generate/upload each reference, review it, and press **Lock**.
-9. In a shot, choose the locked location, choose the relevant locked characters, complete the shot description, and press **Generate Storyboard**.
+7. Sign out and back in. **Admin Center** will appear on your Projects dashboard. It opens as a separate page with all users, search, project support access, the admin team and the audit log.
+8. **GitHub:** replace the repository root with the files in this package. Keep `worker.js`, `wrangler.toml` and `.assetsignore` in the root.
+9. **Cloudflare build/deploy command:** use `npx wrangler deploy` (do not keep the old assets-only command). `wrangler.toml` binds both static assets and Workers AI.
+10. If the Cloudflare Worker service is not named `storyboard`, change only the `name` field in `wrangler.toml` before deploying.
+11. Open a cloud project, create one location and any recurring characters in **AI Visual Bible**, generate/upload each reference, review it, and press **Lock**.
+12. In a shot, choose the locked location, choose the relevant locked characters, complete the shot description, and press **Generate Storyboard**.
 
 No Cloudflare API token, account ID, Supabase password or service-role key belongs in the repository. The Supabase publishable key in `config.js` / `wrangler.toml` is intentionally public and every data operation is still protected by JWT + RLS.
 

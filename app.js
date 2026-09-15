@@ -1,4 +1,4 @@
-// Storyboard Shot Builder v4.1.6 — persistent Visual Bible previews across Realtime refreshes
+// Storyboard Shot Builder v4.1.7 — visible daily AI generation usage
 const OPTIONS = {
   shotSize:["ECU · Extreme Close Up","CU · Close Up","MCU · Medium Close Up","MS · Medium Shot","MLS · Medium Long Shot","WS · Wide Shot","EWS · Extreme Wide Shot","OTS · Over The Shoulder","POV · Point of View","Insert","Top Shot"],
   angle:["Eye Level","High Angle","Low Angle","Top / Bird's Eye","Dutch Angle","Ground Level","Overhead","Custom"],
@@ -59,6 +59,18 @@ let app = {
     generatingAssetId: null,
     characters: [],
     locations: [],
+    usage: {
+      loaded: false,
+      loading: false,
+      error: "",
+      used: 0,
+      remaining: 20,
+      dailyLimit: 20,
+      personalRemaining: 20,
+      globalRemaining: 70,
+      unlimited: false,
+      usageDate: ""
+    },
     migrationMessage: "Run supabase-v4.0-ai.sql to enable AI Visual Bible."
   },
   lighting: {
@@ -349,7 +361,7 @@ function saveLocal(){
   if(idx>=0)app.projects[idx]=app.current; else app.projects.push(app.current);
   localStorage.setItem("storyboard-v3-projects",JSON.stringify(app.projects));
 }
-function resetAiState(){app.ai.ready=false;app.ai.loading=false;app.ai.generating=false;app.ai.generatingAssetId=null;app.ai.characters=[];app.ai.locations=[]}
+function resetAiState(){app.ai.ready=false;app.ai.loading=false;app.ai.generating=false;app.ai.generatingAssetId=null;app.ai.characters=[];app.ai.locations=[];app.ai.usage={loaded:false,loading:false,error:"",used:0,remaining:20,dailyLimit:20,personalRemaining:20,globalRemaining:70,unlimited:false,usageDate:""};renderAiUsage()}
 function selectFirst(){
   const sc=app.current?.scenes?.[0]; app.activeSceneId=sc?.id||null; app.activeShotId=sc?.shots?.[0]?.id||null
 }
@@ -400,7 +412,7 @@ async function afterLogin(){
   app.mode="cloud";
   await loadProfile();
   await loadAdminStatus();
-  await loadCloudProjects();
+  await Promise.all([loadCloudProjects(),loadAiUsage()]);
   if(app.pendingInvite){await acceptPendingInvite();showProjects();return}
   if(app.pendingLightingProject){const opened=await openPendingLightingLink();if(opened)return}
   const ws=readWorkspace();
@@ -1286,6 +1298,42 @@ async function removeImage(){
 function aiTable(type){return type==="character"?"project_ai_characters":"project_ai_locations"}
 function aiCollection(type){return type==="character"?app.ai.characters:app.ai.locations}
 function aiFolder(type){return type==="character"?"characters":"locations"}
+function renderAiUsage(){
+  const usage=app.ai.usage,nodes=document.querySelectorAll("[data-ai-usage-summary]");
+  for(const node of nodes){
+    node.classList.toggle("exhausted",usage.loaded&&!usage.unlimited&&usage.remaining<=0);
+    node.classList.toggle("unlimited",usage.loaded&&usage.unlimited);
+    if(app.mode!=="cloud"){
+      node.innerHTML='<span class="ai-usage-message">Daily AI usage is available in cloud projects.</span>';
+      node.title="";
+    }else if(usage.loading&&!usage.loaded){
+      node.innerHTML='<span class="ai-usage-message">Loading AI usage…</span>';
+      node.title="";
+    }else if(usage.error){
+      node.innerHTML='<span class="ai-usage-message error">AI usage unavailable · run the v4.1.7 usage setup.</span>';
+      node.title=usage.error;
+    }else if(usage.loaded){
+      const remaining=usage.unlimited?"Unlimited":String(usage.remaining);
+      node.innerHTML=`<span class="ai-usage-stat"><span>Generated today</span><strong>${usage.used}</strong></span><span class="ai-usage-divider" aria-hidden="true"></span><span class="ai-usage-stat"><span>Remaining today</span><strong>${remaining}</strong></span>`;
+      node.title=usage.unlimited?"Admin generations are unlimited and do not consume the shared free pool. Counter resets at 00:00 UTC.":`Remaining includes both your ${usage.dailyLimit}-generation personal allowance and the shared app pool. Counters reset at 00:00 UTC.`;
+    }else{
+      node.innerHTML='<span class="ai-usage-message">AI usage will appear after sign-in.</span>';
+      node.title="";
+    }
+  }
+}
+async function loadAiUsage(){
+  if(app.mode!=="cloud"||!sb||!app.session){renderAiUsage();return}
+  if(app.ai.usage.loading)return;
+  app.ai.usage.loading=true;app.ai.usage.error="";renderAiUsage();
+  const {data,error}=await sb.rpc("storyboard_ai_usage_status");
+  if(error){app.ai.usage.loading=false;app.ai.usage.loaded=false;app.ai.usage.error=error.message||"Could not load AI usage.";renderAiUsage();return}
+  const row=Array.isArray(data)?data[0]:data;
+  if(!row){app.ai.usage.loading=false;app.ai.usage.loaded=false;app.ai.usage.error="AI usage status returned no data.";renderAiUsage();return}
+  const numberOr=(value,fallback)=>Number.isFinite(Number(value))?Number(value):fallback;
+  app.ai.usage={loaded:true,loading:false,error:"",used:Math.max(0,numberOr(row.used,0)),remaining:numberOr(row.remaining,0),dailyLimit:numberOr(row.daily_limit,20),personalRemaining:numberOr(row.personal_remaining,20),globalRemaining:numberOr(row.global_remaining,70),unlimited:!!row.unlimited,usageDate:row.usage_date||""};
+  renderAiUsage()
+}
 function normalizeAiAsset(row,type,previous=null){
   const sameReference=!!(previous&&previous.reference_path===row.reference_path);
   return {...row,type,locked:!!row.locked,referenceUrl:sameReference?previous.referenceUrl:null,generationStatus:previous?.generationStatus||"",generationStatusKind:previous?.generationStatusKind||""}
@@ -1353,6 +1401,7 @@ function aiAssetCard(asset,type){
 }
 function renderAiVisualBible(){
   const ready=app.ai.ready,editable=can("media")&&ready;
+  renderAiUsage();
   // Do not clear a running/success/error message here. This function is called
   // immediately after a click and again in finally; clearing it made generation
   // look as if the button did nothing.
@@ -1446,10 +1495,11 @@ async function generateAiReference(type,id){
     const result=await requestAiImage({mode:`${type}_reference`,project_id:app.current.id,asset_id:id});
     await storeAiReference(type,asset,result.blob);asset.generationStatus=`Reference generated. Review it, then press Lock.${generationBalanceMessage(result.remaining)}`;asset.generationStatusKind="success";setMsg("aiBibleNotice",`${asset.name} reference generated. Review and lock it.${generationBalanceMessage(result.remaining)}`);renderShot()
   }catch(err){asset.generationStatus=err.message||"Reference generation failed.";asset.generationStatusKind="error";setMsg("aiBibleNotice",asset.generationStatus,"warning")}
-  finally{app.ai.generating=false;app.ai.generatingAssetId=null;app.suppressRealtime=Math.max(0,app.suppressRealtime-1);renderAiVisualBible();applyPermissionLocks()}
+  finally{app.ai.generating=false;app.ai.generatingAssetId=null;app.suppressRealtime=Math.max(0,app.suppressRealtime-1);renderAiVisualBible();applyPermissionLocks();await loadAiUsage()}
 }
 function renderAiShotControls(){
   const shot=currentShot(),characters=$("shotCharacterPicker"),location=$("aiLocationId");if(!shot||!characters||!location)return;
+  renderAiUsage();
   shot.aiCharacterIds=Array.isArray(shot.aiCharacterIds)?shot.aiCharacterIds:[];
   characters.innerHTML="";
   if(!app.ai.ready||!app.ai.characters.length){characters.innerHTML=`<span class="ai-picker-empty">${app.ai.ready?"No characters in the Visual Bible. Add one only if this shot needs a recurring character.":app.mode==="cloud"?app.ai.migrationMessage:"AI Visual Bible is available in signed-in cloud projects."}</span>`}
@@ -1490,7 +1540,7 @@ async function generateShotImage(){
     const {data:signed}=await sb.storage.from("storyboards").createSignedUrl(path,SIGNED_IMAGE_TTL_SECONDS);shot.image=signed?.signedUrl||URL.createObjectURL(optimized);
     await removeMediaPaths([oldPath]);await saveCloud("shot");renderEditor();setMsg("editorNotice",`Storyboard image generated and saved.${generationBalanceMessage(result.remaining)}`)
   }catch(err){setMsg("editorNotice",err.message||"Could not generate this shot.","warning")}
-  finally{app.ai.generating=false;app.suppressRealtime=Math.max(0,app.suppressRealtime-1);renderShot();applyPermissionLocks();rememberWorkspace()}
+  finally{app.ai.generating=false;app.suppressRealtime=Math.max(0,app.suppressRealtime-1);renderShot();applyPermissionLocks();rememberWorkspace();await loadAiUsage()}
 }
 
 /* ---------- SHEET TOGGLE ---------- */
@@ -3198,6 +3248,7 @@ function bind(){
   document.addEventListener("visibilitychange",()=>{
     if(document.hidden)rememberWorkspace();
     else if(app.mode==="cloud"&&app.current){
+      loadAiUsage();
       if(chatActivelyVisible())renderChatMessages();
       else refreshChatNotificationBadge()
     }

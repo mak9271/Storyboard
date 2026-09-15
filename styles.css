@@ -477,6 +477,12 @@ summary{padding:16px 17px;font-weight:850;cursor:pointer;list-style:none}summary
 .ai-generate-btn:disabled{opacity:.48;cursor:not-allowed;box-shadow:none}
 .ai-generation-status{margin-top:8px;min-height:16px;color:var(--muted);font-size:10px;line-height:1.45}
 .ai-generation-status.error{color:#ff9aa2}.ai-generation-status.success{color:#86e8b0}
+.ai-usage-summary{display:flex;align-items:center;gap:10px;width:max-content;max-width:100%;border:1px solid #27434e;background:#0b171c;border-radius:10px;padding:7px 10px;color:#a9bbc3;font-size:9px;line-height:1.25}
+.ai-usage-summary.compact{margin-top:8px;width:100%;justify-content:center}.ai-usage-summary.frame-usage{margin-top:9px}
+.ai-usage-stat{display:flex;align-items:baseline;gap:5px;white-space:nowrap}.ai-usage-stat>span{color:#7f969f}.ai-usage-stat strong{color:#d9f7ff;font-size:11px;font-weight:850}
+.ai-usage-divider{width:1px;height:16px;background:#2c4650;flex:0 0 auto}.ai-usage-message{color:#83969e}.ai-usage-message.error{color:#ff9aa2}
+.ai-usage-summary.unlimited{border-color:#315d4a;background:#0d1b15}.ai-usage-summary.unlimited .ai-usage-stat:last-child strong{color:#91ebb7}
+.ai-usage-summary.exhausted{border-color:#63363c;background:#211114}.ai-usage-summary.exhausted .ai-usage-stat:last-child strong{color:#ff9aa2}
 @keyframes aiPulse{50%{filter:brightness(.72)}}
 .shot-ai-reference-panel{margin-top:17px;padding:13px;border:1px solid #245568;border-radius:13px;background:linear-gradient(145deg,rgba(18,49,60,.48),rgba(8,15,20,.76));display:grid;gap:8px}
 .shot-ai-reference-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:2px}.shot-ai-reference-head strong{display:block;margin-top:3px;font-size:13px}.shot-ai-reference-head .text-btn{white-space:nowrap}
@@ -499,6 +505,6 @@ summary{padding:16px 17px;font-weight:850;cursor:pointer;list-style:none}summary
 .ai-asset-fields{display:grid;gap:7px;min-width:0}.ai-asset-fields input,.ai-asset-fields textarea{padding:8px;font-size:11px}.ai-asset-fields textarea{resize:vertical;min-height:61px}
 .ai-asset-actions{display:flex;gap:5px;flex-wrap:wrap}.ai-asset-actions button,.ai-upload-label{border:1px solid #303b42;background:#14191c;color:#dce6ea;border-radius:8px;padding:7px 8px;font-size:9px;font-weight:750;cursor:pointer}.ai-asset-actions .generate{border-color:#285e70;color:#73e2ff}.ai-asset-actions .lock{border-color:#355c4b;color:#94e6b7}.ai-asset-actions .delete{color:#ff9aa2;border-color:#543036}.ai-asset-actions button:disabled,.ai-upload-label.disabled{opacity:.38;cursor:not-allowed}
 .ai-asset-actions .generate.is-generating{opacity:1;cursor:wait;animation:aiPulse 1.2s ease-in-out infinite}.ai-asset-status{border-left:2px solid #4f9fba;padding:6px 8px;color:#9fdff0;background:#0b1b22;border-radius:4px;font-size:10px;line-height:1.45}.ai-asset-status.error{border-color:#d15d68;background:#211114;color:#ffadb4}.ai-asset-status.success{border-color:#48a677;background:#0e1e17;color:#9af0bd}.ai-asset-status.loading{border-color:#4f9fba;color:#9fdff0}
-.ai-bible-footer{display:flex;align-items:center;justify-content:space-between;gap:16px;border-top:1px solid var(--line);margin-top:17px;padding-top:15px}.ai-bible-footer span{font-size:10px;color:var(--muted)}
+.ai-bible-footer{display:flex;align-items:center;justify-content:space-between;gap:16px;border-top:1px solid var(--line);margin-top:17px;padding-top:15px}.ai-bible-footer-copy{display:grid;gap:7px}.ai-bible-footer-copy>span{font-size:10px;color:var(--muted)}
 @media(max-width:760px){.ai-asset-list{grid-template-columns:1fr}.ai-add-grid{grid-template-columns:1fr}.ai-asset-card{grid-template-columns:92px minmax(0,1fr)}}
-@media(max-width:430px){.ai-asset-card{grid-template-columns:1fr}.ai-asset-preview{max-width:150px}.frame-ai-actions{align-items:stretch;flex-direction:column}.shot-ai-reference-head{align-items:stretch;flex-direction:column}}
+@media(max-width:430px){.ai-asset-card{grid-template-columns:1fr}.ai-asset-preview{max-width:150px}.frame-ai-actions{align-items:stretch;flex-direction:column}.shot-ai-reference-head{align-items:stretch;flex-direction:column}.ai-bible-footer{align-items:stretch;flex-direction:column}.ai-bible-footer .btn{align-self:flex-end}}
