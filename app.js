@@ -1,4 +1,4 @@
-// Storyboard Shot Builder v4.1.1 — isolated admin center + scoped support access
+// Storyboard Shot Builder v4.1.2 — isolated admin center + scoped support access
 const OPTIONS = {
   shotSize:["ECU · Extreme Close Up","CU · Close Up","MCU · Medium Close Up","MS · Medium Shot","MLS · Medium Long Shot","WS · Wide Shot","EWS · Extreme Wide Shot","OTS · Over The Shoulder","POV · Point of View","Insert","Top Shot"],
   angle:["Eye Level","High Angle","Low Angle","Top / Bird's Eye","Dutch Angle","Ground Level","Overhead","Custom"],

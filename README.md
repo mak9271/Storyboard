@@ -1,6 +1,8 @@
-# Storyboard Shot Builder v4.1.1 — Isolated Admin Center + Consistent AI Storyboards
+# Storyboard Shot Builder v4.1.2 — Cloudflare Deploy Fix + Admin Center + Consistent AI Storyboards
 
 Base: **only** `storyboard-v3.9.1-github(1).zip`, as requested. All v3.9.1 editor, collaboration, scene-delete and Lighting Studio behavior is preserved.
+
+v4.1.2 excludes `node_modules` and other repository-only files from Static Assets so Cloudflare does not attempt to upload the 148 MiB `workerd` binary. No Supabase SQL change is required when upgrading from v4.1.1.
 
 ## Multi-admin support
 

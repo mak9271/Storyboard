@@ -1,3 +1,7 @@
+node_modules/
+.git/
+.github/
+.env*
 worker.js
 wrangler.toml
 supabase-v4.0-ai.sql
