@@ -1,4 +1,4 @@
-// Storyboard v4.1.4 AI gateway. Admin quota bypass remains database-authorized; no service-role key is used.
+// Storyboard v4.1.5 AI gateway. Cloudflare FLUX multipart input follows the provider schema exactly.
 const DEFAULT_MODEL = "@cf/black-forest-labs/flux-2-klein-4b";
 const ALLOWED_MODEL = new Set([DEFAULT_MODEL]);
 const MAX_JSON_BYTES = 96 * 1024;
@@ -74,9 +74,11 @@ async function loadReferenceBytes(env,token,path){
   const bytes=await response.arrayBuffer();if(bytes.byteLength>MAX_REFERENCE_BYTES)throw new Error("A reference image is too large.");return {bytes,type}
 }
 async function modelInput(prompt,width,height,references){
-  const form=new FormData();form.append("prompt",prompt);form.append("width",String(width));form.append("height",String(height));form.append("output_format","jpeg");
-  references.forEach((ref,index)=>form.append(index===0?"input_image":`input_image_${index+1}`,new Blob([ref.bytes],{type:ref.type}),`reference-${index+1}.${ref.type.split("/")[1]||"webp"}`));
-  const encoded=new Request("https://multipart.invalid",{method:"POST",body:form});return {multipart:{body:await encoded.arrayBuffer(),contentType:encoded.headers.get("Content-Type")}}
+  const form=new FormData();form.append("prompt",prompt);form.append("width",String(width));form.append("height",String(height));
+  references.forEach((ref,index)=>form.append(`input_image_${index}`,new Blob([ref.bytes],{type:ref.type}),`reference-${index}.${ref.type.split("/")[1]||"webp"}`));
+  // Cloudflare's Workers AI binding requires the serialized multipart stream
+  // plus its generated boundary. Passing an ArrayBuffer is rejected upstream.
+  const encoded=new Response(form);return {multipart:{body:encoded.body,contentType:encoded.headers.get("Content-Type")}}
 }
 function decodeBase64(value){
   const cleanValue=String(value||"").replace(/^data:image\/[^;]+;base64,/,"");const binary=atob(cleanValue),bytes=new Uint8Array(binary.length);for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);return bytes

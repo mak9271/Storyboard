@@ -1,4 +1,4 @@
-// Storyboard Shot Builder v4.1.4 — visible AI generation progress and errors
+// Storyboard Shot Builder v4.1.5 — Cloudflare FLUX multipart compatibility
 const OPTIONS = {
   shotSize:["ECU · Extreme Close Up","CU · Close Up","MCU · Medium Close Up","MS · Medium Shot","MLS · Medium Long Shot","WS · Wide Shot","EWS · Extreme Wide Shot","OTS · Over The Shoulder","POV · Point of View","Insert","Top Shot"],
   angle:["Eye Level","High Angle","Low Angle","Top / Bird's Eye","Dutch Angle","Ground Level","Overhead","Custom"],
@@ -1400,7 +1400,8 @@ async function optimizeImageBlob(source,maxDimension=1024,quality=.82){
   return blob
 }
 async function storeAiReference(type,asset,sourceBlob){
-  const optimized=await optimizeImageBlob(sourceBlob,1024,.84),path=`${app.current.id}/ai/${aiFolder(type)}/${asset.id}/${Date.now()}.webp`,oldPath=asset.reference_path,oldUrl=asset.referenceUrl;
+  // FLUX.2 Klein requires every reference input to be smaller than 512×512.
+  const optimized=await optimizeImageBlob(sourceBlob,496,.84),path=`${app.current.id}/ai/${aiFolder(type)}/${asset.id}/${Date.now()}.webp`,oldPath=asset.reference_path,oldUrl=asset.referenceUrl;
   const {error:uploadError}=await sb.storage.from("storyboards").upload(path,optimized,{upsert:false,contentType:"image/webp",cacheControl:"31536000"});if(uploadError)throw uploadError;
   const {error:updateError}=await sb.from(aiTable(type)).update({reference_path:path,style_snapshot:null,locked:false,updated_at:new Date().toISOString()}).eq("id",asset.id).eq("project_id",app.current.id);
   if(updateError){await removeMediaPaths([path]);throw updateError}

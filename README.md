@@ -1,4 +1,4 @@
-# Storyboard Shot Builder v4.1.4 — Visible AI Generation Status
+# Storyboard Shot Builder v4.1.5 — Cloudflare FLUX Generation Fix
 
 Base: **only** `storyboard-v3.9.1-github(1).zip`, as requested. All v3.9.1 editor, collaboration, scene-delete and Lighting Studio behavior is preserved.
 
@@ -7,6 +7,8 @@ v4.1.2 excluded `node_modules` and other repository-only files from Static Asset
 v4.1.3 fixes Admin Center RPC return types, lists accounts from `auth.users` even when a profile is incomplete, keeps Admin Center open across tab focus/session events and page reloads, and places each shot's required location plus optional characters beside its primary settings.
 
 v4.1.4 fixes a UI bug that immediately erased Visual Bible generation progress and errors. Each character/location card now keeps its own generating, success or exact error message beside the clicked button, uses a visible animated state, validates that the server actually returned an image, and stops a stalled request after three minutes.
+
+v4.1.5 aligns the Worker request with Cloudflare's FLUX.2 Klein binding contract: multipart is sent as a `ReadableStream` with its generated boundary, the unsupported `output_format` field is removed, reference images are named `input_image_0` through `input_image_3`, and stored Visual Bible references are resized below the model's 512×512 input limit.
 
 ## Multi-admin support
 
@@ -34,7 +36,7 @@ v4.1.4 fixes a UI bug that immediately erased Visual Bible generation progress a
 - Cloudflare Workers AI model: `@cf/black-forest-labs/flux-2-klein-4b`.
 - Supabase JWT validation and existing RLS permissions; no service-role key is used.
 - Atomic quota: 20 attempts per user per UTC day and 70 attempts across the app per UTC day. Edit the two constants inside `reserve_ai_generation` if usage testing supports a different limit.
-- AI and uploaded images are resized to at most 1024 px and stored as WebP. Only the selected shot image remains; a replaced image is deleted after the new one is safely linked.
+- Final shot images are resized to at most 1024 px; Visual Bible references are resized to at most 496 px for FLUX compatibility. Both are stored as WebP. Only the selected shot/reference image remains; a replaced image is deleted after the new one is safely linked.
 - Storyboard Sheet automatically uses the stored shot image and lazy-loads sheet frames.
 - Project duplication copies/remaps Visual Bible references and shot links. Project deletion removes shot and Visual Bible media.
 
@@ -48,7 +50,7 @@ v4.1.4 fixes a UI bug that immediately erased Visual Bible generation progress a
 
 ## Deployment order — IMPORTANT
 
-**Updating from v4.1.3:** no new SQL is required. Replace the GitHub files and wait for the Cloudflare deployment. A hard refresh should then load `app.js?v=414`.
+**Updating from v4.1.3 or v4.1.4:** no new SQL is required. Replace the GitHub files and wait for the Cloudflare deployment. A hard refresh should then load `app.js?v=415`.
 
 1. **Existing v4.1.1/v4.1.2 installation:** run only `supabase-v4.1.3-admin-users-fix.sql` in Supabase SQL Editor. It is safe to run again and does not remove data.
 2. **Fresh installation:** run `supabase-v4.0-ai.sql`, then `supabase-v4.1-admin.sql`, then `supabase-v4.1.3-admin-users-fix.sql` in that order.
