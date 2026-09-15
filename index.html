@@ -12,10 +12,10 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="styles.css?v=39" />
+  <link rel="stylesheet" href="styles.css?v=411" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0"></script>
-  <script src="config.js?v=39"></script>
-  <meta name="storyboard-build" content="v3.9-security-collaboration" />
+  <script src="config.js?v=410"></script>
+  <meta name="storyboard-build" content="v4.1.1-admin-center" />
 </head>
 <body>
 
@@ -85,6 +85,7 @@
       </div>
       <div class="top-actions">
         <button id="newCloudProjectBtn" class="btn">＋ New Project</button>
+        <button id="adminCenterBtn" class="btn admin-center-btn" hidden>Admin Center</button>
         <button id="accountBtn" class="btn ghost">Account</button>
         <button id="logoutBtn" class="btn ghost">Log Out</button>
       </div>
@@ -114,8 +115,78 @@
     <div class="creator-credit dashboard-credit">© 2026 <a href="https://aminkhorsandi.com" target="_blank" rel="noopener">Amin Khorsandi</a></div>
   </section>
 
+  <!-- ADMIN CENTER -->
+  <section id="adminView" class="admin-view" hidden>
+    <header class="dashboard-head admin-dashboard-head">
+      <div class="brand-row">
+        <div class="s-logo small-logo">S</div>
+        <div>
+          <div class="eyebrow">SECURE SUPPORT CONSOLE</div>
+          <h1>Admin Center</h1>
+        </div>
+      </div>
+      <div class="top-actions">
+        <button id="backFromAdminBtn" class="btn ghost" type="button">← My Projects</button>
+        <button id="adminAccountBtn" class="btn ghost" type="button">Account</button>
+        <button id="adminLogoutBtn" class="btn ghost" type="button">Log Out</button>
+      </div>
+    </header>
+
+    <main class="admin-center-main">
+      <p class="admin-center-intro">All Storyboard users are listed below. Search by username or display name, select a user, then open only the project you need in temporary support mode. Every support action is recorded.</p>
+      <div id="adminCenterNotice" class="notice" hidden></div>
+
+      <section class="admin-section admin-users-section">
+        <div class="admin-section-head">
+          <div><h2>Users</h2><small>Open a user to see their owned and shared projects.</small></div>
+          <span id="adminUserCount" class="admin-user-count">0 users</span>
+        </div>
+        <form id="adminUserSearchForm" class="admin-search-row">
+          <input id="adminUserSearchInput" type="search" autocomplete="off" placeholder="Search username or name…" maxlength="60" />
+          <button class="btn" type="submit">Search</button>
+          <button id="adminShowAllUsersBtn" class="btn ghost" type="button">All Users</button>
+        </form>
+        <div id="adminUserResults" class="admin-result-list"></div>
+        <button id="adminLoadMoreUsersBtn" class="btn ghost admin-load-more" type="button" hidden>Load More Users</button>
+        <div id="adminUserProjectsPanel" class="admin-project-panel" hidden>
+          <div class="admin-selected-user">
+            <div><span class="eyebrow">SELECTED USER</span><strong id="adminSelectedUserName"></strong></div>
+            <button id="clearAdminUserBtn" type="button" class="btn ghost">Close Projects</button>
+          </div>
+          <div id="adminUserProjects" class="admin-project-list"></div>
+        </div>
+      </section>
+
+      <section class="admin-section">
+        <div class="admin-section-head"><div><h2>Support Team</h2><small>Superadmins can add multiple support admins and other superadmins.</small></div></div>
+        <form id="adminAddForm" class="admin-add-row" hidden>
+          <input id="adminAddUsername" autocomplete="off" placeholder="Username to make admin" maxlength="30" />
+          <select id="adminAddRole">
+            <option value="support_admin">Support Admin</option>
+            <option value="superadmin">Superadmin</option>
+          </select>
+          <button class="btn" type="submit">Add Admin</button>
+        </form>
+        <div id="adminTeamList" class="admin-team-list"></div>
+      </section>
+
+      <section class="admin-section">
+        <div class="admin-section-head"><div><h2>Recent Activity</h2><small>Support access and administrative changes are auditable.</small></div></div>
+        <div id="adminActivityList" class="admin-activity-list"></div>
+      </section>
+    </main>
+    <div class="creator-credit dashboard-credit">© 2026 <a href="https://aminkhorsandi.com" target="_blank" rel="noopener">Amin Khorsandi</a></div>
+  </section>
+
   <!-- EDITOR -->
   <section id="editorView" hidden>
+    <div id="adminSupportBar" class="admin-support-bar" hidden>
+      <div>
+        <strong>ADMIN SUPPORT MODE</strong>
+        <span id="adminSupportLabel">Viewing a customer project</span>
+      </div>
+      <button id="exitAdminSupportBtn" type="button" class="btn ghost">Exit Support Mode</button>
+    </div>
     <header class="topbar">
       <div class="editor-brand">
         <button id="backProjectsBtn" class="icon-btn back-btn" title="Projects">←</button>
@@ -169,6 +240,7 @@
           <div class="project-card-title-row"><label>Project Name</label><span id="projectFolderBadge" class="folder-badge">General</span></div>
           <input id="projectName" />
           <button id="projectDetailsBtn" type="button" class="btn ghost wide project-details-btn">Project Details · Folder · Tags</button>
+          <button id="aiBibleBtn" type="button" class="btn ghost wide ai-bible-btn">AI Visual Bible · Characters · Locations</button>
           <div class="grid-2">
             <div>
               <label>Aspect Ratio</label>
@@ -207,7 +279,7 @@
         <div class="scene-header">
           <span>Scenes</span>
           <div class="scene-header-actions">
-            <button id="collapseAllScenesBtn" class="icon-btn" title="Collapse all scenes">−</button>
+            <button id="collapseAllScenesBtn" class="icon-btn" title="Delete selected scene" aria-label="Delete selected scene">−</button>
             <button id="expandAllScenesBtn" class="icon-btn" title="Expand / collapse all scenes">↕</button>
             <button id="addSceneBtn" class="icon-btn" title="Add scene">＋</button>
           </div>
@@ -257,12 +329,16 @@
               <div class="frame-placeholder">
                 <div class="frame-icon">▧</div>
                 <strong>Storyboard Frame</strong>
-                <span>Add an image manually. AI generation is the next phase.</span>
+                <span>Generate from this shot or add an image manually.</span>
                 <label id="chooseImageLabel" class="btn small">Choose Image<input id="frameImageInput" type="file" accept="image/*" hidden></label>
               </div>
-              <img id="frameImage" alt="" hidden />
+              <img id="frameImage" alt="" decoding="async" fetchpriority="high" hidden />
             </div>
-            <button id="removeImageBtn" class="text-btn" hidden>Remove Shot Image</button>
+            <div class="frame-ai-actions">
+              <button id="generateShotImageBtn" type="button" class="btn ai-generate-btn">✦ Generate Storyboard</button>
+              <button id="removeImageBtn" class="text-btn" hidden>Remove Shot Image</button>
+            </div>
+            <div id="aiGenerationStatus" class="ai-generation-status" aria-live="polite">Choose a locked project location before generating.</div>
           </section>
 
           <section class="quick-card">
@@ -298,6 +374,11 @@
           <details id="subjectSection">
             <summary>SUBJECT · Character & Action</summary>
             <div class="form-grid">
+              <div class="span-2 ai-shot-reference-field">
+                <div class="ai-field-head"><label>Locked Project Characters</label><button id="manageAiCharactersBtn" type="button" class="text-btn">Manage Visual Bible</button></div>
+                <div id="shotCharacterPicker" class="ai-reference-picker"></div>
+                <small class="field-help">Only selected locked characters are sent as visual references for this shot.</small>
+              </div>
               <div class="span-2"><label>Main Subject</label><input id="subject" /></div>
               <div class="span-2"><label>Detailed Visual Description</label><textarea id="description" rows="4"></textarea></div>
               <div class="span-2"><label>Performance / Emotion</label><textarea id="performance" rows="3"></textarea></div>
@@ -310,7 +391,8 @@
             <summary>LIGHT & SPACE · Lighting, Time & Set</summary>
             <div class="form-grid">
               <div><label>Time of Day</label><select id="timeOfDay"></select></div>
-              <div><label>Location / Space</label><input id="location" /></div>
+              <div><label>Locked Project Location · Required for AI</label><select id="aiLocationId"><option value="">Choose project location…</option></select></div>
+              <div class="span-2"><label>Location Notes for This Shot</label><input id="location" placeholder="Only details within the selected location" /></div>
               <div><label>Light Source</label><select id="lightSource"></select></div>
               <div><label>Light Direction</label><select id="lightDirection"></select></div>
               <div><label>Light Quality</label><select id="lightQuality"></select></div>
@@ -378,6 +460,43 @@
         <label class="check-row span-2"><input id="detailFavorite" type="checkbox" /> Favorite project</label>
       </div>
       <div class="modal-footer-actions"><button id="saveProjectDetailsBtn" type="button" class="btn">Save Project Details</button></div>
+    </div>
+  </dialog>
+
+  <!-- AI VISUAL BIBLE MODAL -->
+  <dialog id="aiBibleModal" class="modal">
+    <div class="modal-card ai-bible-modal-card">
+      <div class="modal-head">
+        <div><div class="eyebrow">PROJECT CONTINUITY</div><h2>AI Visual Bible</h2></div>
+        <button id="closeAiBibleBtn" class="icon-btn" type="button">×</button>
+      </div>
+      <p class="ai-bible-intro">Create and approve one reference for every recurring character and location. Lock approved references before generating shots.</p>
+      <div id="aiBibleNotice" class="notice" hidden></div>
+
+      <section class="ai-bible-section">
+        <div class="ai-bible-section-head"><div><h3>Characters</h3><small>Identity, face, hair, body, costume and recurring details.</small></div></div>
+        <div class="ai-add-grid">
+          <input id="newAiCharacterName" placeholder="Character name · e.g. Shahrzad" maxlength="80" />
+          <input id="newAiCharacterDescription" placeholder="Stable appearance and costume description" maxlength="1000" />
+          <button id="addAiCharacterBtn" type="button" class="btn">＋ Character</button>
+        </div>
+        <div id="aiCharacterList" class="ai-asset-list"></div>
+      </section>
+
+      <section class="ai-bible-section">
+        <div class="ai-bible-section-head"><div><h3>Locations</h3><small>Architecture, layout, fixed set elements, palette and atmosphere.</small></div></div>
+        <div class="ai-add-grid">
+          <input id="newAiLocationName" placeholder="Location name · e.g. Palace Hall" maxlength="80" />
+          <input id="newAiLocationDescription" placeholder="Stable spatial and visual description" maxlength="1400" />
+          <button id="addAiLocationBtn" type="button" class="btn">＋ Location</button>
+        </div>
+        <div id="aiLocationList" class="ai-asset-list"></div>
+      </section>
+
+      <div class="ai-bible-footer">
+        <span>Reference generation uses the same daily free-generation quota as shot generation.</span>
+        <button id="doneAiBibleBtn" type="button" class="btn">Done</button>
+      </div>
     </div>
   </dialog>
 
@@ -672,6 +791,6 @@
     </div>
   </dialog>
 
-  <script src="app.js?v=39"></script>
+  <script src="app.js?v=411"></script>
 </body>
 </html>

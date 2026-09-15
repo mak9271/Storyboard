@@ -1,0 +1,16 @@
+name = "storyboard"
+main = "worker.js"
+compatibility_date = "2026-09-15"
+
+[assets]
+directory = "."
+binding = "ASSETS"
+run_worker_first = ["/api/*"]
+
+[ai]
+binding = "AI"
+
+[vars]
+AI_MODEL = "@cf/black-forest-labs/flux-2-klein-4b"
+SUPABASE_URL = "https://xpqhsnyyjpfxpxvvrvsz.supabase.co"
+SUPABASE_ANON_KEY = "sb_publishable_T9Mj26dEhg1F0DO9grHY1Q_Y7j10oeI"

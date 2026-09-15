@@ -1,0 +1,10 @@
+worker.js
+wrangler.toml
+supabase-v4.0-ai.sql
+supabase-v4.1-admin.sql
+tests/
+README.md
+.wrangler/
+package.json
+package-lock.json
+*.zip

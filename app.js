@@ -1,4 +1,4 @@
-// Storyboard Shot Builder v3.9 — security hardening, conflict detection, presence and signed-media refresh
+// Storyboard Shot Builder v4.1.1 — isolated admin center + scoped support access
 const OPTIONS = {
   shotSize:["ECU · Extreme Close Up","CU · Close Up","MCU · Medium Close Up","MS · Medium Shot","MLS · Medium Long Shot","WS · Wide Shot","EWS · Extreme Wide Shot","OTS · Over The Shoulder","POV · Point of View","Insert","Top Shot"],
   angle:["Eye Level","High Angle","Low Angle","Top / Bird's Eye","Dutch Angle","Ground Level","Overhead","Custom"],
@@ -36,9 +36,30 @@ let app = {
   collabTab: "chat",
   permissions: fullPermissions(),
   isOwner: true,
+  admin: {
+    isAdmin: false,
+    role: null,
+    selectedUser: null,
+    users: [],
+    usersOffset: 0,
+    usersTotal: 0,
+    usersQuery: "",
+    supportProjectId: null,
+    supportUserId: null,
+    supportUsername: null,
+    supportProjectName: null
+  },
   pendingInvite: new URLSearchParams(location.search).get("invite"),
   pendingLightingProject: new URLSearchParams(location.search).get("project"),
   pendingLightingDiagram: new URLSearchParams(location.search).get("diagram"),
+  ai: {
+    ready: false,
+    loading: false,
+    generating: false,
+    characters: [],
+    locations: [],
+    migrationMessage: "Run supabase-v4.0-ai.sql to enable AI Visual Bible."
+  },
   lighting: {
     diagrams: [],
     current: null,
@@ -72,7 +93,7 @@ function fullPermissions(){return {project_settings:true,scenes:true,shots:true,
 function blankPermissions(){return {project_settings:false,scenes:false,shots:false,media:false,members:false}}
 function editorPermissions(){return {project_settings:false,scenes:true,shots:true,media:true,members:false}}
 function permissionPreset(name){return name==="viewer"?blankPermissions():name==="editor"?editorPermissions():readPermissionUI()}
-function blankShot(no=1){return {id:uid(),shotNo:no,duration:"",shotSize:"CU · Close Up",angle:"Eye Level",cameraHeight:"Eye Level",lens:"50mm",focus:"Shallow Focus",movement:"Static",startEnd:"",composition:"Centered / Symmetrical",summary:"",subject:"",description:"",performance:"",subjectMovement:"",costume:"",timeOfDay:"Night",location:"",lightSource:"Candle",lightDirection:"Camera Left",lightQuality:"Low Key",lighting:"",props:"",dialogue:"",voiceOver:"",sfx:"",music:"",transitionIn:"Cut",transitionOut:"Cut",notes:"",image:null,imagePath:null,position:no}}
+function blankShot(no=1){return {id:uid(),shotNo:no,duration:"",shotSize:"CU · Close Up",angle:"Eye Level",cameraHeight:"Eye Level",lens:"50mm",focus:"Shallow Focus",movement:"Static",startEnd:"",composition:"Centered / Symmetrical",summary:"",subject:"",description:"",performance:"",subjectMovement:"",costume:"",timeOfDay:"Night",location:"",lightSource:"Candle",lightDirection:"Camera Left",lightQuality:"Low Key",lighting:"",props:"",dialogue:"",voiceOver:"",sfx:"",music:"",transitionIn:"Cut",transitionOut:"Cut",notes:"",aiCharacterIds:[],aiLocationId:"",aiGeneration:null,image:null,imagePath:null,position:no}}
 function blankScene(no=1){return {id:uid(),number:no,title:`Scene ${no}`,description:"",position:no,collapsed:false,shots:[blankShot(1)]}}
 function blankProject(name="Untitled Storyboard"){return {id:uid(),name,aspect:"3:4 Portrait",aspectWidth:3,aspectHeight:4,style:"Storyboard B&W",owner_id:null,role:"owner",position:0,isFavorite:false,folder:"General",tags:[],metadata:{director:"",cinematographer:"",writer:"",production:"",status:"Planning",notes:""},scenes:[blankScene(1)],updated_at:new Date().toISOString()}}
 function deepClone(x){return JSON.parse(JSON.stringify(x))}
@@ -87,8 +108,9 @@ function normalizeTags(v){
   return s.split(",").map(x=>x.trim()).filter(Boolean)
 }
 function projectMeta(p){return {director:"",cinematographer:"",writer:"",production:"",status:"Planning",notes:"",...(p?.metadata||{})}}
-function projectCanEdit(p){return app.mode==="local" || p?.owner_id===app.session?.user?.id || !!p?.dashboardPermissions?.project_settings}
-function projectIsOwner(p){return app.mode==="local" || p?.owner_id===app.session?.user?.id}
+function adminSupporting(projectId=app.current?.id){return !!(app.admin.isAdmin&&app.admin.supportProjectId&&app.admin.supportProjectId===projectId)}
+function projectCanEdit(p){return app.mode==="local" || p?.owner_id===app.session?.user?.id || adminSupporting(p?.id) || !!p?.dashboardPermissions?.project_settings}
+function projectIsOwner(p){return app.mode==="local" || p?.owner_id===app.session?.user?.id || adminSupporting(p?.id)}
 function shotDbData(s){const data={...s};delete data.id;delete data.image;delete data.imagePath;return data}
 function currentScene(){return app.current?.scenes.find(s=>s.id===app.activeSceneId) || app.current?.scenes[0] || null}
 function currentShot(){const sc=currentScene(); return sc?.shots.find(s=>s.id===app.activeShotId) || sc?.shots[0] || null}
@@ -97,7 +119,7 @@ function shortValue(v){return (v||"").split(" · ")[0]}
 function escapeHtml(str){return String(str??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
 function show(el, yes=true){if(el) el.hidden=!yes}
 function setMsg(id,msg,type=""){const el=$(id); if(!msg){el.hidden=true;el.textContent="";return} el.hidden=false;el.textContent=msg;el.className="notice"+(type?` ${type}`:"")}
-function can(key){return app.isOwner || !!app.permissions?.[key]}
+function can(key){return app.isOwner || adminSupporting() || !!app.permissions?.[key]}
 const SIGNED_IMAGE_TTL_SECONDS = 3600;
 const SIGNED_IMAGE_REFRESH_MS = 45 * 60 * 1000;
 function conflictMessage(kind){return `This ${kind} was changed by another collaborator. I reloaded the latest version so you can review it before editing again.`}
@@ -322,6 +344,7 @@ function saveLocal(){
   if(idx>=0)app.projects[idx]=app.current; else app.projects.push(app.current);
   localStorage.setItem("storyboard-v3-projects",JSON.stringify(app.projects));
 }
+function resetAiState(){app.ai.ready=false;app.ai.loading=false;app.ai.generating=false;app.ai.characters=[];app.ai.locations=[]}
 function selectFirst(){
   const sc=app.current?.scenes?.[0]; app.activeSceneId=sc?.id||null; app.activeShotId=sc?.shots?.[0]?.id||null
 }
@@ -338,7 +361,7 @@ async function start(){
   app.session=session;
   sb.auth.onAuthStateChange(async(event,session)=>{
     app.session=session;
-    if(!session){app.profile=null;app.current=null;unsubscribeRealtime();unsubscribeChatRealtime();unsubscribeChatNoticeRealtime();unsubscribeLightingRealtime();updateChatBadges(0,false);showAuth();return}
+    if(!session){app.profile=null;app.current=null;resetAdminState();resetAiState();unsubscribeRealtime();unsubscribeChatRealtime();unsubscribeChatNoticeRealtime();unsubscribeLightingRealtime();updateChatBadges(0,false);showAuth();return}
     // INITIAL_SESSION is already handled by getSession() below. Token refreshes must
     // never kick an editor back to the Projects screen.
     if(event==="INITIAL_SESSION"||event==="TOKEN_REFRESHED"||event==="USER_UPDATED")return;
@@ -347,18 +370,25 @@ async function start(){
   if(session) await afterLogin(); else showAuth();
 }
 function showAuth(){
-  show($("authView")); show($("projectsView"),false); show($("editorView"),false);
+  show($("authView")); show($("projectsView"),false); show($("adminView"),false); show($("editorView"),false);
 }
 function showProjects(){
-  show($("authView"),false); show($("projectsView")); show($("editorView"),false);
+  show($("authView"),false); show($("projectsView")); show($("adminView"),false); show($("editorView"),false);
+  renderAdminSupportBar();
+}
+function showAdminView(){
+  show($("authView"),false); show($("projectsView"),false); show($("adminView")); show($("editorView"),false);
+  renderAdminSupportBar();
 }
 function showEditor(){
-  show($("authView"),false); show($("projectsView"),false); show($("editorView"));
+  show($("authView"),false); show($("projectsView"),false); show($("adminView"),false); show($("editorView"));
+  renderAdminSupportBar();
   renderEditor();
 }
 async function afterLogin(){
   app.mode="cloud";
   await loadProfile();
+  await loadAdminStatus();
   await loadCloudProjects();
   if(app.pendingInvite){await acceptPendingInvite();showProjects();return}
   if(app.pendingLightingProject){const opened=await openPendingLightingLink();if(opened)return}
@@ -375,6 +405,27 @@ async function loadProfile(){
   $("accountDisplayName").textContent=app.profile.display_name||app.profile.username||"Account";
   $("accountUsername").textContent=app.profile.username?`@${app.profile.username}`:"";
   $("accountEmail").textContent=app.session.user.email||"";
+}
+function resetAdminState(){
+  app.admin={isAdmin:false,role:null,selectedUser:null,users:[],usersOffset:0,usersTotal:0,usersQuery:"",supportProjectId:null,supportUserId:null,supportUsername:null,supportProjectName:null};
+  if($("adminCenterBtn"))$("adminCenterBtn").hidden=true;
+  renderAdminSupportBar()
+}
+async function loadAdminStatus(){
+  resetAdminState();if(!sb||!app.session)return;
+  const {data,error}=await sb.rpc("storyboard_admin_status");
+  if(error)return;
+  const status=Array.isArray(data)?data[0]:data;
+  app.admin.isAdmin=!!status?.is_admin;app.admin.role=status?.role||null;
+  $("adminCenterBtn").hidden=!app.admin.isAdmin
+}
+function renderAdminSupportBar(){
+  const bar=$("adminSupportBar");if(!bar)return;
+  const active=adminSupporting();bar.hidden=!active;$("editorView")?.classList.toggle("admin-support-active",active);
+  if(active){
+    $("adminSupportLabel").textContent=`Viewing @${app.admin.supportUsername||"user"} · ${app.admin.supportProjectName||app.current?.name||"Project"} · Full access`;
+    requestAnimationFrame(()=>$("editorView")?.style.setProperty("--admin-support-height",`${bar.offsetHeight}px`))
+  }else $("editorView")?.style.removeProperty("--admin-support-height")
 }
 function toggleAuthTab(tab){
   const login=tab==="login";
@@ -422,9 +473,9 @@ async function forgotPassword(){
   setMsg("authMessage",error?error.message:"Password reset email sent.",error?"warning":"");
 }
 function continueOffline(){
-  app.mode="local";app.projects=getLocalProjects();app.current=app.projects[0];selectFirst();app.permissions=fullPermissions();app.isOwner=true;showEditor()
+  app.mode="local";resetAdminState();resetAiState();app.projects=getLocalProjects();app.current=app.projects[0];selectFirst();app.permissions=fullPermissions();app.isOwner=true;showEditor()
 }
-async function logout(){unsubscribePresence();stopSignedImageRefresh();if(sb&&app.mode==="cloud")await sb.auth.signOut();else showAuth()}
+async function logout(){unsubscribePresence();stopSignedImageRefresh();resetAdminState();if(sb&&app.mode==="cloud")await sb.auth.signOut();else showAuth()}
 
 /* ---------- CLOUD PROJECTS ---------- */
 function normalizeProjectRecord(p){
@@ -439,14 +490,19 @@ function normalizeProjectRecord(p){
   }
 }
 async function loadCloudProjects(){
-  const {data,error}=await sb.from("projects").select("id,owner_id,name,aspect,aspect_width,aspect_height,style,updated_at,created_at,position,is_favorite,folder,tags,metadata");
-  if(error){console.error(error);alert(`Could not load projects: ${error.message}`);return}
-
   let memberships=[];
   const {data:memberRows,error:memberError}=await sb.from("project_members").select("project_id,role,permissions").eq("user_id",app.session.user.id);
   if(!memberError)memberships=memberRows||[];
+  const membershipIds=memberships.map(x=>x.project_id).filter(Boolean);
+  let projectQuery=sb.from("projects").select("id,owner_id,name,aspect,aspect_width,aspect_height,style,updated_at,created_at,position,is_favorite,folder,tags,metadata");
+  projectQuery=membershipIds.length
+    ?projectQuery.or(`owner_id.eq.${app.session.user.id},id.in.(${membershipIds.join(",")})`)
+    :projectQuery.eq("owner_id",app.session.user.id);
+  const {data,error}=await projectQuery;
+  if(error){console.error(error);alert(`Could not load projects: ${error.message}`);return}
 
-  const mapped=(data||[]).map(row=>{
+  const membershipSet=new Set(membershipIds);
+  const mapped=(data||[]).filter(row=>row.owner_id===app.session.user.id||membershipSet.has(row.id)).map(row=>{
     const p=normalizeProjectRecord(row);
     const member=memberships.find(m=>m.project_id===p.id);
     p.dashboardRole=p.owner_id===app.session.user.id?"owner":(member?.role||"shared");
@@ -526,6 +582,147 @@ function renderProjects(){
   });
   setupProjectDrag();
 }
+
+/* ---------- MULTI-ADMIN SUPPORT CENTER ---------- */
+function adminEmpty(message){return `<div class="admin-empty">${escapeHtml(message)}</div>`}
+async function openAdminCenter(){
+  if(!app.admin.isAdmin)return;
+  $("adminAddForm").hidden=app.admin.role!=="superadmin";
+  setMsg("adminCenterNotice","");
+  showAdminView();
+  await Promise.all([loadAdminUsers(true),loadAdminTeam(),loadAdminActivity()]);
+  if(app.admin.selectedUser)await loadAdminUserProjects()
+}
+async function searchAdminUsers(event){
+  event?.preventDefault();await loadAdminUsers(true)
+}
+async function showAllAdminUsers(){
+  $("adminUserSearchInput").value="";await loadAdminUsers(true)
+}
+async function loadAdminUsers(reset=false){
+  const q=$("adminUserSearchInput").value.trim().replace(/^@/,"");
+  if(reset||q!==app.admin.usersQuery){app.admin.users=[];app.admin.usersOffset=0;app.admin.usersTotal=0}
+  app.admin.usersQuery=q;
+  setMsg("adminCenterNotice",q?"Searching users…":"Loading all users…");
+  if(!app.admin.users.length)$("adminUserResults").innerHTML=adminEmpty("Loading users…");
+  const {data,error}=await sb.rpc("storyboard_admin_list_users",{p_query:q||null,p_limit:100,p_offset:app.admin.usersOffset});
+  if(error){setMsg("adminCenterNotice",error.message||"Could not load users.","warning");$("adminUserResults").innerHTML=adminEmpty("Could not load users.");return}
+  const rows=data||[],known=new Set(app.admin.users.map(x=>x.user_id));
+  app.admin.users.push(...rows.filter(x=>!known.has(x.user_id)));
+  app.admin.usersOffset=app.admin.users.length;
+  app.admin.usersTotal=rows.length?Number(rows[0].total_count||app.admin.users.length):(reset?0:app.admin.usersTotal);
+  setMsg("adminCenterNotice","");renderAdminUserResults(app.admin.users);
+  $("adminUserCount").textContent=app.admin.usersTotal===app.admin.users.length?`${app.admin.usersTotal} user${app.admin.usersTotal===1?"":"s"}`:`Showing ${app.admin.users.length} of ${app.admin.usersTotal} users`;
+  $("adminLoadMoreUsersBtn").hidden=app.admin.users.length>=app.admin.usersTotal
+}
+function renderAdminUserResults(rows){
+  const wrap=$("adminUserResults");wrap.innerHTML="";
+  if(!rows.length){wrap.innerHTML=adminEmpty("No matching username found.");return}
+  rows.forEach(user=>{
+    const row=document.createElement("div");row.className="admin-result-row";
+    row.innerHTML=`<div><strong>@${escapeHtml(user.username||"unknown")}</strong><small>${escapeHtml(user.display_name||"No display name")} · ${Number(user.project_count||0)} project${Number(user.project_count||0)===1?"":"s"}</small></div><button type="button" class="btn ghost">View Projects</button>`;
+    row.querySelector("button").onclick=()=>selectAdminUser(user);wrap.appendChild(row)
+  })
+}
+async function selectAdminUser(user){
+  app.admin.selectedUser={user_id:user.user_id,username:user.username||"unknown",display_name:user.display_name||""};
+  $("adminSelectedUserName").textContent=`@${app.admin.selectedUser.username}${app.admin.selectedUser.display_name?` · ${app.admin.selectedUser.display_name}`:""}`;
+  $("adminUserProjectsPanel").hidden=false;await loadAdminUserProjects()
+}
+function clearAdminUser(){
+  app.admin.selectedUser=null;$("adminUserProjectsPanel").hidden=true;$("adminUserProjects").innerHTML=""
+}
+async function loadAdminUserProjects(){
+  const user=app.admin.selectedUser;if(!user)return;
+  const wrap=$("adminUserProjects");wrap.innerHTML=adminEmpty("Loading projects…");
+  const {data,error}=await sb.rpc("storyboard_admin_list_user_projects",{p_user_id:user.user_id});
+  if(error){wrap.innerHTML=adminEmpty(error.message||"Could not load projects.");return}
+  renderAdminUserProjects(data||[])
+}
+function renderAdminUserProjects(rows){
+  const wrap=$("adminUserProjects");wrap.innerHTML="";
+  if(!rows.length){wrap.innerHTML=adminEmpty("This user has no projects.");return}
+  rows.forEach(project=>{
+    const row=document.createElement("div");row.className="admin-project-row";
+    const updated=project.updated_at?new Date(project.updated_at).toLocaleString():"Unknown update time";
+    row.innerHTML=`<div><strong>${escapeHtml(project.name||"Untitled Project")}</strong><small>${escapeHtml(project.access_role||"owner")} · ${escapeHtml(project.folder||"General")} · ${updated}</small></div><span class="member-actions"><button type="button" class="btn open-admin-project">Open Support</button><button type="button" class="btn ghost admin-danger delete-admin-project">Delete</button></span>`;
+    row.querySelector(".open-admin-project").onclick=()=>openAdminSupportProject(project);
+    row.querySelector(".delete-admin-project").onclick=()=>deleteAdminProject(project);
+    wrap.appendChild(row)
+  })
+}
+async function openAdminSupportProject(project){
+  const user=app.admin.selectedUser;if(!user||!project)return;
+  setMsg("adminCenterNotice","Opening secure support mode…");
+  const {error}=await sb.rpc("storyboard_admin_open_project",{p_project_id:project.id,p_target_user_id:user.user_id});
+  if(error){setMsg("adminCenterNotice",error.message||"Could not open this project.","warning");return}
+  app.admin.supportProjectId=project.id;app.admin.supportUserId=user.user_id;app.admin.supportUsername=user.username;app.admin.supportProjectName=project.name||"Untitled Project";
+  app.current=null;
+  try{await openCloudProject(project.id,{preserveSelection:true});if(app.current?.id!==project.id)throw new Error("Project access did not open.")}
+  catch(err){await closeAdminSupport(false);alert(err.message||"Could not open this project.")}
+}
+async function closeAdminSupport(reopen=true){
+  const projectId=app.admin.supportProjectId;
+  if(projectId&&sb)await sb.rpc("storyboard_admin_close_project",{p_project_id:projectId});
+  app.admin.supportProjectId=null;app.admin.supportUserId=null;app.admin.supportUsername=null;app.admin.supportProjectName=null;
+  unsubscribeRealtime();unsubscribePresence();stopSignedImageRefresh();unsubscribeChatRealtime();unsubscribeChatNoticeRealtime();unsubscribeLightingRealtime();updateChatBadges(0,false);renderAdminSupportBar();
+  await loadCloudProjects();showProjects();if(reopen)await openAdminCenter()
+}
+async function deleteAdminProject(project){
+  const user=app.admin.selectedUser;if(!user||!project)return;
+  if(!confirm(`Permanently delete "${project.name}" from @${user.username}? This cannot be undone.`))return;
+  setMsg("adminCenterNotice","Deleting project and stored media…");
+  let supportOpened=false;
+  try{
+    const {error:accessError}=await sb.rpc("storyboard_admin_open_project",{p_project_id:project.id,p_target_user_id:user.user_id});if(accessError)throw accessError;
+    supportOpened=true;
+    const [{data:paths},{data:characters},{data:locations}]=await Promise.all([
+      sb.from("shots").select("image_path").eq("project_id",project.id),
+      sb.from("project_ai_characters").select("reference_path").eq("project_id",project.id),
+      sb.from("project_ai_locations").select("reference_path").eq("project_id",project.id)
+    ]);
+    await removeMediaPaths([...(paths||[]).map(x=>x.image_path),...(characters||[]).map(x=>x.reference_path),...(locations||[]).map(x=>x.reference_path)]);
+    const {error}=await sb.rpc("storyboard_admin_delete_project",{p_project_id:project.id,p_target_user_id:user.user_id});if(error)throw error;
+    supportOpened=false;setMsg("adminCenterNotice",`Project "${project.name}" deleted.`);await Promise.all([loadAdminUserProjects(),loadAdminActivity(),loadAdminUsers(true)])
+  }catch(err){setMsg("adminCenterNotice",err.message||"Could not delete the project.","warning")}
+  finally{if(supportOpened)await sb.rpc("storyboard_admin_close_project",{p_project_id:project.id})}
+}
+async function loadAdminTeam(){
+  const wrap=$("adminTeamList");wrap.innerHTML=adminEmpty("Loading support team…");
+  const {data,error}=await sb.rpc("storyboard_admin_list_admins");
+  if(error){wrap.innerHTML=adminEmpty(error.message||"Could not load admins.");return}
+  wrap.innerHTML="";(data||[]).forEach(admin=>{
+    const row=document.createElement("div");row.className="admin-team-row";const me=admin.user_id===app.session.user.id;
+    row.innerHTML=`<div><strong>@${escapeHtml(admin.username||"unknown")}${me?" · You":""}</strong><small>${escapeHtml(admin.display_name||"")}</small><span class="admin-role-badge">${escapeHtml(admin.role||"support_admin")}</span></div>${app.admin.role==="superadmin"&&!me?'<button type="button" class="btn ghost admin-danger">Remove</button>':""}`;
+    row.querySelector("button")?.addEventListener("click",()=>removeAdmin(admin));wrap.appendChild(row)
+  });
+  if(!(data||[]).length)wrap.innerHTML=adminEmpty("No active admins found.")
+}
+async function addAdmin(event){
+  event.preventDefault();const username=$("adminAddUsername").value.trim().toLowerCase().replace(/^@/,""),role=$("adminAddRole").value;
+  if(!username)return;
+  setMsg("adminCenterNotice",`Adding @${username}…`);
+  const {error}=await sb.rpc("storyboard_admin_upsert",{p_username:username,p_role:role});
+  if(error){setMsg("adminCenterNotice",error.message||"Could not add this admin.","warning");return}
+  $("adminAddUsername").value="";setMsg("adminCenterNotice",`@${username} is now an active ${role}.`);await Promise.all([loadAdminTeam(),loadAdminActivity()])
+}
+async function removeAdmin(admin){
+  if(!confirm(`Remove @${admin.username} from the support team?`))return;
+  const {error}=await sb.rpc("storyboard_admin_remove",{p_user_id:admin.user_id});
+  if(error){setMsg("adminCenterNotice",error.message||"Could not remove this admin.","warning");return}
+  setMsg("adminCenterNotice",`@${admin.username} removed from the support team.`);await Promise.all([loadAdminTeam(),loadAdminActivity()])
+}
+async function loadAdminActivity(){
+  const wrap=$("adminActivityList");wrap.innerHTML=adminEmpty("Loading activity…");
+  const {data,error}=await sb.rpc("storyboard_admin_recent_activity",{p_limit:40});
+  if(error){wrap.innerHTML=adminEmpty(error.message||"Could not load activity.");return}
+  wrap.innerHTML="";(data||[]).forEach(item=>{
+    const row=document.createElement("div");row.className="admin-activity-row";
+    const context=[item.target_username?`@${item.target_username}`:"",item.project_name||item.details?.project_name||""].filter(Boolean).join(" · ");
+    row.innerHTML=`<div><strong>${escapeHtml(String(item.action||"admin action").replaceAll("_"," "))}</strong><small>@${escapeHtml(item.admin_username||"admin")}${context?` · ${escapeHtml(context)}`:""}</small></div><time>${new Date(item.created_at).toLocaleString()}</time>`;wrap.appendChild(row)
+  });
+  if(!(data||[]).length)wrap.innerHTML=adminEmpty("No administrative activity yet.")
+}
 async function createCloudProject(){
   const name=prompt("Project name:","Untitled Storyboard");if(!name)return;
   const myPositions=(app.projects||[]).filter(p=>p.owner_id===app.session.user.id).map(p=>Number(p.position||0));
@@ -553,6 +750,8 @@ async function openCloudProject(id,options={}){
   const signed=await Promise.all((shots||[]).map(async row=>{
     let image=null;if(row.image_path){const {data}=await sb.storage.from("storyboards").createSignedUrl(row.image_path,SIGNED_IMAGE_TTL_SECONDS);image=data?.signedUrl||null}
     const shotData={...blankShot(row.shot_number),...(row.data||{})};
+    shotData.aiCharacterIds=Array.isArray(shotData.aiCharacterIds)?shotData.aiCharacterIds.filter(Boolean):[];
+    shotData.aiLocationId=String(shotData.aiLocationId||"");
     return {...shotData,id:row.id,shotNo:row.shot_number,position:row.position,version:Number(row.version||1),imagePath:row.image_path,image}
   }));
   const sceneObjects=(scenes||[]).map(s=>({id:s.id,number:s.scene_number,title:s.title||`Scene ${s.scene_number}`,description:s.description||"",position:Number(s.position||s.scene_number||1),collapsed:!!s.collapsed,version:Number(s.version||1),shots:signed.filter(x=>(shots||[]).find(r=>r.id===x.id)?.scene_id===s.id)}));
@@ -562,10 +761,12 @@ async function openCloudProject(id,options={}){
   });
   const pp=normalizeProjectRecord(p);
   app.current={id:p.id,owner_id:p.owner_id,name:p.name,aspect:p.aspect||"3:4 Portrait",aspectWidth:pp.aspectWidth,aspectHeight:pp.aspectHeight,style:p.style||"Storyboard B&W",position:pp.position,isFavorite:pp.isFavorite,folder:pp.folder,tags:pp.tags,metadata:pp.metadata,updated_at:p.updated_at,scenes:sceneObjects};
-  app.isOwner=p.owner_id===app.session.user.id;
+  app.isOwner=p.owner_id===app.session.user.id||adminSupporting(p.id);
   if(app.isOwner){app.permissions=fullPermissions()}else{
     const {data:m}=await sb.from("project_members").select("permissions").eq("project_id",id).eq("user_id",app.session.user.id).maybeSingle();app.permissions=m?.permissions||blankPermissions()
   }
+  await loadAiVisualBible(id);
+  if(adminSupporting(id))app.admin.supportProjectName=p.name||app.admin.supportProjectName;
   const preferredScene=app.current.scenes.find(s=>s.id===preferredSceneId) || app.current.scenes[0] || null;
   app.activeSceneId=preferredScene?.id||null;
   const preferredShot=preferredScene?.shots.find(s=>s.id===preferredShotId) || preferredScene?.shots[0] || null;
@@ -583,11 +784,14 @@ async function openCloudProject(id,options={}){
 function subscribeRealtime(){
   if(!sb||app.mode!=="cloud"||!app.current)return;
   const pid=app.current.id;
-  app.realtimeChannel=sb.channel(`project-${pid}`)
+  let channel=sb.channel(`project-${pid}`)
     .on("postgres_changes",{event:"*",schema:"public",table:"projects",filter:`id=eq.${pid}`},()=>remoteRefresh())
     .on("postgres_changes",{event:"*",schema:"public",table:"scenes",filter:`project_id=eq.${pid}`},()=>remoteRefresh())
-    .on("postgres_changes",{event:"*",schema:"public",table:"shots",filter:`project_id=eq.${pid}`},()=>remoteRefresh())
-    .subscribe()
+    .on("postgres_changes",{event:"*",schema:"public",table:"shots",filter:`project_id=eq.${pid}`},()=>remoteRefresh());
+  if(app.ai.ready)channel=channel
+    .on("postgres_changes",{event:"*",schema:"public",table:"project_ai_characters",filter:`project_id=eq.${pid}`},()=>remoteRefresh())
+    .on("postgres_changes",{event:"*",schema:"public",table:"project_ai_locations",filter:`project_id=eq.${pid}`},()=>remoteRefresh());
+  app.realtimeChannel=channel.subscribe()
 }
 function unsubscribeRealtime(){if(sb&&app.realtimeChannel){sb.removeChannel(app.realtimeChannel);app.realtimeChannel=null}}
 
@@ -659,8 +863,17 @@ async function refreshSignedImages(){
       if(!error&&data?.signedUrl)shot.image=data.signedUrl
     })())
   }
+  if($("aiBibleModal")?.open){
+    for(const asset of [...app.ai.characters,...app.ai.locations]){
+      if(!asset.reference_path)continue;
+      jobs.push((async()=>{
+        const {data,error}=await sb.storage.from("storyboards").createSignedUrl(asset.reference_path,SIGNED_IMAGE_TTL_SECONDS);
+        if(!error&&data?.signedUrl)asset.referenceUrl=data.signedUrl
+      })())
+    }
+  }
   await Promise.all(jobs);
-  renderSceneList();renderShot();if(app.sheetOpen)renderSheet()
+  renderSceneList();renderShot();if($("aiBibleModal")?.open)renderAiVisualBible();if(app.sheetOpen)renderSheet()
 }
 function stopSignedImageRefresh(){if(signedImageRefreshTimer){clearInterval(signedImageRefreshTimer);signedImageRefreshTimer=null}}
 function startSignedImageRefresh(){
@@ -744,6 +957,7 @@ function renderShot(){
   const f=$("storyFrame");f.style.aspectRatio=`${aspectNumbers(app.current).w}/${aspectNumbers(app.current).h}`;
   const img=$("frameImage"),ph=document.querySelector(".frame-placeholder");
   if(s.image){img.src=s.image;img.hidden=false;ph.hidden=true;$("removeImageBtn").hidden=false}else{img.hidden=true;img.removeAttribute("src");ph.hidden=false;$("removeImageBtn").hidden=true}
+  renderAiShotControls()
 }
 function projectAspectText(p){
   if((p.aspect||"")==="Custom")return `${cleanNum(p.aspectWidth||3)}:${cleanNum(p.aspectHeight||4)} Custom`;
@@ -768,6 +982,10 @@ function applyPermissionLocks(){
   SHOT_FIELDS.forEach(id=>{if($(id))$(id).disabled=shotLocked});
   $("shotNo").readOnly=true;$("shotNo").disabled=false;
   $("frameImageInput").disabled=mediaLocked;$("chooseImageLabel").classList.toggle("permission-locked",mediaLocked);$("removeImageBtn").disabled=mediaLocked;
+  $("aiBibleBtn").disabled=app.mode!=="cloud";
+  $("generateShotImageBtn").disabled=mediaLocked||app.mode!=="cloud"||app.ai.generating||!aiShotReady().ready;
+  $("aiLocationId").disabled=shotLocked||!app.ai.ready;
+  $("shotCharacterPicker").querySelectorAll("input").forEach(x=>x.disabled=shotLocked||x.disabled);
   $("collaborateBtn").hidden=app.mode!=="cloud";
 }
 
@@ -783,7 +1001,8 @@ async function saveCloud(kind){
     await sb.from("projects").update({name:app.current.name,aspect:app.current.aspect,aspect_width:app.current.aspectWidth,aspect_height:app.current.aspectHeight,style:app.current.style,folder:app.current.folder||"General",tags:app.current.tags||[],metadata:projectMeta(app.current),is_favorite:!!app.current.isFavorite,updated_at:new Date().toISOString()}).eq("id",app.current.id)
   }else if(kind==="scene"&&can("scenes")){
     const s=currentScene();if(!s)return;
-    const {data,error}=await sb.rpc("update_storyboard_scene",{p_scene_id:s.id,p_expected_version:Number(s.version||1),p_title:s.title||"",p_description:s.description||""});
+    const sceneRpc=adminSupporting()?"storyboard_admin_update_scene":"update_storyboard_scene";
+    const {data,error}=await sb.rpc(sceneRpc,{p_scene_id:s.id,p_expected_version:Number(s.version||1),p_title:s.title||"",p_description:s.description||""});
     if(error){
       if(String(error.message||"").includes("EDIT_CONFLICT")){setMsg("editorNotice",conflictMessage("scene"),"warning");await openCloudProject(app.current.id,{sceneId:s.id,shotId:app.activeShotId,preserveSelection:true});return}
       setMsg("editorNotice",error.message||"Could not save scene.","warning");return
@@ -791,7 +1010,8 @@ async function saveCloud(kind){
     s.version=Number(data||s.version+1)
   }else if(kind==="shot"&&can("shots")){
     const s=currentShot();if(!s)return;const data=shotDbData(s);
-    const {data:newVersion,error}=await sb.rpc("update_storyboard_shot",{p_shot_id:s.id,p_expected_version:Number(s.version||1),p_data:data});
+    const shotRpc=adminSupporting()?"storyboard_admin_update_shot":"update_storyboard_shot";
+    const {data:newVersion,error}=await sb.rpc(shotRpc,{p_shot_id:s.id,p_expected_version:Number(s.version||1),p_data:data});
     if(error){
       if(String(error.message||"").includes("EDIT_CONFLICT")){setMsg("editorNotice",conflictMessage("shot"),"warning");await openCloudProject(app.current.id,{sceneId:app.activeSceneId,shotId:s.id,preserveSelection:true});return}
       setMsg("editorNotice",error.message||"Could not save shot.","warning");return
@@ -819,6 +1039,11 @@ async function copyMediaPath(sourcePath,newProjectId,newShotId){
   const {error}=await sb.storage.from("storyboards").copy(clean,dest);
   if(error){console.warn("Could not copy storyboard image",error);return null}
   return dest
+}
+async function copyAiReferencePath(sourcePath,newProjectId,type,newAssetId){
+  if(app.mode!=="cloud"||!sourcePath)return null;
+  const ext=(String(sourcePath).match(/\.([a-zA-Z0-9]+)$/)||[])[1]||"webp",dest=`${newProjectId}/ai/${aiFolder(type)}/${newAssetId}/${Date.now()}-copy.${ext}`;
+  const {error}=await sb.storage.from("storyboards").copy(String(sourcePath),dest);if(error){console.warn("Could not copy AI reference",error);return null}return dest
 }
 async function removeMediaPaths(paths){
   const clean=[...new Set((paths||[]).filter(Boolean))];if(app.mode!=="cloud"||!clean.length)return;
@@ -899,17 +1124,45 @@ async function moveScene(sceneId,delta){
   if(!can("scenes"))return;const arr=app.current.scenes.sort((a,b)=>a.position-b.position),i=arr.findIndex(x=>x.id===sceneId),j=i+delta;if(i<0||j<0||j>=arr.length)return;
   [arr[i],arr[j]]=[arr[j],arr[i]];arr.forEach((s,k)=>s.position=k+1);await persistSceneOrder();
 }
-async function deleteScene(){
-  if(!can("scenes"))return;if(app.current.scenes.length===1){alert("At least one scene must remain.");return}const s=currentScene();if(!confirm(`Delete Scene ${s.number} and all of its shots?`))return;
-  if(app.mode==="local"){app.current.scenes=app.current.scenes.filter(x=>x.id!==s.id);normalizeSceneOrder();selectFirst();saveLocal();renderEditor();return}
+async function deleteScene(sceneId=app.activeSceneId){
+  if(!can("scenes"))return;
+  if(app.current.scenes.length===1){alert("At least one scene must remain.");return}
+  const s=app.current.scenes.find(x=>x.id===sceneId)||currentScene();
+  if(!s)return;
+  const label=s.title?.trim()?`Scene ${s.number} · ${s.title.trim()}`:`Scene ${s.number}`;
+  if(!confirm(`Delete ${label} and all ${s.shots.length} of its shot${s.shots.length===1?"":"s"}?\n\nThis cannot be undone.`))return;
+
+  if(app.mode==="local"){
+    app.current.scenes=app.current.scenes.filter(x=>x.id!==s.id);
+    normalizeSceneOrder();
+    selectFirst();
+    saveLocal();
+    renderEditor();
+    return
+  }
+
   app.suppressRealtime++;
   try{
     await removeMediaPaths(s.shots.map(x=>x.imagePath));
-    const {error}=await sb.from("scenes").delete().eq("id",s.id);if(error)throw error;
-    await openCloudProject(app.current.id);normalizeSceneOrder();
-    for(const x of app.current.scenes){const {error:e}=await sb.from("scenes").update({scene_number:x.number,position:x.position}).eq("id",x.id);if(e)throw e}
+    const {error}=await sb.from("scenes").delete().eq("id",s.id);
+    if(error)throw error;
+
+    await openCloudProject(app.current.id);
+    normalizeSceneOrder();
+
+    for(const x of app.current.scenes){
+      const {error:e}=await sb.from("scenes")
+        .update({scene_number:x.number,position:x.position})
+        .eq("id",x.id);
+      if(e)throw e
+    }
+
     await openCloudProject(app.current.id)
-  }catch(err){alert(`Could not delete scene: ${err.message}`)}finally{app.suppressRealtime--}
+  }catch(err){
+    alert(`Could not delete scene: ${err.message}`)
+  }finally{
+    app.suppressRealtime--
+  }
 }
 async function toggleSceneCollapse(sceneId,selectScene=false){
   const scene=app.current?.scenes.find(s=>s.id===sceneId);if(!scene)return;
@@ -1001,15 +1254,206 @@ async function loadImage(e){
   if(app.mode==="local"){
     const r=new FileReader();r.onload=()=>{s.image=r.result;saveLocal();renderEditor()};r.readAsDataURL(file);e.target.value="";return
   }
-  const safe=file.name.replace(/[^a-zA-Z0-9._-]/g,"-"),path=`${app.current.id}/${s.id}/${Date.now()}-${safe}`;
-  const {error}=await sb.storage.from("storyboards").upload(path,file,{upsert:true,contentType:file.type});if(error){alert(error.message);return}
-  const {error:u}=await sb.from("shots").update({image_path:path}).eq("id",s.id);if(u){alert(u.message);return}
-  s.imagePath=path;const {data}=await sb.storage.from("storyboards").createSignedUrl(path,SIGNED_IMAGE_TTL_SECONDS);s.image=data?.signedUrl||null;renderEditor();e.target.value=""
+  if(!/^image\/(jpeg|png|webp)$/.test(file.type)||file.size>12*1024*1024){e.target.value="";return alert("Use a JPEG, PNG or WebP image up to 12 MB.")}
+  try{
+    const optimized=await optimizeImageBlob(file,1024,.82),path=`${app.current.id}/${s.id}/${Date.now()}-manual.webp`,oldPath=s.imagePath;
+    const {error}=await sb.storage.from("storyboards").upload(path,optimized,{upsert:false,contentType:"image/webp",cacheControl:"31536000"});if(error)throw error;
+    const {error:u}=await sb.from("shots").update({image_path:path}).eq("id",s.id);if(u){await removeMediaPaths([path]);throw u}
+    s.imagePath=path;const {data}=await sb.storage.from("storyboards").createSignedUrl(path,SIGNED_IMAGE_TTL_SECONDS);s.image=data?.signedUrl||URL.createObjectURL(optimized);await removeMediaPaths([oldPath]);renderEditor()
+  }catch(err){alert(err.message||"Could not save image.")}finally{e.target.value=""}
 }
 async function removeImage(){
   if(!can("media"))return;const s=currentShot();
   if(app.mode==="cloud"&&s.imagePath){await sb.storage.from("storyboards").remove([s.imagePath]);await sb.from("shots").update({image_path:null}).eq("id",s.id)}
   s.image=null;s.imagePath=null;if(app.mode==="local")saveLocal();renderEditor();rememberWorkspace()
+}
+
+/* ---------- AI VISUAL BIBLE + STORYBOARD GENERATION ---------- */
+function aiTable(type){return type==="character"?"project_ai_characters":"project_ai_locations"}
+function aiCollection(type){return type==="character"?app.ai.characters:app.ai.locations}
+function aiFolder(type){return type==="character"?"characters":"locations"}
+function normalizeAiAsset(row,type){return {...row,type,locked:!!row.locked,referenceUrl:null}}
+async function signAiAsset(asset){
+  if(!asset?.reference_path)return asset;asset.referenceUrl=null;
+  const {data,error}=await sb.storage.from("storyboards").createSignedUrl(asset.reference_path,SIGNED_IMAGE_TTL_SECONDS);
+  if(!error)asset.referenceUrl=data?.signedUrl||null;
+  return asset
+}
+async function loadAiVisualBible(projectId=app.current?.id){
+  app.ai.characters=[];app.ai.locations=[];app.ai.ready=false;
+  if(app.mode!=="cloud"||!sb||!projectId)return;
+  app.ai.loading=true;
+  const [characters,locations]=await Promise.all([
+    sb.from("project_ai_characters").select("id,project_id,name,description,reference_path,style_snapshot,locked,created_at,updated_at").eq("project_id",projectId).order("created_at"),
+    sb.from("project_ai_locations").select("id,project_id,name,description,reference_path,style_snapshot,locked,created_at,updated_at").eq("project_id",projectId).order("created_at")
+  ]);
+  app.ai.loading=false;
+  if(characters.error||locations.error){
+    console.warn("AI Visual Bible is unavailable",characters.error||locations.error);
+    app.ai.migrationMessage="AI setup is not active yet. Run supabase-v4.0-ai.sql, then reload this project.";
+    return
+  }
+  app.ai.characters=(characters.data||[]).map(x=>normalizeAiAsset(x,"character"));
+  app.ai.locations=(locations.data||[]).map(x=>normalizeAiAsset(x,"location"));
+  app.ai.ready=true
+}
+async function openAiVisualBible(){
+  if(app.mode!=="cloud")return alert("AI generation is available for signed-in cloud projects.");
+  renderAiVisualBible();$("aiBibleModal").showModal();
+  await Promise.all([...app.ai.characters,...app.ai.locations].filter(x=>x.reference_path&&!x.referenceUrl).map(signAiAsset));renderAiVisualBible()
+}
+function aiAssetCard(asset,type){
+  const editable=can("media"),locked=!!asset.locked,styleMatches=!locked||asset.style_snapshot===app.current.style,hasReference=!!asset.reference_path;
+  const card=document.createElement("article");card.className="ai-asset-card"+(locked?" is-locked":"");card.dataset.assetId=asset.id;card.dataset.assetType=type;
+  card.innerHTML=`
+    <div class="ai-asset-preview">
+      ${asset.referenceUrl?`<img src="${escapeHtml(asset.referenceUrl)}" alt="${escapeHtml(asset.name)} reference" loading="lazy">`:'<span>◇</span>'}
+      ${locked?`<span class="ai-lock-badge">${styleMatches?"LOCKED":"STYLE CHANGED"}</span>`:""}
+    </div>
+    <div class="ai-asset-fields">
+      <input class="ai-asset-name" value="${escapeHtml(asset.name||"")}" maxlength="80" aria-label="Name" ${!editable||locked?"disabled":""}>
+      <textarea class="ai-asset-description" maxlength="1400" aria-label="Stable visual description" ${!editable||locked?"disabled":""}>${escapeHtml(asset.description||"")}</textarea>
+      <div class="ai-asset-actions">
+        <button type="button" class="generate" ${!editable||locked||app.ai.generating?"disabled":""}>${hasReference?"Regenerate":"Generate Reference"}</button>
+        <label class="ai-upload-label ${!editable||locked?"disabled":""}">Upload<input class="ai-reference-input" type="file" accept="image/jpeg,image/png,image/webp" hidden ${!editable||locked?"disabled":""}></label>
+        <button type="button" class="lock" ${!editable||(!hasReference&&!locked)?"disabled":""}>${locked?"Unlock":"Lock"}</button>
+        <button type="button" class="delete" ${!editable?"disabled":""}>Delete</button>
+      </div>
+    </div>`;
+  const name=card.querySelector(".ai-asset-name"),description=card.querySelector(".ai-asset-description");
+  [name,description].forEach(el=>el.addEventListener("change",()=>updateAiAssetText(type,asset.id,name.value,description.value)));
+  card.querySelector(".generate").onclick=()=>generateAiReference(type,asset.id);
+  card.querySelector(".ai-reference-input").onchange=e=>uploadAiReference(type,asset.id,e);
+  card.querySelector(".lock").onclick=()=>toggleAiAssetLock(type,asset.id);
+  card.querySelector(".delete").onclick=()=>deleteAiAsset(type,asset.id);
+  return card
+}
+function renderAiVisualBible(){
+  const ready=app.ai.ready,editable=can("media")&&ready;
+  setMsg("aiBibleNotice",ready?"":app.ai.migrationMessage,ready?"":"warning");
+  $("addAiCharacterBtn").disabled=!editable;$("addAiLocationBtn").disabled=!editable;
+  ["newAiCharacterName","newAiCharacterDescription","newAiLocationName","newAiLocationDescription"].forEach(id=>$(id).disabled=!editable);
+  const groups=[["character","aiCharacterList"],["location","aiLocationList"]];
+  for(const [type,id] of groups){
+    const wrap=$(id);wrap.innerHTML="";const list=aiCollection(type);
+    if(!list.length){const empty=document.createElement("div");empty.className="ai-picker-empty";empty.textContent=ready?`No ${type}s yet.`:"AI database setup required.";wrap.appendChild(empty);continue}
+    list.forEach(asset=>wrap.appendChild(aiAssetCard(asset,type)))
+  }
+}
+async function addAiAsset(type){
+  if(!app.ai.ready||!can("media"))return;
+  const isCharacter=type==="character",nameEl=$(isCharacter?"newAiCharacterName":"newAiLocationName"),descriptionEl=$(isCharacter?"newAiCharacterDescription":"newAiLocationDescription");
+  const name=nameEl.value.trim(),description=descriptionEl.value.trim();
+  if(!name||!description)return setMsg("aiBibleNotice","Add both a name and a stable visual description.","warning");
+  const {data,error}=await sb.from(aiTable(type)).insert({project_id:app.current.id,name,description,locked:false,created_by:app.session.user.id}).select().single();
+  if(error)return setMsg("aiBibleNotice",error.message,"warning");
+  aiCollection(type).push(normalizeAiAsset(data,type));nameEl.value="";descriptionEl.value="";setMsg("aiBibleNotice",`${name} added. Generate or upload a reference, approve it, then lock it.`);renderAiVisualBible();renderShot()
+}
+async function updateAiAssetText(type,id,name,description){
+  const asset=aiCollection(type).find(x=>x.id===id);if(!asset||asset.locked||!can("media"))return;
+  name=name.trim();description=description.trim();if(!name||!description){renderAiVisualBible();return setMsg("aiBibleNotice","Name and stable description cannot be empty.","warning")}
+  const {error}=await sb.from(aiTable(type)).update({name,description,updated_at:new Date().toISOString()}).eq("id",id).eq("project_id",app.current.id);
+  if(error)return setMsg("aiBibleNotice",error.message,"warning");asset.name=name;asset.description=description;renderShot()
+}
+async function toggleAiAssetLock(type,id){
+  const asset=aiCollection(type).find(x=>x.id===id);if(!asset||!can("media"))return;
+  if(!asset.locked&&!asset.reference_path)return setMsg("aiBibleNotice","Generate or upload a reference before locking this item.","warning");
+  const locked=!asset.locked,style_snapshot=locked?app.current.style:asset.style_snapshot;
+  const {error}=await sb.from(aiTable(type)).update({locked,style_snapshot,updated_at:new Date().toISOString()}).eq("id",id).eq("project_id",app.current.id);
+  if(error)return setMsg("aiBibleNotice",error.message,"warning");asset.locked=locked;asset.style_snapshot=style_snapshot;setMsg("aiBibleNotice",`${asset.name} ${locked?`locked for ${app.current.style}`:"unlocked for editing"}.`);renderAiVisualBible();renderShot();applyPermissionLocks()
+}
+async function deleteAiAsset(type,id){
+  const asset=aiCollection(type).find(x=>x.id===id);if(!asset||!can("media")||!confirm(`Delete ${asset.name} from the AI Visual Bible?`))return;
+  const {error}=await sb.from(aiTable(type)).delete().eq("id",id).eq("project_id",app.current.id);if(error)return setMsg("aiBibleNotice",error.message,"warning");
+  await removeMediaPaths([asset.reference_path]);app.ai[type==="character"?"characters":"locations"]=aiCollection(type).filter(x=>x.id!==id);
+  for(const {shot} of allShots()){
+    if(type==="character")shot.aiCharacterIds=(shot.aiCharacterIds||[]).filter(x=>x!==id);
+    else if(shot.aiLocationId===id)shot.aiLocationId=""
+  }
+  setMsg("aiBibleNotice",`${asset.name} deleted.`);renderAiVisualBible();renderEditor()
+}
+async function optimizeImageBlob(source,maxDimension=1024,quality=.82){
+  let drawable,width,height,cleanup=()=>{};
+  if(typeof createImageBitmap==="function"){drawable=await createImageBitmap(source);width=drawable.width;height=drawable.height;cleanup=()=>drawable.close?.()}
+  else{const url=URL.createObjectURL(source);drawable=await new Promise((resolve,reject)=>{const image=new Image();image.onload=()=>resolve(image);image.onerror=()=>reject(new Error("Could not read image."));image.src=url});width=drawable.naturalWidth;height=drawable.naturalHeight;cleanup=()=>URL.revokeObjectURL(url)}
+  const scale=Math.min(1,maxDimension/Math.max(width,height));width=Math.max(1,Math.round(width*scale));height=Math.max(1,Math.round(height*scale));
+  const canvas=document.createElement("canvas");canvas.width=width;canvas.height=height;canvas.getContext("2d").drawImage(drawable,0,0,width,height);cleanup();
+  const blob=await new Promise((resolve,reject)=>canvas.toBlob(x=>x?resolve(x):reject(new Error("Image optimization failed.")),"image/webp",quality));
+  return blob
+}
+async function storeAiReference(type,asset,sourceBlob){
+  const optimized=await optimizeImageBlob(sourceBlob,1024,.84),path=`${app.current.id}/ai/${aiFolder(type)}/${asset.id}/${Date.now()}.webp`,oldPath=asset.reference_path,oldUrl=asset.referenceUrl;
+  const {error:uploadError}=await sb.storage.from("storyboards").upload(path,optimized,{upsert:false,contentType:"image/webp",cacheControl:"31536000"});if(uploadError)throw uploadError;
+  const {error:updateError}=await sb.from(aiTable(type)).update({reference_path:path,style_snapshot:null,locked:false,updated_at:new Date().toISOString()}).eq("id",asset.id).eq("project_id",app.current.id);
+  if(updateError){await removeMediaPaths([path]);throw updateError}
+  asset.reference_path=path;asset.style_snapshot=null;asset.locked=false;asset.referenceUrl=null;await signAiAsset(asset);if(!asset.referenceUrl)asset.referenceUrl=URL.createObjectURL(optimized);if(String(oldUrl||"").startsWith("blob:"))URL.revokeObjectURL(oldUrl);await removeMediaPaths([oldPath]);return asset
+}
+async function uploadAiReference(type,id,event){
+  const file=event.target.files?.[0],asset=aiCollection(type).find(x=>x.id===id);event.target.value="";if(!file||!asset||asset.locked||!can("media"))return;
+  if(!/^image\/(jpeg|png|webp)$/.test(file.type)||file.size>12*1024*1024)return setMsg("aiBibleNotice","Use a JPEG, PNG or WebP image up to 12 MB.","warning");
+  try{setMsg("aiBibleNotice",`Optimizing and saving ${asset.name}…`);await storeAiReference(type,asset,file);setMsg("aiBibleNotice",`${asset.name} reference saved. Review it, then lock it.`);renderAiVisualBible();renderShot()}catch(err){setMsg("aiBibleNotice",err.message||"Could not save reference.","warning")}
+}
+async function requestAiImage(payload){
+  const {data:{session}}=await sb.auth.getSession();if(!session?.access_token)throw new Error("Your session expired. Sign in again.");
+  const response=await fetch("/api/ai/generate",{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${session.access_token}`},body:JSON.stringify(payload)});
+  if(!response.ok){let message=`AI request failed (${response.status}).`;try{const body=await response.json();message=body.error||message;if(body.remaining!==undefined)message+=` ${body.remaining} generation(s) remain today.`}catch(e){}throw new Error(message)}
+  return {blob:await response.blob(),remaining:response.headers.get("X-AI-Remaining"),model:response.headers.get("X-AI-Model")||"flux-2-klein-4b",promptHash:response.headers.get("X-AI-Prompt-Hash")||""}
+}
+function generationBalanceMessage(remaining){
+  if(remaining===null||remaining===undefined||remaining==="")return "";
+  if(Number(remaining)<0)return app.admin.isAdmin?" Admin quota bypass is active.":"";
+  return ` ${remaining} generation(s) remain today.`
+}
+async function generateAiReference(type,id){
+  const asset=aiCollection(type).find(x=>x.id===id);if(!asset||asset.locked||!can("media")||app.ai.generating)return;
+  app.suppressRealtime++;app.ai.generating=true;setMsg("aiBibleNotice",`Generating ${asset.name} reference…`);renderAiVisualBible();
+  try{
+    const result=await requestAiImage({mode:`${type}_reference`,project_id:app.current.id,asset_id:id});
+    await storeAiReference(type,asset,result.blob);setMsg("aiBibleNotice",`${asset.name} reference generated. Review and lock it.${generationBalanceMessage(result.remaining)}`);renderShot()
+  }catch(err){setMsg("aiBibleNotice",err.message||"Reference generation failed.","warning")}
+  finally{app.ai.generating=false;app.suppressRealtime=Math.max(0,app.suppressRealtime-1);renderAiVisualBible();applyPermissionLocks()}
+}
+function renderAiShotControls(){
+  const shot=currentShot(),characters=$("shotCharacterPicker"),location=$("aiLocationId");if(!shot||!characters||!location)return;
+  shot.aiCharacterIds=Array.isArray(shot.aiCharacterIds)?shot.aiCharacterIds:[];
+  characters.innerHTML="";
+  if(!app.ai.ready||!app.ai.characters.length){characters.innerHTML=`<span class="ai-picker-empty">${app.ai.ready?"No characters in the Visual Bible. Add one only if this shot needs a recurring character.":app.mode==="cloud"?app.ai.migrationMessage:"AI Visual Bible is available in signed-in cloud projects."}</span>`}
+  else for(const asset of app.ai.characters){
+    const styleMatches=asset.style_snapshot===app.current.style,available=asset.locked&&asset.reference_path&&styleMatches,selected=shot.aiCharacterIds.includes(asset.id),label=document.createElement("label");label.className="ai-reference-choice"+(selected?" selected":"")+(available?"":" is-unavailable");
+    label.innerHTML=`<input type="checkbox" value="${asset.id}" ${selected?"checked":""} ${available?"":"disabled"}><span>${escapeHtml(asset.name)}${available?"":styleMatches?" · not locked":" · style changed"}</span>`;
+    label.querySelector("input").onchange=e=>{shot.aiCharacterIds=e.target.checked?[...new Set([...shot.aiCharacterIds,asset.id])]:shot.aiCharacterIds.filter(x=>x!==asset.id);onAiShotLinksChange()};characters.appendChild(label)
+  }
+  const previous=shot.aiLocationId||"";location.innerHTML='<option value="">Choose project location…</option>';
+  for(const asset of app.ai.locations){const styleMatches=asset.style_snapshot===app.current.style,available=asset.locked&&asset.reference_path&&styleMatches,option=document.createElement("option");option.value=asset.id;option.textContent=asset.name+(available?"":styleMatches?" · not locked":" · style changed");option.disabled=!available;location.appendChild(option)}
+  location.value=[...location.options].some(x=>x.value===previous)?previous:"";
+  const state=aiShotReady(),status=$("aiGenerationStatus");status.textContent=app.ai.generating?"Generating the frame… Keep this tab open.":state.message;status.className="ai-generation-status"+(state.ready?"":" error");
+  $("generateShotImageBtn").textContent=app.ai.generating?"Generating…":"✦ Generate Storyboard";$("generateShotImageBtn").classList.toggle("is-generating",app.ai.generating)
+}
+function onAiShotLinksChange(){
+  const shot=currentShot();if(!shot||!can("shots"))return;shot.aiLocationId=$("aiLocationId").value||"";renderShot();queueSave("shot");rememberWorkspace();applyPermissionLocks()
+}
+function aiShotReady(){
+  const shot=currentShot();if(app.mode!=="cloud")return {ready:false,message:"Sign in to a cloud project to generate images."};
+  if(!app.ai.ready)return {ready:false,message:app.ai.migrationMessage};if(!can("media"))return {ready:false,message:"You need the project media permission to generate images."};if(!shot)return {ready:false,message:"Choose a shot first."};
+  if(!String(shot.summary||shot.description||shot.subject||"").trim())return {ready:false,message:"Add a shot summary, subject or visual description first."};
+  const location=app.ai.locations.find(x=>x.id===shot.aiLocationId);if(!location||!location.locked||!location.reference_path||location.style_snapshot!==app.current.style)return {ready:false,message:"Choose a location locked for the current project style before generating."};
+  if((shot.aiCharacterIds||[]).length>3)return {ready:false,message:"Choose no more than 3 recurring characters for one generated shot."};
+  const invalid=(shot.aiCharacterIds||[]).find(id=>{const x=app.ai.characters.find(c=>c.id===id);return !x||!x.locked||!x.reference_path||x.style_snapshot!==app.current.style});if(invalid)return {ready:false,message:"Every selected character needs an approved reference locked for the current project style."};
+  return {ready:true,message:`Ready · ${location.name} · ${shot.aiCharacterIds.length||"no"} character reference${shot.aiCharacterIds.length===1?"":"s"} · ${app.current.style}`}
+}
+async function generateShotImage(){
+  const readiness=aiShotReady(),shot=currentShot(),scene=currentScene();if(!readiness.ready||!shot||!scene||app.ai.generating){renderShot();applyPermissionLocks();return}
+  clearTimeout(autosaveTimer);app.suppressRealtime++;app.ai.generating=true;renderShot();applyPermissionLocks();setMsg("editorNotice","");
+  try{
+    const result=await requestAiImage({mode:"shot",project_id:app.current.id,scene_id:scene.id,shot_id:shot.id,shot_data:shotDbData(shot)});
+    const optimized=await optimizeImageBlob(result.blob,1024,.82),path=`${app.current.id}/${shot.id}/${Date.now()}-ai.webp`,oldPath=shot.imagePath;
+    const {error:uploadError}=await sb.storage.from("storyboards").upload(path,optimized,{upsert:false,contentType:"image/webp",cacheControl:"31536000"});if(uploadError)throw uploadError;
+    const {error:updateError}=await sb.from("shots").update({image_path:path}).eq("id",shot.id).eq("project_id",app.current.id);if(updateError){await removeMediaPaths([path]);throw updateError}
+    shot.imagePath=path;shot.aiGeneration={provider:"cloudflare-workers-ai",model:result.model,generatedAt:new Date().toISOString(),locationId:shot.aiLocationId,characterIds:[...(shot.aiCharacterIds||[])],promptHash:result.promptHash};
+    const {data:signed}=await sb.storage.from("storyboards").createSignedUrl(path,SIGNED_IMAGE_TTL_SECONDS);shot.image=signed?.signedUrl||URL.createObjectURL(optimized);
+    await removeMediaPaths([oldPath]);await saveCloud("shot");renderEditor();setMsg("editorNotice",`Storyboard image generated and saved.${generationBalanceMessage(result.remaining)}`)
+  }catch(err){setMsg("editorNotice",err.message||"Could not generate this shot.","warning")}
+  finally{app.ai.generating=false;app.suppressRealtime=Math.max(0,app.suppressRealtime-1);renderShot();applyPermissionLocks();rememberWorkspace()}
 }
 
 /* ---------- SHEET TOGGLE ---------- */
@@ -1030,7 +1474,7 @@ function renderSheet(){
     const grid=document.createElement("div");grid.className=`sheet-grid ${sheetCols(per)}`;
     chunk.forEach(({scene,shot})=>{
       const card=document.createElement("div");card.className="sheet-shot";
-      const image=shot.image?`<img src="${shot.image}" alt="">`:`<div class="sheet-placeholder">Storyboard Frame<br>Shot ${shot.shotNo}</div>`;
+      const image=shot.image?`<img src="${shot.image}" alt="" loading="lazy" decoding="async">`:`<div class="sheet-placeholder">Storyboard Frame<br>Shot ${shot.shotNo}</div>`;
       card.innerHTML=`<div class="sheet-image" style="aspect-ratio:${ar.w}/${ar.h}">${image}</div><div class="sheet-info"><div class="sheet-scene">Scene ${scene.number} · ${escapeHtml(scene.title||"")}</div><div class="sheet-info-top"><span>SHOT ${shot.shotNo}</span><span>${escapeHtml(shot.duration||"")}</span></div><div class="sheet-meta">${escapeHtml(shortValue(shot.shotSize))} · ${escapeHtml(shot.angle||"")} · ${escapeHtml(shot.lens||"")} · ${escapeHtml(shot.movement||"")}</div><div class="sheet-summary">${escapeHtml(shot.summary||shot.description||"")}</div></div>`;
       grid.appendChild(card)
     });
@@ -1141,8 +1585,8 @@ async function renderMembers(){
     const manage=app.isOwner||can("members");
     row.innerHTML=`<span><strong>${escapeHtml(pr.display_name||pr.username||"Member")}</strong><small>${pr.username?"@"+escapeHtml(pr.username):""}</small></span>${manage?'<span class="member-actions"><button type="button" class="btn ghost edit-member">Access</button><button type="button" class="btn ghost remove-member">Remove</button></span>':`<span class="member-role-label">${escapeHtml(m.role||"member")}</span>`}`;
     if(manage){
-      row.querySelector(".edit-member").onclick=async()=>{const preset=prompt("Set role: viewer, editor or custom","editor");if(!preset)return;let perms=preset==="viewer"?blankPermissions():preset==="editor"?editorPermissions():m.permissions||editorPermissions();const {error}=await sb.rpc("update_project_member_access",{p_project_id:pid,p_user_id:m.user_id,p_role:preset,p_permissions:perms});if(error)setMsg("collabMessage",error.message,"warning");else renderMembers()};
-      row.querySelector(".remove-member").onclick=async()=>{if(!confirm("Remove this collaborator?"))return;const {error}=await sb.rpc("remove_project_member",{p_project_id:pid,p_user_id:m.user_id});if(error)setMsg("collabMessage",error.message,"warning");else renderMembers()};
+      row.querySelector(".edit-member").onclick=async()=>{const preset=prompt("Set role: viewer, editor or custom","editor");if(!preset)return;let perms=preset==="viewer"?blankPermissions():preset==="editor"?editorPermissions():m.permissions||editorPermissions();const rpc=adminSupporting()?"storyboard_admin_update_project_member":"update_project_member_access";const {error}=await sb.rpc(rpc,{p_project_id:pid,p_user_id:m.user_id,p_role:preset,p_permissions:perms});if(error)setMsg("collabMessage",error.message,"warning");else renderMembers()};
+      row.querySelector(".remove-member").onclick=async()=>{if(!confirm("Remove this collaborator?"))return;const rpc=adminSupporting()?"storyboard_admin_remove_project_member":"remove_project_member";const {error}=await sb.rpc(rpc,{p_project_id:pid,p_user_id:m.user_id});if(error)setMsg("collabMessage",error.message,"warning");else renderMembers()};
     }
     wrap.appendChild(row)
   })
@@ -1150,12 +1594,14 @@ async function renderMembers(){
 async function addMemberByUsername(){
   const username=$("inviteUsername").value.trim().toLowerCase();if(!username)return;
   const preset=$("permissionPreset").value,perms=permissionPreset(preset);
-  const {error:e}=await sb.rpc("add_project_member_by_username",{p_project_id:app.current.id,p_username:username,p_role:preset,p_permissions:perms});
+  const rpc=adminSupporting()?"storyboard_admin_add_project_member":"add_project_member_by_username";
+  const {error:e}=await sb.rpc(rpc,{p_project_id:app.current.id,p_username:username,p_role:preset,p_permissions:perms});
   if(e)setMsg("collabMessage",e.message,"warning");else{setMsg("collabMessage",`@${username} added.`);$("inviteUsername").value="";renderMembers()}
 }
 async function createShareLink(){
   const preset=$("permissionPreset").value,perms=permissionPreset(preset),email=$("inviteEmail").value.trim()||null;
-  const {data,error}=await sb.rpc("create_project_invite",{p_project_id:app.current.id,p_invitee_email:email,p_role:preset,p_permissions:perms});
+  const rpc=adminSupporting()?"storyboard_admin_create_project_invite":"create_project_invite";
+  const {data,error}=await sb.rpc(rpc,{p_project_id:app.current.id,p_invitee_email:email,p_role:preset,p_permissions:perms});
   if(error){setMsg("collabMessage",error.message,"warning");return}
   const url=`${cfg.SITE_URL||location.origin}/?invite=${data}`;$("shareLinkOutput").value=url;$("shareLinkBox").hidden=false
 }
@@ -2543,7 +2989,12 @@ async function deleteProject(id){
   if(app.mode==="cloud"){
     app.suppressRealtime++;
     try{
-      const {data:paths}=await sb.from("shots").select("image_path").eq("project_id",id);await removeMediaPaths((paths||[]).map(x=>x.image_path));
+      const [{data:paths},{data:characters},{data:locations}]=await Promise.all([
+        sb.from("shots").select("image_path").eq("project_id",id),
+        sb.from("project_ai_characters").select("reference_path").eq("project_id",id),
+        sb.from("project_ai_locations").select("reference_path").eq("project_id",id)
+      ]);
+      await removeMediaPaths([...(paths||[]).map(x=>x.image_path),...(characters||[]).map(x=>x.reference_path),...(locations||[]).map(x=>x.reference_path)]);
       const rpc=await sb.rpc("delete_own_project",{p_project_id:id});
       if(rpc.error){
         const {data:deleted,error}=await sb.from("projects").delete().eq("id",id).eq("owner_id",app.session.user.id).select("id");
@@ -2571,13 +3022,27 @@ async function duplicateProject(id){
     const {data:p,error}=await sb.from("projects").select("*").eq("id",id).single();if(error)throw error;
     const {data:scenes,error:se}=await sb.from("scenes").select("*").eq("project_id",id).order("position");if(se)throw se;
     const {data:shots,error:shErr}=await sb.from("shots").select("*").eq("project_id",id).order("position");if(shErr)throw shErr;
+    const characterResult=await sb.from("project_ai_characters").select("*").eq("project_id",id).order("created_at");if(characterResult.error&&!String(characterResult.error.message||"").includes("project_ai_characters"))throw characterResult.error;const characters=characterResult.data||[];
+    const locationResult=await sb.from("project_ai_locations").select("*").eq("project_id",id).order("created_at");if(locationResult.error&&!String(locationResult.error.message||"").includes("project_ai_locations"))throw locationResult.error;const locations=locationResult.data||[];
     const position=Math.max(0,...app.projects.filter(x=>projectIsOwner(x)).map(x=>Number(x.position||0)))+1;
     const {data:newP,error:pe}=await sb.from("projects").insert({owner_id:app.session.user.id,name:`${p.name} Copy`,aspect:p.aspect,aspect_width:p.aspect_width,aspect_height:p.aspect_height,style:p.style,position,is_favorite:false,folder:p.folder||"General",tags:normalizeTags(p.tags),metadata:p.metadata||{}}).select().single();if(pe)throw pe;
+    const characterMap=new Map(),locationMap=new Map();
+    for(const sourceAsset of characters||[]){
+      const {data:newAsset,error:assetError}=await sb.from("project_ai_characters").insert({project_id:newP.id,name:sourceAsset.name,description:sourceAsset.description||"",locked:false,created_by:app.session.user.id}).select().single();if(assetError)throw assetError;
+      characterMap.set(sourceAsset.id,newAsset.id);const copied=await copyAiReferencePath(sourceAsset.reference_path,newP.id,"character",newAsset.id);
+      if(copied){const {error:updateError}=await sb.from("project_ai_characters").update({reference_path:copied,style_snapshot:sourceAsset.style_snapshot||p.style,locked:!!sourceAsset.locked}).eq("id",newAsset.id);if(updateError)throw updateError}
+    }
+    for(const sourceAsset of locations||[]){
+      const {data:newAsset,error:assetError}=await sb.from("project_ai_locations").insert({project_id:newP.id,name:sourceAsset.name,description:sourceAsset.description||"",locked:false,created_by:app.session.user.id}).select().single();if(assetError)throw assetError;
+      locationMap.set(sourceAsset.id,newAsset.id);const copied=await copyAiReferencePath(sourceAsset.reference_path,newP.id,"location",newAsset.id);
+      if(copied){const {error:updateError}=await sb.from("project_ai_locations").update({reference_path:copied,style_snapshot:sourceAsset.style_snapshot||p.style,locked:!!sourceAsset.locked}).eq("id",newAsset.id);if(updateError)throw updateError}
+    }
     for(const [si,sc] of (scenes||[]).entries()){
       const {data:newSc,error:sce}=await sb.from("scenes").insert({project_id:newP.id,scene_number:si+1,title:sc.title,description:sc.description||"",position:si+1,collapsed:false}).select().single();if(sce)throw sce;
       const rows=(shots||[]).filter(r=>r.scene_id===sc.id).sort((a,b)=>a.position-b.position);
       for(const [ri,row] of rows.entries()){
-        const {data:newRow,error:e}=await sb.from("shots").insert({project_id:newP.id,scene_id:newSc.id,shot_number:ri+1,position:ri+1,image_path:null,data:row.data||{}}).select().single();if(e)throw e;
+        const shotData=deepClone(row.data||{});shotData.aiCharacterIds=(shotData.aiCharacterIds||[]).map(x=>characterMap.get(x)).filter(Boolean);shotData.aiLocationId=locationMap.get(shotData.aiLocationId)||"";
+        const {data:newRow,error:e}=await sb.from("shots").insert({project_id:newP.id,scene_id:newSc.id,shot_number:ri+1,position:ri+1,image_path:null,data:shotData}).select().single();if(e)throw e;
         const copied=await copyMediaPath(row.image_path,newP.id,newRow.id);if(copied){const {error:u}=await sb.from("shots").update({image_path:copied}).eq("id",newRow.id);if(u)throw u}
       }
     }
@@ -2609,15 +3074,20 @@ function bind(){
   $("loginForm").onsubmit=doLogin;$("signupForm").onsubmit=doSignup;$("forgotPasswordBtn").onclick=forgotPassword;$("continueOfflineBtn").onclick=continueOffline;
   $("logoutBtn").onclick=logout;$("newCloudProjectBtn").onclick=createCloudProject;$("emptyNewProjectBtn").onclick=createCloudProject;
   $("accountBtn").onclick=()=>$("accountModal").showModal();$("closeAccountBtn").onclick=()=>$("accountModal").close();
-  $("backProjectsBtn").onclick=async()=>{unsubscribeRealtime();unsubscribePresence();stopSignedImageRefresh();unsubscribeChatRealtime();unsubscribeChatNoticeRealtime();unsubscribeLightingRealtime();updateChatBadges(0,false);if(app.mode==="cloud"){rememberProjectsView();await loadCloudProjects();showProjects()}else showAuth()};
+  $("adminCenterBtn").onclick=openAdminCenter;$("backFromAdminBtn").onclick=async()=>{await loadCloudProjects();showProjects()};
+  $("adminAccountBtn").onclick=()=>$("accountModal").showModal();$("adminLogoutBtn").onclick=logout;
+  $("adminUserSearchForm").onsubmit=searchAdminUsers;$("adminShowAllUsersBtn").onclick=showAllAdminUsers;$("adminLoadMoreUsersBtn").onclick=()=>loadAdminUsers(false);$("clearAdminUserBtn").onclick=clearAdminUser;$("adminAddForm").onsubmit=addAdmin;$("exitAdminSupportBtn").onclick=()=>closeAdminSupport(true);
+  $("backProjectsBtn").onclick=async()=>{if(adminSupporting()){await closeAdminSupport(true);return}unsubscribeRealtime();unsubscribePresence();stopSignedImageRefresh();unsubscribeChatRealtime();unsubscribeChatNoticeRealtime();unsubscribeLightingRealtime();updateChatBadges(0,false);if(app.mode==="cloud"){rememberProjectsView();await loadCloudProjects();showProjects()}else showAuth()};
   $("projectSearch").oninput=e=>{app.projectSearch=e.target.value;renderProjects()};
   $("projectFilter").onchange=e=>{app.projectFilter=e.target.value;renderProjects()};
   $("projectFolderFilter").onchange=e=>{app.projectFolder=e.target.value;renderProjects()};
   $("closeProjectDetailsBtn").onclick=()=>$("projectDetailsModal").close();$("saveProjectDetailsBtn").onclick=saveProjectDetails;$("projectDetailsBtn").onclick=()=>openProjectDetails(app.current.id);
+  $("aiBibleBtn").onclick=openAiVisualBible;$("manageAiCharactersBtn").onclick=openAiVisualBible;$("closeAiBibleBtn").onclick=()=>$("aiBibleModal").close();$("doneAiBibleBtn").onclick=()=>$("aiBibleModal").close();
+  $("addAiCharacterBtn").onclick=()=>addAiAsset("character");$("addAiLocationBtn").onclick=()=>addAiAsset("location");$("aiLocationId").onchange=onAiShotLinksChange;$("generateShotImageBtn").onclick=generateShotImage;
   ["projectName","projectAspect","projectStyle","aspectWidth","aspectHeight"].forEach(id=>{["input","change"].forEach(ev=>$(id).addEventListener(ev,onProjectChange))});
   ["sceneTitle","sceneDescription"].forEach(id=>{["input","change"].forEach(ev=>$(id).addEventListener(ev,onSceneChange))});
   SHOT_FIELDS.filter(id=>id!=="shotNo").forEach(id=>{if($(id))["input","change"].forEach(ev=>$(id).addEventListener(ev,()=>onShotChange(id)))});
-  $("addSceneBtn").onclick=addScene;$("deleteSceneBtn").onclick=deleteScene;$("collapseAllScenesBtn").onclick=()=>setAllScenesCollapsed(true);$("expandAllScenesBtn").onclick=toggleAllScenes;
+  $("addSceneBtn").onclick=addScene;$("deleteSceneBtn").onclick=()=>deleteScene();$("collapseAllScenesBtn").onclick=()=>deleteScene();$("expandAllScenesBtn").onclick=toggleAllScenes;
   $("addShotBtn").onclick=addShot;$("mobileAddShotBtn").onclick=addShot;$("duplicateShotBtn").onclick=duplicateShot;$("copyShotBtn").onclick=copyShot;$("pasteShotBtn").onclick=pasteShot;$("moveShotUpBtn").onclick=()=>moveShot(-1);$("moveShotDownBtn").onclick=()=>moveShot(1);$("deleteShotBtn").onclick=deleteShot;
   $("prevShotBtn").onclick=()=>adjacentShot(-1);$("nextShotBtn").onclick=()=>adjacentShot(1);
   $("frameImageInput").onchange=loadImage;$("removeImageBtn").onclick=removeImage;
