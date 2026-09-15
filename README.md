@@ -1,4 +1,4 @@
-# Storyboard Shot Builder v4.1.5 — Cloudflare FLUX Generation Fix
+# Storyboard Shot Builder v4.1.6 — Persistent Visual Bible Previews
 
 Base: **only** `storyboard-v3.9.1-github(1).zip`, as requested. All v3.9.1 editor, collaboration, scene-delete and Lighting Studio behavior is preserved.
 
@@ -9,6 +9,8 @@ v4.1.3 fixes Admin Center RPC return types, lists accounts from `auth.users` eve
 v4.1.4 fixes a UI bug that immediately erased Visual Bible generation progress and errors. Each character/location card now keeps its own generating, success or exact error message beside the clicked button, uses a visible animated state, validates that the server actually returned an image, and stops a stalled request after three minutes.
 
 v4.1.5 aligns the Worker request with Cloudflare's FLUX.2 Klein binding contract: multipart is sent as a `ReadableStream` with its generated boundary, the unsupported `output_format` field is removed, reference images are named `input_image_0` through `input_image_3`, and stored Visual Bible references are resized below the model's 512×512 input limit.
+
+v4.1.6 fixes Visual Bible previews disappearing after another reference is generated or an item is locked. Realtime project reloads now preserve an unchanged reference's signed preview URL, rebuild any missing signed URLs while the Visual Bible is open, and rerender the open Visual Bible with the refreshed records. Stored image paths are not removed by Generate or Lock.
 
 ## Multi-admin support
 
@@ -50,7 +52,7 @@ v4.1.5 aligns the Worker request with Cloudflare's FLUX.2 Klein binding contract
 
 ## Deployment order — IMPORTANT
 
-**Updating from v4.1.3 or v4.1.4:** no new SQL is required. Replace the GitHub files and wait for the Cloudflare deployment. A hard refresh should then load `app.js?v=415`.
+**Updating from v4.1.3, v4.1.4 or v4.1.5:** no new SQL is required. Replace the GitHub files and wait for the Cloudflare deployment. A hard refresh should then load `app.js?v=416`.
 
 1. **Existing v4.1.1/v4.1.2 installation:** run only `supabase-v4.1.3-admin-users-fix.sql` in Supabase SQL Editor. It is safe to run again and does not remove data.
 2. **Fresh installation:** run `supabase-v4.0-ai.sql`, then `supabase-v4.1-admin.sql`, then `supabase-v4.1.3-admin-users-fix.sql` in that order.

@@ -1,4 +1,4 @@
-// Storyboard Shot Builder v4.1.5 — Cloudflare FLUX multipart compatibility
+// Storyboard Shot Builder v4.1.6 — persistent Visual Bible previews across Realtime refreshes
 const OPTIONS = {
   shotSize:["ECU · Extreme Close Up","CU · Close Up","MCU · Medium Close Up","MS · Medium Shot","MLS · Medium Long Shot","WS · Wide Shot","EWS · Extreme Wide Shot","OTS · Over The Shoulder","POV · Point of View","Insert","Top Shot"],
   angle:["Eye Level","High Angle","Low Angle","Top / Bird's Eye","Dutch Angle","Ground Level","Overhead","Custom"],
@@ -786,6 +786,7 @@ async function openCloudProject(id,options={}){
   app.activeShotId=preferredShot?.id||null;
   if(options.sheetOpen!==undefined)app.sheetOpen=!!options.sheetOpen;
   showEditor();
+  if($("aiBibleModal")?.open)renderAiVisualBible();
   restoreAccordionState(options.openDetails);
   subscribeRealtime();
   subscribePresence();
@@ -1285,14 +1286,18 @@ async function removeImage(){
 function aiTable(type){return type==="character"?"project_ai_characters":"project_ai_locations"}
 function aiCollection(type){return type==="character"?app.ai.characters:app.ai.locations}
 function aiFolder(type){return type==="character"?"characters":"locations"}
-function normalizeAiAsset(row,type){return {...row,type,locked:!!row.locked,referenceUrl:null,generationStatus:"",generationStatusKind:""}}
+function normalizeAiAsset(row,type,previous=null){
+  const sameReference=!!(previous&&previous.reference_path===row.reference_path);
+  return {...row,type,locked:!!row.locked,referenceUrl:sameReference?previous.referenceUrl:null,generationStatus:previous?.generationStatus||"",generationStatusKind:previous?.generationStatusKind||""}
+}
 async function signAiAsset(asset){
-  if(!asset?.reference_path)return asset;asset.referenceUrl=null;
+  if(!asset?.reference_path)return asset;const previousUrl=asset.referenceUrl;
   const {data,error}=await sb.storage.from("storyboards").createSignedUrl(asset.reference_path,SIGNED_IMAGE_TTL_SECONDS);
-  if(!error)asset.referenceUrl=data?.signedUrl||null;
+  if(!error&&data?.signedUrl)asset.referenceUrl=data.signedUrl;else asset.referenceUrl=previousUrl||null;
   return asset
 }
 async function loadAiVisualBible(projectId=app.current?.id){
+  const previousAssets=new Map([...app.ai.characters,...app.ai.locations].map(asset=>[asset.id,asset]));
   app.ai.characters=[];app.ai.locations=[];app.ai.ready=false;
   if(app.mode!=="cloud"||!sb||!projectId)return;
   app.ai.loading=true;
@@ -1306,9 +1311,12 @@ async function loadAiVisualBible(projectId=app.current?.id){
     app.ai.migrationMessage="AI setup is not active yet. Run supabase-v4.0-ai.sql, then reload this project.";
     return
   }
-  app.ai.characters=(characters.data||[]).map(x=>normalizeAiAsset(x,"character"));
-  app.ai.locations=(locations.data||[]).map(x=>normalizeAiAsset(x,"location"));
-  app.ai.ready=true
+  app.ai.characters=(characters.data||[]).map(x=>normalizeAiAsset(x,"character",previousAssets.get(x.id)));
+  app.ai.locations=(locations.data||[]).map(x=>normalizeAiAsset(x,"location",previousAssets.get(x.id)));
+  app.ai.ready=true;
+  // A Realtime refresh can happen while the Visual Bible dialog is open.
+  // Restore any missing signed previews before that dialog is rendered again.
+  if($("aiBibleModal")?.open)await Promise.all([...app.ai.characters,...app.ai.locations].filter(x=>x.reference_path&&!x.referenceUrl).map(signAiAsset))
 }
 async function openAiVisualBible(){
   if(app.mode!=="cloud")return alert("AI generation is available for signed-in cloud projects.");

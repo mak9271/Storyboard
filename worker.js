@@ -1,4 +1,4 @@
-// Storyboard v4.1.5 AI gateway. Cloudflare FLUX multipart input follows the provider schema exactly.
+// Storyboard v4.1.6 AI gateway. Cloudflare FLUX multipart input follows the provider schema exactly.
 const DEFAULT_MODEL = "@cf/black-forest-labs/flux-2-klein-4b";
 const ALLOWED_MODEL = new Set([DEFAULT_MODEL]);
 const MAX_JSON_BYTES = 96 * 1024;
