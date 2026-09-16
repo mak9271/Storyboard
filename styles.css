@@ -497,7 +497,7 @@ summary{padding:16px 17px;font-weight:850;cursor:pointer;list-style:none}summary
 .ai-shot-reference-field{background:#0b1013;border:1px solid #213b45;border-radius:12px;padding:11px}
 .ai-reference-picker{display:flex;gap:7px;flex-wrap:wrap;min-height:34px;align-items:center}
 .ai-reference-choice{display:inline-flex;align-items:center;gap:7px;border:1px solid #2a363d;background:#11171a;border-radius:999px;padding:6px 9px;margin:0;color:#bfcbd0;font-size:11px;cursor:pointer}
-.ai-reference-choice input{width:auto;margin:0}.ai-reference-choice.selected{border-color:#31809a;background:#112a33;color:#82e7ff}.ai-reference-choice.is-unavailable{opacity:.48;cursor:not-allowed}
+.ai-reference-choice input{width:auto;margin:0}.ai-reference-choice.selected{border-color:#31809a;background:#112a33;color:#82e7ff}.ai-reference-choice.is-unavailable{opacity:.48;cursor:not-allowed}.ai-reference-choice.needs-reference{border-color:#66512b;background:#1b170f;color:#dbc48c;opacity:1;cursor:pointer}.ai-reference-choice.needs-reference.selected{border-color:#c68c2f;background:#2a210f;color:#ffe09d}
 .ai-picker-empty{color:#68767d;font-size:11px}.field-help{display:block;color:#69767e;font-size:10px;line-height:1.45;margin-top:5px}
 .ai-bible-modal-card{width:min(940px,100%)}
 .ai-bible-intro{color:var(--muted);line-height:1.55;margin:-4px 0 15px}

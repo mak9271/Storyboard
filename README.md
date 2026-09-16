@@ -1,4 +1,4 @@
-# Storyboard Shot Builder v4.3.0 — Generation Control, Account & Creator Score
+# Storyboard Shot Builder v4.3.1 — Selectable AI References
 
 Base: **only** `storyboard-v3.9.1-github(1).zip`, as requested. All v3.9.1 editor, collaboration, scene-delete and Lighting Studio behavior is preserved.
 
@@ -21,6 +21,8 @@ v4.2.0 adds a persistent Persian/English language switch, a complete RTL Persian
 v4.2.1 fixes shot-image generation on phones. The Generate tap now synchronously captures the visible shot form before the mobile keyboard finishes closing, the button refreshes immediately as shot requirements change, and an incomplete shot produces an adjacent visible explanation instead of a silent disabled tap. Mobile Safari also gets a safe fallback when `createImageBitmap` or WebP canvas encoding is unavailable; the returned PNG/JPEG MIME type and filename are stored correctly. The Generate button uses mobile tap handling and shows an immediate busy state.
 
 v4.3.0 adds a cancellable full-app generation lock, so project settings and shot data cannot change while an AI request is in flight. The Worker now applies every populated shot field—including lens, depth of field, camera height, movement, lighting, performance, props and editorial context—and strictly requests one native full-bleed image in the selected project aspect ratio, with no embedded frames, collage or letterboxing. Account settings now support editable display name, email and username, a database-enforced two-month username cooldown, Persian/English choice and Auto/Mobile/Desktop layout preference. A persistent creator score awards one point for each owned-project shot created and one point for the first AI image on that shot; deletions do not remove points, shared projects do not score, and the account screen shows totals, rank, level progress and today's top creator.
+
+v4.3.1 separates shot-reference selection from generation readiness. Every Visual Bible location and character can now be assigned to a shot even before its reference is ready; an amber status explains whether it needs a reference, a lock, or a style refresh. Generate remains securely blocked until the chosen location and characters have locked references matching the current project style. The generation overlay keeps the rest of the app inert while explicitly keeping Cancel Generation interactive.
 
 ## Multi-admin support
 
@@ -70,9 +72,11 @@ v4.3.0 adds a cancellable full-app generation lock, so project settings and shot
 
 ## Deployment order — IMPORTANT
 
-**Updating from v4.2.1 to v4.3.0:** run the new `supabase-v4.3-account-score.sql` query once, replace the GitHub files, wait for Cloudflare deployment, and hard-refresh. The page should load `i18n.js?v=430`, `app.js?v=430` and `styles.css?v=430`. Do not delete any earlier query.
+**Updating from v4.3.0 to v4.3.1:** no SQL is required. Replace the GitHub files, wait for Cloudflare deployment, and hard-refresh. The page should load `i18n.js?v=431`, `app.js?v=431` and `styles.css?v=431`.
 
-**Updating from v4.1.7 or newer:** keep all existing SQL queries, then run only `supabase-v4.3-account-score.sql` before deploying v4.3.0.
+**Updating from v4.2.1 to v4.3.1:** run the new `supabase-v4.3-account-score.sql` query once, replace the GitHub files, wait for Cloudflare deployment, and hard-refresh. Do not delete any earlier query.
+
+**Updating from v4.1.7 or newer:** keep all existing SQL queries, then run only `supabase-v4.3-account-score.sql` before deploying v4.3.1.
 
 **Updating from v4.1.3, v4.1.4, v4.1.5 or v4.1.6:** first run `supabase-v4.1.7-ai-usage-status.sql`, then run `supabase-v4.3-account-score.sql`, replace the GitHub files, wait for Cloudflare deployment, and hard-refresh.
 

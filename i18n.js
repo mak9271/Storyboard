@@ -1,4 +1,4 @@
-// Storyboard Shot Builder v4.3.0 — English / Persian interface
+// Storyboard Shot Builder v4.3.1 — English / Persian interface
 (() => {
   "use strict";
 
@@ -541,6 +541,7 @@
     "Sign in to a cloud project to generate images.":"برای ساخت تصویر وارد یک پروژه ابری شوید.",
     "You need the project media permission to generate images.":"برای ساخت تصویر به مجوز رسانه پروژه نیاز دارید.",
     "Choose a shot first.":"ابتدا یک شات انتخاب کنید.",
+    "Choose a project location for this shot.":"یک لوکیشن پروژه را برای این شات انتخاب کنید.",
     "Add a shot summary, subject or visual description first.":"ابتدا خلاصه شات، سوژه یا توضیح تصویری را وارد کنید.",
     "Choose a location locked for the current project style before generating.":"پیش از ساخت، یک لوکیشن قفل‌شده برای سبک فعلی پروژه انتخاب کنید.",
     "Choose no more than 3 recurring characters for one generated shot.":"برای هر تصویر حداکثر ۳ شخصیت تکرارشونده انتخاب کنید.",
@@ -575,6 +576,7 @@
     "Add both a name and a stable visual description.":"نام و توضیح بصری ثابت را کامل کنید.",
     "Name and stable description cannot be empty.":"نام و توضیح ثابت نمی‌توانند خالی باشند.",
     "Generate or upload a reference before locking this item.":"پیش از قفل‌کردن، یک مرجع بسازید یا بارگذاری کنید.",
+    "needs reference":"نیازمند مرجع",
     "Could not read image.":"خواندن تصویر ممکن نشد.",
     "Image optimization failed.":"بهینه‌سازی تصویر ناموفق بود.",
     "Could not save reference.":"ذخیره مرجع ممکن نشد.",
@@ -682,6 +684,9 @@
     [/^(.+) reference saved\. Review it, then lock it\.$/, m => `مرجع ${m[1]} ذخیره شد. آن را بررسی و سپس قفل کنید.`],
     [/^Generating (.+) reference… Keep this window open\.$/, m => `در حال ساخت مرجع ${m[1]}… این پنجره را باز نگه دارید.`],
     [/^(.+) reference generated\. Review and lock it\.(.*)$/, m => `مرجع ${m[1]} ساخته شد. آن را بررسی و قفل کنید.${translateCore(m[2])}`],
+    [/^(.+) needs a generated or uploaded reference before this shot can be generated\.$/, m => `پیش از ساخت این شات، باید مرجع ${m[1]} را بسازید یا بارگذاری کنید.`],
+    [/^Lock the (.+) reference before generating this shot\.$/, m => `پیش از ساخت این شات، مرجع ${m[1]} را قفل کنید.`],
+    [/^(.+) was locked for a different style\. Review and lock it again for (.+)\.$/, m => `مرجع ${m[1]} برای سبک دیگری قفل شده است. آن را بررسی و دوباره برای ${translateCore(m[2])} قفل کنید.`],
     [/^(.+) reference$/, m => `مرجع ${m[1]}`],
     [/^AI request failed \((\d+)\)\.$/, m => `درخواست هوش مصنوعی ناموفق بود (${m[1]}).`],
     [/^@(.+) added\.$/, m => `@${m[1]} اضافه شد.`],
@@ -693,6 +698,7 @@
     [/^Paused (.+) · (.+)$/, m => `مکث در ${translateCore(m[1])} · ${m[2]}`],
     [/^Movement preview ready · (.+) · (.+)$/, m => `پیش‌نمایش حرکت آماده است · ${translateCore(m[1])} · ${m[2]}`],
     [/^(.+) · not locked$/, m => `${m[1]} · قفل نشده`],
+    [/^(.+) · needs reference$/, m => `${m[1]} · نیازمند مرجع`],
     [/^(.+) · style changed$/, m => `${m[1]} · سبک تغییر کرده`],
     [/^(.+) locked for (.+)$/, m => `${m[1]} برای ${translateCore(m[2])} قفل شد`],
     [/^(.+) unlocked for editing$/, m => `${m[1]} برای ویرایش باز شد`],

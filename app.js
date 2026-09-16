@@ -1,4 +1,4 @@
-// Storyboard Shot Builder v4.3.0 — generation control, account settings and creator scores
+// Storyboard Shot Builder v4.3.1 — selectable AI references and generation control
 const OPTIONS = {
   shotSize:["ECU · Extreme Close Up","CU · Close Up","MCU · Medium Close Up","MS · Medium Shot","MLS · Medium Long Shot","WS · Wide Shot","EWS · Extreme Wide Shot","OTS · Over The Shoulder","POV · Point of View","Insert","Top Shot"],
   angle:["Eye Level","High Angle","Low Angle","Top / Bird's Eye","Dutch Angle","Ground Level","Overhead","Custom"],
@@ -1239,7 +1239,7 @@ function applyPermissionLocks(){
   generateButton.setAttribute("aria-disabled",String(generationBlocked));
   generateButton.title=generationReady.ready?"":uiText(generationReady.message);
   $("aiLocationId").disabled=shotLocked||!app.ai.ready;
-  $("shotCharacterPicker").querySelectorAll("input").forEach(x=>x.disabled=shotLocked||x.disabled);
+  $("shotCharacterPicker").querySelectorAll("input").forEach(x=>x.disabled=shotLocked||!app.ai.ready);
   $("collaborateBtn").hidden=app.mode!=="cloud";
 }
 
@@ -1724,6 +1724,9 @@ function finishAiGeneration(){
 }
 function setGenerationInert(active){
   const overlay=$('aiGenerationLock');
+  // The lock disables only the app behind this overlay. Keep its Cancel
+  // button interactive for the entire in-flight request.
+  if(overlay)overlay.inert=false;
   for(const element of [...document.body.children]){
     if(element===overlay||element.tagName==='SCRIPT')continue;
     if(active){
@@ -1779,19 +1782,21 @@ async function generateAiReference(type,id){
 function renderAiShotControls(){
   const shot=currentShot(),characters=$("shotCharacterPicker"),location=$("aiLocationId");if(!shot||!characters||!location)return;
   renderAiUsage();
+  const selectionDisabled=!can("shots")||!app.ai.ready;
   shot.aiCharacterIds=Array.isArray(shot.aiCharacterIds)?shot.aiCharacterIds:[];
   characters.innerHTML="";
   if(!app.ai.ready||!app.ai.characters.length){characters.innerHTML=`<span class="ai-picker-empty">${app.ai.ready?"No characters in the Visual Bible. Add one only if this shot needs a recurring character.":app.mode==="cloud"?app.ai.migrationMessage:"AI Visual Bible is available in signed-in cloud projects."}</span>`}
   else for(const asset of app.ai.characters){
-    const styleMatches=asset.style_snapshot===app.current.style,available=asset.locked&&asset.reference_path&&styleMatches,selected=shot.aiCharacterIds.includes(asset.id),label=document.createElement("label");label.className="ai-reference-choice"+(selected?" selected":"")+(available?"":" is-unavailable");
-    label.innerHTML=`<input type="checkbox" value="${asset.id}" ${selected?"checked":""} ${available?"":"disabled"}><span>${escapeHtml(asset.name)}${available?"":styleMatches?" · not locked":" · style changed"}</span>`;
+    const styleMatches=asset.style_snapshot===app.current.style,hasReference=!!asset.reference_path,ready=asset.locked&&hasReference&&styleMatches,selected=shot.aiCharacterIds.includes(asset.id),status=!hasReference?" · needs reference":!asset.locked?" · not locked":!styleMatches?" · style changed":"",label=document.createElement("label");label.className="ai-reference-choice"+(selected?" selected":"")+(ready?"":" needs-reference");
+    label.innerHTML=`<input type="checkbox" value="${asset.id}" ${selected?"checked":""} ${selectionDisabled?"disabled":""}><span>${escapeHtml(asset.name)}${status}</span>`;
     label.querySelector("input").onchange=e=>{shot.aiCharacterIds=e.target.checked?[...new Set([...shot.aiCharacterIds,asset.id])]:shot.aiCharacterIds.filter(x=>x!==asset.id);onAiShotLinksChange()};characters.appendChild(label)
   }
   const previous=shot.aiLocationId||"";
   const locationPrompt=!app.ai.ready?"AI Visual Bible is unavailable":app.ai.locations.length?"Choose project location…":"No locations yet — open Visual Bible";
   location.innerHTML=`<option value="">${locationPrompt}</option>`;
-  for(const asset of app.ai.locations){const styleMatches=asset.style_snapshot===app.current.style,available=asset.locked&&asset.reference_path&&styleMatches,option=document.createElement("option");option.value=asset.id;option.textContent=asset.name+(available?"":styleMatches?" · not locked":" · style changed");option.disabled=!available;location.appendChild(option)}
+  for(const asset of app.ai.locations){const styleMatches=asset.style_snapshot===app.current.style,hasReference=!!asset.reference_path,status=!hasReference?" · needs reference":!asset.locked?" · not locked":!styleMatches?" · style changed":"",option=document.createElement("option");option.value=asset.id;option.textContent=asset.name+status;location.appendChild(option)}
   location.value=[...location.options].some(x=>x.value===previous)?previous:"";
+  location.disabled=selectionDisabled;
   const state=aiShotReady(),status=$("aiGenerationStatus");status.textContent=app.ai.generating?"Generating the frame… Keep this tab open.":state.message;status.className="ai-generation-status"+(state.ready?"":" error");
   $("generateShotImageBtn").textContent=app.ai.generating?"Generating…":"✦ Generate Storyboard";$("generateShotImageBtn").classList.toggle("is-generating",app.ai.generating);$("generateShotImageBtn").setAttribute("aria-busy",String(app.ai.generating))
 }
@@ -1802,9 +1807,12 @@ function aiShotReady(){
   const shot=currentShot();if(app.mode!=="cloud")return {ready:false,message:"Sign in to a cloud project to generate images."};
   if(!app.ai.ready)return {ready:false,message:app.ai.migrationMessage};if(!can("media"))return {ready:false,message:"You need the project media permission to generate images."};if(!shot)return {ready:false,message:"Choose a shot first."};
   if(!String(shot.summary||shot.description||shot.subject||"").trim())return {ready:false,message:"Add a shot summary, subject or visual description first."};
-  const location=app.ai.locations.find(x=>x.id===shot.aiLocationId);if(!location||!location.locked||!location.reference_path||location.style_snapshot!==app.current.style)return {ready:false,message:"Choose a location locked for the current project style before generating."};
+  const location=app.ai.locations.find(x=>x.id===shot.aiLocationId);if(!location)return {ready:false,message:"Choose a project location for this shot."};
+  if(!location.reference_path)return {ready:false,message:`${location.name} needs a generated or uploaded reference before this shot can be generated.`};
+  if(!location.locked)return {ready:false,message:`Lock the ${location.name} reference before generating this shot.`};
+  if(location.style_snapshot!==app.current.style)return {ready:false,message:`${location.name} was locked for a different style. Review and lock it again for ${app.current.style}.`};
   if((shot.aiCharacterIds||[]).length>3)return {ready:false,message:"Choose no more than 3 recurring characters for one generated shot."};
-  const invalid=(shot.aiCharacterIds||[]).find(id=>{const x=app.ai.characters.find(c=>c.id===id);return !x||!x.locked||!x.reference_path||x.style_snapshot!==app.current.style});if(invalid)return {ready:false,message:"Every selected character needs an approved reference locked for the current project style."};
+  const invalid=(shot.aiCharacterIds||[]).map(id=>app.ai.characters.find(c=>c.id===id)).find(x=>!x||!x.reference_path||!x.locked||x.style_snapshot!==app.current.style);if(invalid){const name=invalid?.name||"A selected character";if(!invalid?.reference_path)return {ready:false,message:`${name} needs a generated or uploaded reference before this shot can be generated.`};if(!invalid.locked)return {ready:false,message:`Lock the ${name} reference before generating this shot.`};return {ready:false,message:`${name} was locked for a different style. Review and lock it again for ${app.current.style}.`}}
   return {ready:true,message:`Ready · ${location.name} · ${shot.aiCharacterIds.length||"no"} character reference${shot.aiCharacterIds.length===1?"":"s"} · ${app.current.style}`}
 }
 function captureShotEditorDraft(){
