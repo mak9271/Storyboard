@@ -1,4 +1,4 @@
-// Storyboard v4.2.0 AI gateway. Cloudflare FLUX multipart input follows the provider schema exactly.
+// Storyboard v4.3.0 AI gateway. Cloudflare FLUX multipart input follows the provider schema exactly.
 const DEFAULT_MODEL = "@cf/black-forest-labs/flux-2-klein-4b";
 const ALLOWED_MODEL = new Set([DEFAULT_MODEL]);
 const MAX_JSON_BYTES = 96 * 1024;
@@ -49,17 +49,21 @@ function buildReferencePrompt(type,project,asset){
 }
 function fieldLine(label,value,max=500){const text=clean(value,max);return text?`${label}: ${text}.`:""}
 function buildShotPrompt(project,scene,shot,location,characters){
-  const d=shot||{},characterNames=characters.map(x=>clean(x.name,80)).join(", ")||"none";
+  const d=shot||{},characterNames=characters.map(x=>clean(x.name,80)).join(", ")||"none",dimensions=aspectDimensions(project),orientation=dimensions.width===dimensions.height?"square":dimensions.width>dimensions.height?"landscape":"portrait";
   return [
-    "Create exactly one cinematic storyboard frame, not a contact sheet.",
+    `STRICT OUTPUT CANVAS: create exactly one ${orientation} cinematic storyboard image at ${dimensions.width} × ${dimensions.height}, using the project's ${clean(project.aspect,60)||"selected"} aspect ratio as the native full canvas.`,
+    "Fill the complete canvas edge to edge with one continuous scene. Never place horizontal images, reference plates, or smaller framed pictures inside a vertical canvas (or vice versa). No collage, diptych, triptych, contact sheet, storyboard grid, split screen, inset image, border, matte, letterbox, pillarbox, empty band, or frame-within-a-frame.",
+    "The location and character reference files are identity and continuity inputs only. Do not copy their reference-sheet layout into the final image.",
     `Project: ${clean(project.name,120)}. Global visual language: ${projectStyle(project)}.`,
     `CONTINUITY IS THE HIGHEST PRIORITY. The first reference image is the locked location ${clean(location.name,80)}. Reproduce that same place, architecture, materials and fixed objects; do not invent, substitute or move the scene to another location. Location specification: ${clean(location.description,1400)}.`,
     characters.length?`The remaining reference images are the locked recurring characters, in this order: ${characterNames}. Preserve each character's facial identity, age, hair, body proportions and distinguishing features exactly. Only change pose, expression and explicitly requested costume details.`:"This shot contains no locked recurring-character reference.",
+    "SHOT REQUIREMENTS — apply every populated field below to this single frame:",
     fieldLine("Scene",`${clean(scene?.title,160)} — ${clean(scene?.description,700)}`),
-    fieldLine("Shot summary",d.summary),fieldLine("Main subject",d.subject),fieldLine("Visual action",d.description),fieldLine("Performance and emotion",d.performance),fieldLine("Subject movement",d.subjectMovement),fieldLine("Intentional costume details",d.costume),
-    fieldLine("Shot size",d.shotSize,120),fieldLine("Camera angle",d.angle,120),fieldLine("Camera height",d.cameraHeight,120),fieldLine("Lens",d.lens,80),fieldLine("Depth of field",d.focus,120),fieldLine("Camera movement implication",d.movement,120),fieldLine("Composition",d.composition,160),fieldLine("Start to end frame",d.startEnd,300),
+    fieldLine("Shot number",d.shotNo,40),fieldLine("Intended duration",d.duration,80),fieldLine("Shot summary",d.summary),fieldLine("Main subject",d.subject),fieldLine("Visual action",d.description),fieldLine("Performance and emotion",d.performance),fieldLine("Subject movement",d.subjectMovement),fieldLine("Intentional costume and appearance",d.costume),
+    fieldLine("Shot size and framing",d.shotSize,120),fieldLine("Camera angle",d.angle,120),fieldLine("Physical camera height",d.cameraHeight,120),fieldLine("Lens focal length and perspective",d.lens,80),fieldLine("Focus and depth-of-field behavior",d.focus,160),fieldLine("Camera movement implication",d.movement,120),fieldLine("Composition",d.composition,160),fieldLine("Start-frame to end-frame intention",d.startEnd,300),
     fieldLine("Time of day",d.timeOfDay,80),fieldLine("Shot-specific details inside the locked location",d.location,400),fieldLine("Light source",d.lightSource,120),fieldLine("Light direction",d.lightDirection,120),fieldLine("Light quality",d.lightQuality,120),fieldLine("Lighting notes",d.lighting,500),fieldLine("Props and set elements",d.props,500),fieldLine("Important notes",d.notes,500),
-    "Respect the requested aspect ratio. Keep all important action inside frame. No captions, speech balloons, UI, written labels, watermarks, signatures, split panels or extra frames."
+    fieldLine("Dialogue context — use only to inform expression and action; do not print it",d.dialogue,500),fieldLine("Voice-over context — do not print it",d.voiceOver,400),fieldLine("Sound-effect context",d.sfx,240),fieldLine("Music and emotional rhythm",d.music,240),fieldLine("Incoming edit transition",d.transitionIn,120),fieldLine("Outgoing edit transition",d.transitionOut,120),
+    "Apply the requested lens perspective and depth of field visibly and accurately. Keep all essential action and subjects inside the single full-bleed frame. No captions, subtitles, dialogue text, speech balloons, UI, written labels, watermarks, signatures, split panels, duplicated scenes, or extra frames."
   ].filter(Boolean).join("\n")
 }
 async function loadContext(env,token,payload){

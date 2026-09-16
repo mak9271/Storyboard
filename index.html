@@ -2,7 +2,7 @@
 <html lang="en" dir="ltr">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta id="viewportMeta" name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="theme-color" content="#050607" />
   <meta name="description" content="Storyboard Shot Builder — collaborative pre-production planning." />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://xpqhsnyyjpfxpxvvrvsz.supabase.co; connect-src 'self' https://xpqhsnyyjpfxpxvvrvsz.supabase.co wss://xpqhsnyyjpfxpxvvrvsz.supabase.co https://cdn.jsdelivr.net; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none';" />
@@ -12,10 +12,10 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="styles.css?v=420" />
+  <link rel="stylesheet" href="styles.css?v=430" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0"></script>
   <script src="config.js?v=410"></script>
-  <meta name="storyboard-build" content="v4.2.0-bilingual-mobile" />
+  <meta name="storyboard-build" content="v4.3.0-account-score-generation-control" />
 </head>
 <body>
 
@@ -23,6 +23,19 @@
     <span class="language-toggle-icon" aria-hidden="true">文</span>
     <span id="languageToggleLabel">فارسی</span>
   </button>
+
+  <div id="aiGenerationLock" class="ai-generation-lock" role="dialog" aria-modal="true" aria-labelledby="aiGenerationLockTitle" hidden>
+    <div class="ai-generation-lock-card" role="status" aria-live="assertive">
+      <div class="ai-generation-spinner" aria-hidden="true"></div>
+      <div>
+        <div class="eyebrow">AI GENERATION IN PROGRESS</div>
+        <h2 id="aiGenerationLockTitle">Creating your storyboard image…</h2>
+        <p id="aiGenerationLockMessage">Editing is paused so the generated image matches the submitted shot settings.</p>
+      </div>
+      <button id="cancelAiGenerationBtn" type="button" class="btn danger">Cancel Generation</button>
+      <small>Cancel stops this browser request. An AI attempt already started may still count toward today's allowance.</small>
+    </div>
+  </div>
 
   <!-- AUTH -->
   <section id="authView" class="auth-view" hidden>
@@ -824,17 +837,104 @@
 
   <!-- ACCOUNT MODAL -->
   <dialog id="accountModal" class="modal">
-    <div class="modal-card compact-modal">
+    <div class="modal-card account-modal-card">
       <div class="modal-head">
         <div><div class="eyebrow">ACCOUNT</div><h2 id="accountDisplayName">Account</h2></div>
-        <button id="closeAccountBtn" class="icon-btn">×</button>
+        <button id="closeAccountBtn" class="icon-btn" type="button">×</button>
       </div>
-      <p id="accountUsername"></p>
-      <p id="accountEmail" class="muted"></p>
+
+      <div class="account-identity-card">
+        <div id="accountAvatarInitial" class="account-avatar">S</div>
+        <div>
+          <strong id="accountIdentityName">Account</strong>
+          <span id="accountUsername"></span>
+          <small id="accountEmail" class="muted"></small>
+        </div>
+      </div>
+
+      <form id="accountProfileForm" class="account-settings-grid">
+        <section class="account-section">
+          <div class="account-section-head">
+            <div><h3>Profile</h3><small>Edit the information shown in Storyboard.</small></div>
+          </div>
+          <div class="account-form-grid">
+            <div>
+              <label for="accountDisplayNameInput">Display Name</label>
+              <input id="accountDisplayNameInput" autocomplete="name" maxlength="80" placeholder="Your name" />
+            </div>
+            <div>
+              <label for="accountUsernameInput">Username</label>
+              <input id="accountUsernameInput" autocomplete="username" maxlength="30" pattern="[A-Za-z0-9_.-]{3,30}" />
+              <small id="accountUsernameCooldown" class="field-help account-cooldown"></small>
+            </div>
+            <div class="span-2">
+              <label for="accountEmailInput">Email</label>
+              <input id="accountEmailInput" type="email" autocomplete="email" />
+              <small class="field-help">Changing email may require confirmation from both your old and new email addresses.</small>
+            </div>
+          </div>
+        </section>
+
+        <section class="account-section">
+          <div class="account-section-head">
+            <div><h3>Language &amp; App Layout</h3><small>Choose how Storyboard looks on this device.</small></div>
+          </div>
+          <div class="account-form-grid">
+            <div>
+              <label for="accountLanguageSelect">Language</label>
+              <select id="accountLanguageSelect">
+                <option value="fa">فارسی</option>
+                <option value="en">English</option>
+              </select>
+            </div>
+            <div>
+              <label for="accountLayoutSelect">App Version</label>
+              <select id="accountLayoutSelect">
+                <option value="auto">Automatic</option>
+                <option value="mobile">Mobile Version</option>
+                <option value="desktop">Desktop Version</option>
+              </select>
+            </div>
+          </div>
+        </section>
+
+        <div id="accountProfileNotice" class="notice" hidden></div>
+        <button id="saveAccountProfileBtn" class="btn account-save-btn" type="submit">Save Account Changes</button>
+      </form>
+
+      <section class="account-score-card" aria-labelledby="accountScoreHeading">
+        <div class="score-spark score-spark-one" aria-hidden="true">✦</div>
+        <div class="score-spark score-spark-two" aria-hidden="true">★</div>
+        <div class="account-score-head">
+          <div class="score-trophy" aria-hidden="true">🏆</div>
+          <div><div class="eyebrow">STORYBOARD CREATOR SCORE</div><h3 id="accountScoreHeading">Your creative momentum</h3></div>
+        </div>
+        <div id="accountScoreLoading" class="account-score-loading">Loading your score…</div>
+        <div id="accountScoreContent" hidden>
+          <div class="score-stat-grid">
+            <div class="score-stat score-total"><span>Total Points</span><strong id="accountScoreTotal">0</strong></div>
+            <div class="score-stat"><span>Overall Rank</span><strong id="accountScoreRank">—</strong></div>
+            <div class="score-stat"><span>Today's Points</span><strong id="accountScoreToday">0</strong></div>
+          </div>
+          <div class="score-progress-wrap">
+            <div class="score-progress-copy"><span id="accountScoreLevel">Storyboard Starter</span><small id="accountScoreNextLevel">10 points to the next level</small></div>
+            <div class="score-progress"><span id="accountScoreProgress"></span></div>
+          </div>
+          <div class="score-breakdown">
+            <span><b id="accountScoreShots">0</b> shots created</span>
+            <span><b id="accountScoreImages">0</b> first AI images</span>
+          </div>
+          <div class="daily-winner">
+            <span aria-hidden="true">🔥</span>
+            <div><small>Today's top creator</small><strong id="accountDailyLeader">No points yet today — be the first!</strong></div>
+          </div>
+          <p class="score-rules">Earn 1 point for every shot you create and 1 point for the first AI image generated for that shot. Only projects you own count. Your points remain even if a shot is later deleted.</p>
+        </div>
+      </section>
     </div>
   </dialog>
 
-  <script src="i18n.js?v=420"></script>
-  <script src="app.js?v=420"></script>
+  <script src="i18n.js?v=430"></script>
+  <script src="app.js?v=430"></script>
 </body>
 </html>

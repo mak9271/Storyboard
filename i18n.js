@@ -1,4 +1,4 @@
-// Storyboard Shot Builder v4.2.0 — English / Persian interface
+// Storyboard Shot Builder v4.3.0 — English / Persian interface
 (() => {
   "use strict";
 
@@ -292,6 +292,56 @@
     "Diagram notes…":"یادداشت‌های دیاگرام…",
     "Share Link":"لینک اشتراک",
     "ACCOUNT":"حساب کاربری",
+    "AI GENERATION IN PROGRESS":"ساخت تصویر با هوش مصنوعی در حال انجام است",
+    "Creating your storyboard image…":"در حال ساخت تصویر استوری‌بورد شما…",
+    "Creating the visual reference…":"در حال ساخت مرجع بصری…",
+    "Canceling generation…":"در حال لغو ساخت تصویر…",
+    "Editing is paused so the generated image matches the submitted shot settings.":"ویرایش موقتاً متوقف شده تا تصویر ساخته‌شده دقیقاً با تنظیمات ارسال‌شده شات هماهنگ باشد.",
+    "Editing is paused so this approved reference remains consistent.":"ویرایش موقتاً متوقف شده تا این مرجع تأییدشده یکدست باقی بماند.",
+    "Cancel Generation":"لغو ساخت تصویر",
+    "Canceling…":"در حال لغو…",
+    "Cancel stops this browser request. An AI attempt already started may still count toward today's allowance.":"لغو، درخواست این مرورگر را متوقف می‌کند. اگر پردازش هوش مصنوعی شروع شده باشد، ممکن است همچنان از سهمیه امروز کم شود.",
+    "Profile":"پروفایل",
+    "Edit the information shown in Storyboard.":"اطلاعاتی را که در استوری‌بورد نمایش داده می‌شود ویرایش کنید.",
+    "Changing email may require confirmation from both your old and new email addresses.":"تغییر ایمیل ممکن است به تأیید ایمیل قبلی و ایمیل جدید نیاز داشته باشد.",
+    "Language & App Layout":"زبان و چیدمان اپ",
+    "Choose how Storyboard looks on this device.":"نحوه نمایش استوری‌بورد را روی این دستگاه انتخاب کنید.",
+    "Language":"زبان",
+    "App Version":"نسخه اپ",
+    "Automatic":"خودکار",
+    "Mobile Version":"نسخه موبایل",
+    "Desktop Version":"نسخه دسکتاپ",
+    "Save Account Changes":"ذخیره تغییرات حساب",
+    "Saving…":"در حال ذخیره…",
+    "Saving account changes…":"در حال ذخیره تغییرات حساب…",
+    "Account changes saved.":"تغییرات حساب ذخیره شد.",
+    "Profile saved. Check your email to confirm the new address.":"پروفایل ذخیره شد. برای تأیید نشانی جدید، ایمیل خود را بررسی کنید.",
+    "Run the v4.3 Account & Creator Score SQL to edit account details.":"برای ویرایش حساب، SQL حساب و امتیاز سازنده نسخه ۴.۳ را اجرا کنید.",
+    "Account editing is not active yet. Run the v4.3 Account & Creator Score SQL.":"ویرایش حساب هنوز فعال نیست. SQL حساب و امتیاز سازنده نسخه ۴.۳ را اجرا کنید.",
+    "You can change your username now. After a change, it is locked for two months.":"اکنون می‌توانید نام کاربری را تغییر دهید. پس از تغییر، نام کاربری به مدت دو ماه قفل می‌شود.",
+    "Your username is still in its two-month lock period.":"نام کاربری شما هنوز در دوره قفل دوماهه است.",
+    "Display name must be 80 characters or fewer.":"نام نمایشی باید حداکثر ۸۰ نویسه باشد.",
+    "Could not save account changes.":"ذخیره تغییرات حساب ممکن نشد.",
+    "STORYBOARD CREATOR SCORE":"امتیاز سازنده استوری‌بورد",
+    "Your creative momentum":"روند خلاقیت شما",
+    "Loading your score…":"در حال دریافت امتیاز شما…",
+    "Creator score is unavailable. Run the v4.3 Account & Creator Score SQL.":"امتیاز سازنده در دسترس نیست. SQL حساب و امتیاز سازنده نسخه ۴.۳ را اجرا کنید.",
+    "Total Points":"امتیاز کل",
+    "Overall Rank":"رتبه کلی",
+    "Today's Points":"امتیاز امروز",
+    "Storyboard Starter":"شروع‌کننده استوری‌بورد",
+    "Frame Explorer":"کاوشگر قاب",
+    "Scene Builder":"سازنده صحنه",
+    "Visual Storyteller":"قصه‌گوی تصویری",
+    "Storyboard Director":"کارگردان استوری‌بورد",
+    "Master Storyteller":"استاد قصه‌گویی تصویری",
+    "Highest creator level reached":"به بالاترین سطح سازنده رسیده‌اید",
+    "Today's top creator":"برترین سازنده امروز",
+    "No points yet today — be the first!":"امروز هنوز امتیازی ثبت نشده؛ شما اولین نفر باشید!",
+    "shots created":"شات ساخته‌شده",
+    "first AI images":"تصویر اول هوش مصنوعی",
+    "Earn 1 point for every shot you create and 1 point for the first AI image generated for that shot. Only projects you own count. Your points remain even if a shot is later deleted.":"برای ساخت هر شات ۱ امتیاز و برای اولین تصویر هوش مصنوعی همان شات ۱ امتیاز می‌گیرید. فقط پروژه‌های متعلق به خودتان حساب می‌شوند و حتی با حذف شات، امتیاز آن باقی می‌ماند.",
+    "Generation canceled.":"ساخت تصویر لغو شد.",
     "CAMERAS":"دوربین‌ها",
     "LIGHTS":"نورها",
     "SUBJECTS":"سوژه‌ها",
@@ -519,6 +569,8 @@
     "Untitled Storyboard":"استوری‌بورد بدون عنوان",
     "Could not save scene.":"ذخیره صحنه ممکن نشد.",
     "Could not save shot.":"ذخیره شات ممکن نشد.",
+    "Could not save project settings.":"ذخیره تنظیمات پروژه ممکن نشد.",
+    "Could not save the latest shot settings before generation.":"ذخیره آخرین تنظیمات شات پیش از ساخت تصویر ممکن نشد.",
     "AI generation is available for signed-in cloud projects.":"ساخت تصویر هوش مصنوعی در پروژه‌های ابریِ واردشده در دسترس است.",
     "Add both a name and a stable visual description.":"نام و توضیح بصری ثابت را کامل کنید.",
     "Name and stable description cannot be empty.":"نام و توضیح ثابت نمی‌توانند خالی باشند.",
@@ -600,6 +652,12 @@
     [/^(\d+) unread chat messages?$/, m => `${m[1]} پیام خوانده‌نشده`],
     [/^● (.+) (?:is|are) editing this shot(.*)$/, m => `● ${m[1]} در حال ویرایش این شات است${m[2]}`],
     [/^(\d+) generation\(s\) remain today\.$/, m => `امروز ${m[1]} ساخت تصویر باقی مانده است.`],
+    [/^Storyboard image generated and saved\.(.*)$/, m => `تصویر استوری‌بورد ساخته و ذخیره شد.${translateCore(m[1])}`],
+    [/^Username can be changed again in (\d+) days? · (.+)\.$/, m => `نام کاربری را ${m[1]} روز دیگر، در ${m[2]}، می‌توانید دوباره تغییر دهید.`],
+    [/^(\d+) points? to (.+)$/, m => `${m[1]} امتیاز تا سطح ${translateCore(m[2])}`],
+    [/^(\d+) shots created$/, m => `${m[1]} شات ساخته‌شده`],
+    [/^(\d+) first AI images$/, m => `${m[1]} تصویر اول هوش مصنوعی`],
+    [/^(.+) · (\d+) points?$/, m => `${m[1]} · ${m[2]} امتیاز`],
     [/^Project · (.+)$/, m => `پروژه · ${m[1]}`],
     [/^Scene (\d+) · Shot (\d+) · (.+)$/, m => `صحنه ${m[1]} · شات ${m[2]} · ${translateCore(m[3])}`],
     [/^Scene (\d+) · Shot (\d+)$/, m => `صحنه ${m[1]} · شات ${m[2]}`],
@@ -672,7 +730,7 @@
 
   function shouldSkipText(node) {
     const parent = node.parentElement;
-    if (!parent || parent.closest("script,style,template,[data-i18n='off'],.chat-body,.sheet-summary,.tag-chip,.scene-title-stack small,.project-open-area h3,.admin-project-row strong,#accountDisplayName,#accountUsername,#accountEmail,#mobileEditorTitle")) return true;
+    if (!parent || parent.closest("script,style,template,[data-i18n='off'],.chat-body,.sheet-summary,.tag-chip,.scene-title-stack small,.project-open-area h3,.admin-project-row strong,#accountDisplayName,#accountIdentityName,#accountAvatarInitial,#accountUsername,#accountEmail,#mobileEditorTitle")) return true;
     return false;
   }
 

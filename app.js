@@ -1,4 +1,4 @@
-// Storyboard Shot Builder v4.2.0 — bilingual interface + app-like mobile workspace
+// Storyboard Shot Builder v4.3.0 — generation control, account settings and creator scores
 const OPTIONS = {
   shotSize:["ECU · Extreme Close Up","CU · Close Up","MCU · Medium Close Up","MS · Medium Shot","MLS · Medium Long Shot","WS · Wide Shot","EWS · Extreme Wide Shot","OTS · Over The Shoulder","POV · Point of View","Insert","Top Shot"],
   angle:["Eye Level","High Angle","Low Angle","Top / Bird's Eye","Dutch Angle","Ground Level","Overhead","Custom"],
@@ -33,6 +33,11 @@ let app = {
     updating: false
   },
   profile: null,
+  account: {
+    score: null,
+    scoreLoading: false,
+    profileSaving: false
+  },
   projects: [],
   current: null,
   activeSceneId: null,
@@ -67,6 +72,10 @@ let app = {
     loading: false,
     generating: false,
     generatingAssetId: null,
+    generationMode: null,
+    requestController: null,
+    cancelRequested: false,
+    previousFocus: null,
     characters: [],
     locations: [],
     usage: {
@@ -110,6 +119,7 @@ let autosaveTimer = null;
 let signedImageRefreshTimer = null;
 let presenceTrackTimer = null;
 let lastPresenceSignature = "";
+const LAYOUT_STORAGE_KEY = "storyboard-layout-mode";
 
 function uid(){return (crypto.randomUUID ? crypto.randomUUID() : "id-"+Date.now()+"-"+Math.random().toString(16).slice(2))}
 function fullPermissions(){return {project_settings:true,scenes:true,shots:true,media:true,members:true}}
@@ -151,6 +161,45 @@ function can(key){return app.isOwner || adminSupporting() || !!app.permissions?.
 const SIGNED_IMAGE_TTL_SECONDS = 3600;
 const SIGNED_IMAGE_REFRESH_MS = 45 * 60 * 1000;
 function conflictMessage(kind){return `This ${kind} was changed by another collaborator. I reloaded the latest version so you can review it before editing again.`}
+
+function normalizeLayoutMode(value){return ["auto","mobile","desktop"].includes(value)?value:"auto"}
+function prefixedMobileSelector(selector){
+  const prefix='html[data-layout-mode="mobile"]';
+  return selector.split(",").map(part=>{
+    const value=part.trim();
+    if(value.startsWith("html"))return value.replace(/^html/,prefix);
+    if(value.startsWith(":root"))return value.replace(/^:root/,prefix);
+    return `${prefix} ${value}`
+  }).join(",")
+}
+function installForcedMobileRules(){
+  if(document.getElementById("forcedMobileStyles"))return;
+  const rules=[];
+  for(const sheet of [...document.styleSheets]){
+    if(!String(sheet.href||"").includes("styles.css"))continue;
+    try{
+      for(const media of [...sheet.cssRules]){
+        if(media.type!==CSSRule.MEDIA_RULE||!/max-width:\s*(?:950|760|600|560|430)px/i.test(media.conditionText||""))continue;
+        for(const rule of [...media.cssRules]){
+          if(rule.type===CSSRule.STYLE_RULE)rules.push(`${prefixedMobileSelector(rule.selectorText)}{${rule.style.cssText}}`);
+          else if(rule.type===CSSRule.KEYFRAMES_RULE)rules.push(rule.cssText)
+        }
+      }
+    }catch(error){console.warn("Could not prepare forced mobile layout",error)}
+  }
+  const style=document.createElement("style");style.id="forcedMobileStyles";style.textContent=rules.join("\n");document.head.appendChild(style)
+}
+function applyLayoutPreference(value,{persist=true}={}){
+  const mode=normalizeLayoutMode(value),viewport=$("viewportMeta");
+  if(persist)localStorage.setItem(LAYOUT_STORAGE_KEY,mode);
+  if(mode==="mobile")installForcedMobileRules();
+  document.documentElement.dataset.layoutMode=mode;
+  if(viewport)viewport.content=mode==="desktop"?"width=1180,initial-scale=1,viewport-fit=cover":"width=device-width,initial-scale=1,viewport-fit=cover";
+  if($("accountLayoutSelect"))$("accountLayoutSelect").value=mode;
+  closeEditorActions();syncMobileEditorUi();
+  return mode
+}
+function currentLayoutPreference(){return normalizeLayoutMode(document.documentElement.dataset.layoutMode||localStorage.getItem(LAYOUT_STORAGE_KEY)||"auto")}
 
 /* ---------- CHAT NOTIFICATIONS + MENTIONS ---------- */
 function chatReadKey(projectId=app.current?.id){
@@ -376,14 +425,14 @@ function saveLocal(){
   if(idx>=0)app.projects[idx]=app.current; else app.projects.push(app.current);
   localStorage.setItem("storyboard-v3-projects",JSON.stringify(app.projects));
 }
-function resetAiState(){app.ai.ready=false;app.ai.loading=false;app.ai.generating=false;app.ai.generatingAssetId=null;app.ai.characters=[];app.ai.locations=[];app.ai.usage={loaded:false,loading:false,error:"",used:0,remaining:20,dailyLimit:20,personalRemaining:20,globalRemaining:70,unlimited:false,usageDate:""};renderAiUsage()}
+function resetAiState(){app.ai.requestController?.abort();app.ai.ready=false;app.ai.loading=false;app.ai.generating=false;app.ai.generatingAssetId=null;app.ai.generationMode=null;app.ai.requestController=null;app.ai.cancelRequested=false;app.ai.previousFocus=null;app.ai.characters=[];app.ai.locations=[];app.ai.usage={loaded:false,loading:false,error:"",used:0,remaining:20,dailyLimit:20,personalRemaining:20,globalRemaining:70,unlimited:false,usageDate:""};syncAiGenerationLock();renderAiUsage()}
 function selectFirst(){
   const sc=app.current?.scenes?.[0]; app.activeSceneId=sc?.id||null; app.activeShotId=sc?.shots?.[0]?.id||null
 }
 
 /* ---------- AUTH / APP START ---------- */
 async function start(){
-  initOptions(); bind();
+  applyLayoutPreference(localStorage.getItem(LAYOUT_STORAGE_KEY)||"auto",{persist:false});initOptions(); bind();
   if(!cloudConfigured){
     $("cloudNotConfigured").hidden=false;
     showAuth();
@@ -395,7 +444,7 @@ async function start(){
     if(event==="PASSWORD_RECOVERY"){
       app.passwordRecovery.active=true;app.passwordRecovery.error="";app.passwordRecovery.verified=true;showPasswordRecovery();return
     }
-    if(!session){app.profile=null;app.current=null;resetAdminState();resetAiState();unsubscribeRealtime();unsubscribeChatRealtime();unsubscribeChatNoticeRealtime();unsubscribeLightingRealtime();updateChatBadges(0,false);showAuth();return}
+    if(!session){app.profile=null;app.account.score=null;app.current=null;resetAdminState();resetAiState();unsubscribeRealtime();unsubscribeChatRealtime();unsubscribeChatNoticeRealtime();unsubscribeLightingRealtime();updateChatBadges(0,false);showAuth();return}
     // INITIAL_SESSION is already handled by getSession() below. Token refreshes must
     // never kick an editor back to the Projects screen.
     if(event==="INITIAL_SESSION"||event==="TOKEN_REFRESHED"||event==="USER_UPDATED"){if(app.passwordRecovery.active)showPasswordRecovery();return}
@@ -454,7 +503,7 @@ function showEditor(){
   renderEditor();
 }
 
-function isMobileEditor(){return window.matchMedia("(max-width: 950px)").matches}
+function isMobileEditor(){const mode=currentLayoutPreference();return mode==="mobile"||(mode!=="desktop"&&window.matchMedia("(max-width: 950px)").matches)}
 function closeEditorActions(){
   $("editorView")?.classList.remove("editor-actions-open");
   if($("mobileMoreBtn"))$("mobileMoreBtn").setAttribute("aria-expanded","false")
@@ -500,11 +549,88 @@ async function afterLogin(){
 }
 async function loadProfile(){
   if(!sb||!app.session)return;
-  const {data}=await sb.from("profiles").select("id,username,display_name").eq("id",app.session.user.id).maybeSingle();
-  app.profile=data||{id:app.session.user.id,username:"",display_name:""};
-  $("accountDisplayName").textContent=app.profile.display_name||app.profile.username||"Account";
-  $("accountUsername").textContent=app.profile.username?`@${app.profile.username}`:"";
-  $("accountEmail").textContent=app.session.user.email||"";
+  let {data,error}=await sb.from("profiles").select("id,username,display_name,username_changed_at,preferred_language,preferred_layout").eq("id",app.session.user.id).maybeSingle(),accountSetupReady=!error;
+  if(error){const fallback=await sb.from("profiles").select("id,username,display_name").eq("id",app.session.user.id).maybeSingle();data=fallback.data;accountSetupReady=false}
+  app.profile={id:app.session.user.id,username:"",display_name:"",username_changed_at:null,preferred_language:null,preferred_layout:null,...(data||{}),accountSetupReady};
+  if(["fa","en"].includes(app.profile.preferred_language))window.storyboardI18n?.setLanguage(app.profile.preferred_language,false);
+  if(["auto","mobile","desktop"].includes(app.profile.preferred_layout))applyLayoutPreference(app.profile.preferred_layout);
+  renderAccountProfile()
+}
+function usernameNextChangeAt(){
+  if(!app.profile?.username_changed_at)return null;
+  if(app.profile.username_next_change_at)return new Date(app.profile.username_next_change_at);
+  const changed=new Date(app.profile.username_changed_at),day=changed.getUTCDate(),next=new Date(changed);
+  next.setUTCDate(1);next.setUTCMonth(next.getUTCMonth()+2);
+  const lastDay=new Date(Date.UTC(next.getUTCFullYear(),next.getUTCMonth()+1,0)).getUTCDate();
+  next.setUTCDate(Math.min(day,lastDay));return next
+}
+function usernameCooldownCopy(){
+  const next=usernameNextChangeAt();if(!next||next<=new Date())return "You can change your username now. After a change, it is locked for two months.";
+  const remaining=Math.max(0,next-Date.now()),days=Math.ceil(remaining/86400000);
+  return `Username can be changed again in ${days} day${days===1?"":"s"} · ${next.toLocaleDateString(uiLocale())}.`
+}
+function renderAccountProfile(){
+  if(!app.profile||!app.session)return;
+  const name=app.profile.display_name||app.profile.username||"Account",username=app.profile.username||"";
+  $("accountDisplayName").textContent=name;$("accountIdentityName").textContent=name;$("accountAvatarInitial").textContent=(name.trim()[0]||"S").toUpperCase();
+  $("accountUsername").textContent=username?`@${username}`:"";$("accountEmail").textContent=app.session.user.email||"";
+  $("accountDisplayNameInput").value=app.profile.display_name||"";$("accountUsernameInput").value=username;$("accountEmailInput").value=app.session.user.email||"";
+  const next=usernameNextChangeAt(),canChange=!next||next<=new Date();$("accountUsernameInput").disabled=!canChange;$("accountUsernameCooldown").textContent=app.profile.accountSetupReady?usernameCooldownCopy():"Run the v4.3 Account & Creator Score SQL to edit account details.";
+  $("accountLanguageSelect").value=window.storyboardI18n?.language||"en";$("accountLayoutSelect").value=currentLayoutPreference()
+}
+function accountProfileError(error){
+  const message=String(error?.message||error||"");
+  if(message.includes("USERNAME_COOLDOWN_UNTIL"))return "Your username is still in its two-month lock period.";
+  if(message.includes("USERNAME_TAKEN"))return "That username is already taken.";
+  if(message.includes("USERNAME_INVALID"))return "Username may contain only letters, numbers, dot, underscore and hyphen.";
+  if(message.includes("DISPLAY_NAME_TOO_LONG"))return "Display name must be 80 characters or fewer.";
+  if(message.includes("storyboard_update_my_profile"))return "Account editing is not active yet. Run the v4.3 Account & Creator Score SQL.";
+  return message||"Could not save account changes."
+}
+async function openAccount(){
+  renderAccountProfile();setMsg("accountProfileNotice","");$("accountModal").showModal();await loadCreatorScore()
+}
+async function saveAccountProfile(event){
+  event.preventDefault();if(!sb||!app.session||app.account.profileSaving)return;
+  const username=$("accountUsernameInput").value.trim().toLowerCase(),displayName=$("accountDisplayNameInput").value.trim(),email=$("accountEmailInput").value.trim(),language=$("accountLanguageSelect").value,layout=normalizeLayoutMode($("accountLayoutSelect").value);
+  if(!/^[a-z0-9_.-]{3,30}$/.test(username))return setMsg("accountProfileNotice","Username may contain only letters, numbers, dot, underscore and hyphen.","warning");
+  app.account.profileSaving=true;$("saveAccountProfileBtn").disabled=true;$("saveAccountProfileBtn").textContent="Saving…";setMsg("accountProfileNotice","Saving account changes…");
+  try{
+    const {data,error}=await sb.rpc("storyboard_update_my_profile",{p_username:username,p_display_name:displayName,p_preferred_language:language,p_preferred_layout:layout});if(error)throw error;
+    const row=Array.isArray(data)?data[0]:data;if(row)app.profile={...app.profile,...row,accountSetupReady:true};
+    let emailPending=false;
+    if(email&&email.toLowerCase()!==String(app.session.user.email||"").toLowerCase()){
+      const {error:emailError}=await sb.auth.updateUser({email});if(emailError)throw emailError;emailPending=true
+    }
+    window.storyboardI18n?.setLanguage(language);applyLayoutPreference(layout);renderAccountProfile();
+    setMsg("accountProfileNotice",emailPending?"Profile saved. Check your email to confirm the new address.":"Account changes saved.")
+  }catch(error){setMsg("accountProfileNotice",accountProfileError(error),"warning")}
+  finally{app.account.profileSaving=false;$("saveAccountProfileBtn").disabled=false;$("saveAccountProfileBtn").textContent="Save Account Changes"}
+}
+function scoreLevel(total){
+  const levels=[{at:0,name:"Storyboard Starter"},{at:10,name:"Frame Explorer"},{at:25,name:"Scene Builder"},{at:50,name:"Visual Storyteller"},{at:100,name:"Storyboard Director"},{at:200,name:"Master Storyteller"}];
+  let current=levels[0],next=levels[1];for(let i=0;i<levels.length;i++){if(total>=levels[i].at){current=levels[i];next=levels[i+1]||null}}
+  const progress=next?Math.max(0,Math.min(100,((total-current.at)/(next.at-current.at))*100)):100;
+  return {current,next,progress,remaining:next?next.at-total:0}
+}
+function renderCreatorScore(){
+  const loading=$("accountScoreLoading"),content=$("accountScoreContent"),score=app.account.score;
+  loading.hidden=!!score;content.hidden=!score;if(!score){loading.textContent=app.account.scoreLoading?"Loading your score…":"Creator score is unavailable. Run the v4.3 Account & Creator Score SQL.";return}
+  const total=Number(score.total_score||0),level=scoreLevel(total);$("accountScoreTotal").textContent=String(total);$("accountScoreRank").textContent=`#${score.overall_rank||1} / ${score.total_users||1}`;$("accountScoreToday").textContent=String(score.today_score||0);$("accountScoreShots").textContent=String(score.shots_created||0);$("accountScoreImages").textContent=String(score.ai_images_generated||0);
+  $("accountScoreLevel").textContent=level.current.name;$("accountScoreNextLevel").textContent=level.next?`${level.remaining} point${level.remaining===1?"":"s"} to ${level.next.name}`:"Highest creator level reached";$("accountScoreProgress").style.width=`${level.progress}%`;
+  const leaderName=score.leader_display_name||score.leader_username;$("accountDailyLeader").textContent=Number(score.leader_score||0)>0?`${leaderName||"Creator"} · ${score.leader_score} point${Number(score.leader_score)===1?"":"s"}`:"No points yet today — be the first!"
+}
+async function loadCreatorScore(){
+  if(!sb||!app.session)return;app.account.scoreLoading=true;app.account.score=null;renderCreatorScore();
+  const {data,error}=await sb.rpc("storyboard_score_status");app.account.scoreLoading=false;
+  if(error){console.warn("Creator score unavailable",error);renderCreatorScore();return}
+  app.account.score=Array.isArray(data)?data[0]:data;renderCreatorScore();window.storyboardI18n?.translateTree($("accountModal"))
+}
+async function recordShotGenerationScore(shot,promptHash){
+  if(!sb||!app.session||!shot||!promptHash)return;
+  const {error}=await sb.rpc("storyboard_record_shot_generation",{p_project_id:app.current.id,p_shot_id:shot.id,p_prompt_hash:promptHash});
+  if(error)console.warn("Could not record creator score",error);
+  if($("accountModal")?.open)await loadCreatorScore()
 }
 function resetAdminState(){
   app.admin={isAdmin:false,role:null,selectedUser:null,users:[],usersOffset:0,usersTotal:0,usersQuery:"",supportProjectId:null,supportUserId:null,supportUsername:null,supportProjectName:null};
@@ -1106,7 +1232,12 @@ function applyPermissionLocks(){
   $("shotNo").readOnly=true;$("shotNo").disabled=false;
   $("frameImageInput").disabled=mediaLocked;$("chooseImageLabel").classList.toggle("permission-locked",mediaLocked);$("removeImageBtn").disabled=mediaLocked;
   $("aiBibleBtn").disabled=app.mode!=="cloud";
-  $("generateShotImageBtn").disabled=mediaLocked||app.mode!=="cloud"||app.ai.generating||!aiShotReady().ready;
+  const generateButton=$("generateShotImageBtn"),generationReady=aiShotReady();
+  const generationBlocked=mediaLocked||app.mode!=="cloud"||app.ai.generating;
+  generateButton.disabled=generationBlocked;
+  generateButton.classList.toggle("is-not-ready",!generationBlocked&&!generationReady.ready);
+  generateButton.setAttribute("aria-disabled",String(generationBlocked));
+  generateButton.title=generationReady.ready?"":uiText(generationReady.message);
   $("aiLocationId").disabled=shotLocked||!app.ai.ready;
   $("shotCharacterPicker").querySelectorAll("input").forEach(x=>x.disabled=shotLocked||x.disabled);
   $("collaborateBtn").hidden=app.mode!=="cloud";
@@ -1118,29 +1249,31 @@ function queueSave(kind){
   clearTimeout(autosaveTimer);autosaveTimer=setTimeout(()=>saveCloud(kind),550)
 }
 async function saveCloud(kind){
-  if(!sb||!app.current)return;
+  if(!sb||!app.current)return false;
   app.ignoreRealtimeUntil=Date.now()+1400;
   if(kind==="project"&&can("project_settings")){
-    await sb.from("projects").update({name:app.current.name,aspect:app.current.aspect,aspect_width:app.current.aspectWidth,aspect_height:app.current.aspectHeight,style:app.current.style,folder:app.current.folder||"General",tags:app.current.tags||[],metadata:projectMeta(app.current),is_favorite:!!app.current.isFavorite,updated_at:new Date().toISOString()}).eq("id",app.current.id)
+    const {error}=await sb.from("projects").update({name:app.current.name,aspect:app.current.aspect,aspect_width:app.current.aspectWidth,aspect_height:app.current.aspectHeight,style:app.current.style,folder:app.current.folder||"General",tags:app.current.tags||[],metadata:projectMeta(app.current),is_favorite:!!app.current.isFavorite,updated_at:new Date().toISOString()}).eq("id",app.current.id);
+    if(error){setMsg("editorNotice",error.message||"Could not save project settings.","warning");return false}
   }else if(kind==="scene"&&can("scenes")){
     const s=currentScene();if(!s)return;
     const sceneRpc=adminSupporting()?"storyboard_admin_update_scene":"update_storyboard_scene";
     const {data,error}=await sb.rpc(sceneRpc,{p_scene_id:s.id,p_expected_version:Number(s.version||1),p_title:s.title||"",p_description:s.description||""});
     if(error){
-      if(String(error.message||"").includes("EDIT_CONFLICT")){setMsg("editorNotice",conflictMessage("scene"),"warning");await openCloudProject(app.current.id,{sceneId:s.id,shotId:app.activeShotId,preserveSelection:true});return}
-      setMsg("editorNotice",error.message||"Could not save scene.","warning");return
+      if(String(error.message||"").includes("EDIT_CONFLICT")){setMsg("editorNotice",conflictMessage("scene"),"warning");await openCloudProject(app.current.id,{sceneId:s.id,shotId:app.activeShotId,preserveSelection:true});return false}
+      setMsg("editorNotice",error.message||"Could not save scene.","warning");return false
     }
-    s.version=Number(data||s.version+1)
+    s.version=Number(data||s.version+1);return true
   }else if(kind==="shot"&&can("shots")){
     const s=currentShot();if(!s)return;const data=shotDbData(s);
     const shotRpc=adminSupporting()?"storyboard_admin_update_shot":"update_storyboard_shot";
     const {data:newVersion,error}=await sb.rpc(shotRpc,{p_shot_id:s.id,p_expected_version:Number(s.version||1),p_data:data});
     if(error){
-      if(String(error.message||"").includes("EDIT_CONFLICT")){setMsg("editorNotice",conflictMessage("shot"),"warning");await openCloudProject(app.current.id,{sceneId:app.activeSceneId,shotId:s.id,preserveSelection:true});return}
-      setMsg("editorNotice",error.message||"Could not save shot.","warning");return
+      if(String(error.message||"").includes("EDIT_CONFLICT")){setMsg("editorNotice",conflictMessage("shot"),"warning");await openCloudProject(app.current.id,{sceneId:app.activeSceneId,shotId:s.id,preserveSelection:true});return false}
+      setMsg("editorNotice",error.message||"Could not save shot.","warning");return false
     }
-    s.version=Number(newVersion||s.version+1)
+    s.version=Number(newVersion||s.version+1);return true
   }
+  return true
 }
 function onProjectChange(){
   if(!can("project_settings"))return;
@@ -1151,7 +1284,7 @@ function onSceneChange(){
   if(!can("scenes"))return;const s=currentScene();if(!s)return;s.title=$("sceneTitle").value;s.description=$("sceneDescription").value;renderSceneList();renderShot();renderSheet();queueSave("scene");rememberWorkspace()
 }
 function onShotChange(id){
-  if(!can("shots")||id==="shotNo")return;const s=currentShot();if(!s)return;s[id]=$(id).value;renderShot();renderSceneList();renderSheet();queueSave("shot");rememberWorkspace()
+  if(!can("shots")||id==="shotNo")return;const s=currentShot();if(!s)return;s[id]=$(id).value;renderShot();renderSceneList();renderSheet();applyPermissionLocks();queueSave("shot");rememberWorkspace()
 }
 
 /* ---------- MEDIA COPY HELPERS ---------- */
@@ -1380,8 +1513,8 @@ async function loadImage(e){
   }
   if(!/^image\/(jpeg|png|webp)$/.test(file.type)||file.size>12*1024*1024){e.target.value="";return uiAlert("Use a JPEG, PNG or WebP image up to 12 MB.")}
   try{
-    const optimized=await optimizeImageBlob(file,1024,.82),path=`${app.current.id}/${s.id}/${Date.now()}-manual.webp`,oldPath=s.imagePath;
-    const {error}=await sb.storage.from("storyboards").upload(path,optimized,{upsert:false,contentType:"image/webp",cacheControl:"31536000"});if(error)throw error;
+    const optimized=await optimizeImageBlob(file,1024,.82),format=optimizedImageFormat(optimized),path=`${app.current.id}/${s.id}/${Date.now()}-manual.${format.extension}`,oldPath=s.imagePath;
+    const {error}=await sb.storage.from("storyboards").upload(path,optimized,{upsert:false,contentType:format.type,cacheControl:"31536000"});if(error)throw error;
     const {error:u}=await sb.from("shots").update({image_path:path}).eq("id",s.id);if(u){await removeMediaPaths([path]);throw u}
     s.imagePath=path;const {data}=await sb.storage.from("storyboards").createSignedUrl(path,SIGNED_IMAGE_TTL_SECONDS);s.image=data?.signedUrl||URL.createObjectURL(optimized);await removeMediaPaths([oldPath]);renderEditor()
   }catch(err){uiAlert(err.message||"Could not save image.")}finally{e.target.value=""}
@@ -1546,18 +1679,34 @@ async function deleteAiAsset(type,id){
   setMsg("aiBibleNotice",`${asset.name} deleted.`);renderAiVisualBible();renderEditor()
 }
 async function optimizeImageBlob(source,maxDimension=1024,quality=.82){
-  let drawable,width,height,cleanup=()=>{};
-  if(typeof createImageBitmap==="function"){drawable=await createImageBitmap(source);width=drawable.width;height=drawable.height;cleanup=()=>drawable.close?.()}
-  else{const url=URL.createObjectURL(source);drawable=await new Promise((resolve,reject)=>{const image=new Image();image.onload=()=>resolve(image);image.onerror=()=>reject(new Error("Could not read image."));image.src=url});width=drawable.naturalWidth;height=drawable.naturalHeight;cleanup=()=>URL.revokeObjectURL(url)}
+  let drawable=null,width=0,height=0,cleanup=()=>{};
+  // Some mobile Safari builds expose createImageBitmap but reject particular
+  // JPEG responses. Fall back to an HTMLImageElement instead of losing the
+  // successfully generated frame.
+  if(typeof createImageBitmap==="function"){
+    try{drawable=await createImageBitmap(source);width=drawable.width;height=drawable.height;cleanup=()=>drawable.close?.()}catch(error){drawable=null}
+  }
+  if(!drawable){
+    const url=URL.createObjectURL(source);
+    try{drawable=await new Promise((resolve,reject)=>{const image=new Image();image.onload=()=>resolve(image);image.onerror=()=>reject(new Error("Could not read image."));image.src=url});width=drawable.naturalWidth;height=drawable.naturalHeight;cleanup=()=>URL.revokeObjectURL(url)}
+    catch(error){URL.revokeObjectURL(url);throw error}
+  }
   const scale=Math.min(1,maxDimension/Math.max(width,height));width=Math.max(1,Math.round(width*scale));height=Math.max(1,Math.round(height*scale));
-  const canvas=document.createElement("canvas");canvas.width=width;canvas.height=height;canvas.getContext("2d").drawImage(drawable,0,0,width,height);cleanup();
-  const blob=await new Promise((resolve,reject)=>canvas.toBlob(x=>x?resolve(x):reject(new Error("Image optimization failed.")),"image/webp",quality));
-  return blob
+  const canvas=document.createElement("canvas");canvas.width=width;canvas.height=height;const context=canvas.getContext("2d");
+  if(!context){cleanup();throw new Error("Image optimization failed.")}
+  context.drawImage(drawable,0,0,width,height);cleanup();
+  // Browsers without WebP canvas encoding are allowed to return PNG here.
+  // The upload code keeps the returned MIME type and matching extension.
+  return await new Promise((resolve,reject)=>canvas.toBlob(x=>x?resolve(x):reject(new Error("Image optimization failed.")),"image/webp",quality))
+}
+function optimizedImageFormat(blob){
+  const type=["image/webp","image/png","image/jpeg"].includes(blob?.type)?blob.type:"image/webp";
+  return {type,extension:type==="image/png"?"png":type==="image/jpeg"?"jpg":"webp"}
 }
 async function storeAiReference(type,asset,sourceBlob){
   // FLUX.2 Klein requires every reference input to be smaller than 512×512.
-  const optimized=await optimizeImageBlob(sourceBlob,496,.84),path=`${app.current.id}/ai/${aiFolder(type)}/${asset.id}/${Date.now()}.webp`,oldPath=asset.reference_path,oldUrl=asset.referenceUrl;
-  const {error:uploadError}=await sb.storage.from("storyboards").upload(path,optimized,{upsert:false,contentType:"image/webp",cacheControl:"31536000"});if(uploadError)throw uploadError;
+  const optimized=await optimizeImageBlob(sourceBlob,496,.84),format=optimizedImageFormat(optimized),path=`${app.current.id}/ai/${aiFolder(type)}/${asset.id}/${Date.now()}.${format.extension}`,oldPath=asset.reference_path,oldUrl=asset.referenceUrl;
+  const {error:uploadError}=await sb.storage.from("storyboards").upload(path,optimized,{upsert:false,contentType:format.type,cacheControl:"31536000"});if(uploadError)throw uploadError;
   const {error:updateError}=await sb.from(aiTable(type)).update({reference_path:path,style_snapshot:null,locked:false,updated_at:new Date().toISOString()}).eq("id",asset.id).eq("project_id",app.current.id);
   if(updateError){await removeMediaPaths([path]);throw updateError}
   asset.reference_path=path;asset.style_snapshot=null;asset.locked=false;asset.referenceUrl=null;await signAiAsset(asset);if(!asset.referenceUrl)asset.referenceUrl=URL.createObjectURL(optimized);if(String(oldUrl||"").startsWith("blob:"))URL.revokeObjectURL(oldUrl);await removeMediaPaths([oldPath]);return asset
@@ -1567,19 +1716,51 @@ async function uploadAiReference(type,id,event){
   if(!/^image\/(jpeg|png|webp)$/.test(file.type)||file.size>12*1024*1024)return setMsg("aiBibleNotice","Use a JPEG, PNG or WebP image up to 12 MB.","warning");
   try{setMsg("aiBibleNotice",`Optimizing and saving ${asset.name}…`);await storeAiReference(type,asset,file);setMsg("aiBibleNotice",`${asset.name} reference saved. Review it, then lock it.`);renderAiVisualBible();renderShot()}catch(err){setMsg("aiBibleNotice",err.message||"Could not save reference.","warning")}
 }
+function beginAiGeneration(mode,assetId=null){
+  app.ai.previousFocus=document.activeElement;app.ai.generating=true;app.ai.generationMode=mode;app.ai.generatingAssetId=assetId;app.ai.cancelRequested=false;app.ai.requestController=null;syncAiGenerationLock();requestAnimationFrame(()=>$('cancelAiGenerationBtn')?.focus())
+}
+function finishAiGeneration(){
+  const previousFocus=app.ai.previousFocus;app.ai.generating=false;app.ai.generationMode=null;app.ai.generatingAssetId=null;app.ai.requestController=null;app.ai.cancelRequested=false;app.ai.previousFocus=null;syncAiGenerationLock();if(previousFocus?.isConnected)requestAnimationFrame(()=>previousFocus.focus())
+}
+function setGenerationInert(active){
+  const overlay=$('aiGenerationLock');
+  for(const element of [...document.body.children]){
+    if(element===overlay||element.tagName==='SCRIPT')continue;
+    if(active){
+      if(!element.inert)element.dataset.aiGenerationInert='true';
+      element.inert=true
+    }else if(element.dataset.aiGenerationInert==='true'){
+      element.inert=false;delete element.dataset.aiGenerationInert
+    }
+  }
+}
+function syncAiGenerationLock(){
+  const overlay=$("aiGenerationLock");if(!overlay)return;
+  const active=!!app.ai.generating;overlay.hidden=!active;setGenerationInert(active);document.body.classList.toggle("ai-generation-active",active);
+  const reference=String(app.ai.generationMode||"").endsWith("_reference");
+  $("aiGenerationLockTitle").textContent=app.ai.cancelRequested?"Canceling generation…":reference?"Creating the visual reference…":"Creating your storyboard image…";
+  $("aiGenerationLockMessage").textContent=reference?"Editing is paused so this approved reference remains consistent.":"Editing is paused so the generated image matches the submitted shot settings.";
+  const cancel=$("cancelAiGenerationBtn");cancel.disabled=!active||app.ai.cancelRequested;cancel.textContent=app.ai.cancelRequested?"Canceling…":"Cancel Generation"
+}
+function cancelAiGeneration(){
+  if(!app.ai.generating||app.ai.cancelRequested)return;
+  app.ai.cancelRequested=true;syncAiGenerationLock();app.ai.requestController?.abort()
+}
 async function requestAiImage(payload){
   const {data:{session}}=await sb.auth.getSession();if(!session?.access_token)throw new Error("Your session expired. Sign in again.");
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),180000);
+  app.ai.requestController=controller;if(app.ai.cancelRequested)controller.abort();
   try{
     const response=await fetch("/api/ai/generate",{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${session.access_token}`},body:JSON.stringify(payload),signal:controller.signal});
     if(!response.ok){let message=`AI request failed (${response.status}).`;try{const body=await response.json();message=body.error||message;if(body.remaining!==undefined)message+=` ${body.remaining} generation(s) remain today.`}catch(e){}throw new Error(message)}
     const contentType=(response.headers.get("Content-Type")||"").toLowerCase();if(!contentType.startsWith("image/"))throw new Error("AI returned an invalid response instead of an image.");
     return {blob:await response.blob(),remaining:response.headers.get("X-AI-Remaining"),model:response.headers.get("X-AI-Model")||"flux-2-klein-4b",promptHash:response.headers.get("X-AI-Prompt-Hash")||""}
   }catch(error){
+    if(app.ai.cancelRequested&&(error?.name==="AbortError"||error instanceof TypeError))throw new Error("Generation canceled.");
     if(error?.name==="AbortError")throw new Error("AI generation took more than 3 minutes. Please try again.");
     if(error instanceof TypeError)throw new Error("Could not reach the AI service. Check your connection, then try again.");
     throw error
-  }finally{clearTimeout(timeout)}
+  }finally{clearTimeout(timeout);if(app.ai.requestController===controller)app.ai.requestController=null}
 }
 function generationBalanceMessage(remaining){
   if(remaining===null||remaining===undefined||remaining==="")return "";
@@ -1588,12 +1769,12 @@ function generationBalanceMessage(remaining){
 }
 async function generateAiReference(type,id){
   const asset=aiCollection(type).find(x=>x.id===id);if(!asset||asset.locked||!can("media")||app.ai.generating)return;
-  app.suppressRealtime++;app.ai.generating=true;app.ai.generatingAssetId=id;asset.generationStatus=`Generating ${asset.name} reference… Keep this window open.`;asset.generationStatusKind="loading";setMsg("aiBibleNotice",asset.generationStatus);renderAiVisualBible();
+  app.suppressRealtime++;beginAiGeneration(`${type}_reference`,id);asset.generationStatus=`Generating ${asset.name} reference… Keep this window open.`;asset.generationStatusKind="loading";setMsg("aiBibleNotice",asset.generationStatus);renderAiVisualBible();
   try{
     const result=await requestAiImage({mode:`${type}_reference`,project_id:app.current.id,asset_id:id});
     await storeAiReference(type,asset,result.blob);asset.generationStatus=`Reference generated. Review it, then press Lock.${generationBalanceMessage(result.remaining)}`;asset.generationStatusKind="success";setMsg("aiBibleNotice",`${asset.name} reference generated. Review and lock it.${generationBalanceMessage(result.remaining)}`);renderShot()
   }catch(err){asset.generationStatus=err.message||"Reference generation failed.";asset.generationStatusKind="error";setMsg("aiBibleNotice",asset.generationStatus,"warning")}
-  finally{app.ai.generating=false;app.ai.generatingAssetId=null;app.suppressRealtime=Math.max(0,app.suppressRealtime-1);renderAiVisualBible();applyPermissionLocks();await loadAiUsage()}
+  finally{finishAiGeneration();app.suppressRealtime=Math.max(0,app.suppressRealtime-1);renderAiVisualBible();applyPermissionLocks();await loadAiUsage()}
 }
 function renderAiShotControls(){
   const shot=currentShot(),characters=$("shotCharacterPicker"),location=$("aiLocationId");if(!shot||!characters||!location)return;
@@ -1612,7 +1793,7 @@ function renderAiShotControls(){
   for(const asset of app.ai.locations){const styleMatches=asset.style_snapshot===app.current.style,available=asset.locked&&asset.reference_path&&styleMatches,option=document.createElement("option");option.value=asset.id;option.textContent=asset.name+(available?"":styleMatches?" · not locked":" · style changed");option.disabled=!available;location.appendChild(option)}
   location.value=[...location.options].some(x=>x.value===previous)?previous:"";
   const state=aiShotReady(),status=$("aiGenerationStatus");status.textContent=app.ai.generating?"Generating the frame… Keep this tab open.":state.message;status.className="ai-generation-status"+(state.ready?"":" error");
-  $("generateShotImageBtn").textContent=app.ai.generating?"Generating…":"✦ Generate Storyboard";$("generateShotImageBtn").classList.toggle("is-generating",app.ai.generating)
+  $("generateShotImageBtn").textContent=app.ai.generating?"Generating…":"✦ Generate Storyboard";$("generateShotImageBtn").classList.toggle("is-generating",app.ai.generating);$("generateShotImageBtn").setAttribute("aria-busy",String(app.ai.generating))
 }
 function onAiShotLinksChange(){
   const shot=currentShot();if(!shot||!can("shots"))return;shot.aiLocationId=$("aiLocationId").value||"";renderShot();queueSave("shot");rememberWorkspace();applyPermissionLocks()
@@ -1626,19 +1807,40 @@ function aiShotReady(){
   const invalid=(shot.aiCharacterIds||[]).find(id=>{const x=app.ai.characters.find(c=>c.id===id);return !x||!x.locked||!x.reference_path||x.style_snapshot!==app.current.style});if(invalid)return {ready:false,message:"Every selected character needs an approved reference locked for the current project style."};
   return {ready:true,message:`Ready · ${location.name} · ${shot.aiCharacterIds.length||"no"} character reference${shot.aiCharacterIds.length===1?"":"s"} · ${app.current.style}`}
 }
+function captureShotEditorDraft(){
+  const shot=currentShot();if(!shot)return null;
+  // A tap that closes the mobile keyboard can reach Generate before the
+  // textarea's change event. Read the live controls synchronously so the
+  // request always contains what the user can currently see on screen.
+  for(const id of SHOT_FIELDS){const field=$(id);if(field&&id!=="shotNo")shot[id]=field.value}
+  const location=$("aiLocationId");if(location)shot.aiLocationId=location.value||"";
+  const characterInputs=[...document.querySelectorAll('#shotCharacterPicker input[type="checkbox"]')];
+  if(characterInputs.length)shot.aiCharacterIds=characterInputs.filter(input=>input.checked).map(input=>input.value);
+  return shot
+}
+function announceAiShotStatus(message,kind="error"){
+  const status=$("aiGenerationStatus");if(!status)return;
+  status.textContent=uiText(message);status.className=`ai-generation-status ${kind} attention`;status.setAttribute("role","status");
+  setTimeout(()=>status.classList.remove("attention"),900)
+}
 async function generateShotImage(){
-  const readiness=aiShotReady(),shot=currentShot(),scene=currentScene();if(!readiness.ready||!shot||!scene||app.ai.generating){renderShot();applyPermissionLocks();return}
-  clearTimeout(autosaveTimer);app.suppressRealtime++;app.ai.generating=true;renderShot();applyPermissionLocks();setMsg("editorNotice","");
+  const shot=captureShotEditorDraft(),scene=currentScene(),readiness=aiShotReady();
+  if(app.ai.generating)return;
+  if(!readiness.ready||!shot||!scene){renderShot();applyPermissionLocks();announceAiShotStatus(readiness.message||"Choose a shot first.");setMsg("editorNotice",readiness.message||"Choose a shot first.","warning");return}
+  let finalStatus="",finalStatusKind="";
+  clearTimeout(autosaveTimer);app.suppressRealtime++;beginAiGeneration("shot");renderShot();applyPermissionLocks();setMsg("editorNotice","");announceAiShotStatus("Generating the frame… Keep this tab open.","loading");
   try{
+    const projectSaved=await saveCloud("project"),sceneSaved=await saveCloud("scene"),shotSaved=await saveCloud("shot");
+    if(!projectSaved||!sceneSaved||!shotSaved)throw new Error("Could not save the latest shot settings before generation.");
     const result=await requestAiImage({mode:"shot",project_id:app.current.id,scene_id:scene.id,shot_id:shot.id,shot_data:shotDbData(shot)});
-    const optimized=await optimizeImageBlob(result.blob,1024,.82),path=`${app.current.id}/${shot.id}/${Date.now()}-ai.webp`,oldPath=shot.imagePath;
-    const {error:uploadError}=await sb.storage.from("storyboards").upload(path,optimized,{upsert:false,contentType:"image/webp",cacheControl:"31536000"});if(uploadError)throw uploadError;
+    const optimized=await optimizeImageBlob(result.blob,1024,.82),format=optimizedImageFormat(optimized),path=`${app.current.id}/${shot.id}/${Date.now()}-ai.${format.extension}`,oldPath=shot.imagePath;
+    const {error:uploadError}=await sb.storage.from("storyboards").upload(path,optimized,{upsert:false,contentType:format.type,cacheControl:"31536000"});if(uploadError)throw uploadError;
     const {error:updateError}=await sb.from("shots").update({image_path:path}).eq("id",shot.id).eq("project_id",app.current.id);if(updateError){await removeMediaPaths([path]);throw updateError}
     shot.imagePath=path;shot.aiGeneration={provider:"cloudflare-workers-ai",model:result.model,generatedAt:new Date().toISOString(),locationId:shot.aiLocationId,characterIds:[...(shot.aiCharacterIds||[])],promptHash:result.promptHash};
     const {data:signed}=await sb.storage.from("storyboards").createSignedUrl(path,SIGNED_IMAGE_TTL_SECONDS);shot.image=signed?.signedUrl||URL.createObjectURL(optimized);
-    await removeMediaPaths([oldPath]);await saveCloud("shot");renderEditor();setMsg("editorNotice",`Storyboard image generated and saved.${generationBalanceMessage(result.remaining)}`)
-  }catch(err){setMsg("editorNotice",err.message||"Could not generate this shot.","warning")}
-  finally{app.ai.generating=false;app.suppressRealtime=Math.max(0,app.suppressRealtime-1);renderShot();applyPermissionLocks();rememberWorkspace();await loadAiUsage()}
+    await removeMediaPaths([oldPath]);const saved=await saveCloud("shot");if(saved)await recordShotGenerationScore(shot,result.promptHash);renderEditor();finalStatus=`Storyboard image generated and saved.${generationBalanceMessage(result.remaining)}`;finalStatusKind="success";setMsg("editorNotice",finalStatus)
+  }catch(err){finalStatus=err.message||"Could not generate this shot.";finalStatusKind="error";setMsg("editorNotice",finalStatus,"warning")}
+  finally{finishAiGeneration();app.suppressRealtime=Math.max(0,app.suppressRealtime-1);renderShot();applyPermissionLocks();if(finalStatus)announceAiShotStatus(finalStatus,finalStatusKind);rememberWorkspace();await loadAiUsage()}
 }
 
 /* ---------- SHEET TOGGLE ---------- */
@@ -3258,15 +3460,16 @@ async function saveProjectDetails(){
 
 /* ---------- EVENTS ---------- */
 function bind(){
+  $("cancelAiGenerationBtn").onclick=cancelAiGeneration;
   $("mobileMoreBtn").onclick=toggleEditorActions;
   $("mobileScenesBtn").onclick=()=>setMobileEditorScreen("scenes");
   $("mobileShotBtn").onclick=()=>setMobileEditorScreen("shot");
   $("loginTabBtn").onclick=()=>toggleAuthTab("login");$("signupTabBtn").onclick=()=>toggleAuthTab("signup");$("loginEmailMode").onclick=()=>setLoginKind("email");$("loginUsernameMode").onclick=()=>setLoginKind("username");
   $("loginForm").onsubmit=doLogin;$("signupForm").onsubmit=doSignup;$("passwordRecoveryForm").onsubmit=updateRecoveredPassword;$("cancelPasswordRecoveryBtn").onclick=cancelPasswordRecovery;$("forgotPasswordBtn").onclick=forgotPassword;$("continueOfflineBtn").onclick=continueOffline;
   $("logoutBtn").onclick=logout;$("newCloudProjectBtn").onclick=createCloudProject;$("emptyNewProjectBtn").onclick=createCloudProject;
-  $("accountBtn").onclick=()=>$("accountModal").showModal();$("closeAccountBtn").onclick=()=>$("accountModal").close();
+  $("accountBtn").onclick=openAccount;$("closeAccountBtn").onclick=()=>$("accountModal").close();$("accountProfileForm").onsubmit=saveAccountProfile;$("accountLanguageSelect").onchange=e=>window.storyboardI18n?.setLanguage(e.target.value);$("accountLayoutSelect").onchange=e=>applyLayoutPreference(e.target.value);
   $("adminCenterBtn").onclick=openAdminCenter;$("backFromAdminBtn").onclick=async()=>{rememberProjectsView();await loadCloudProjects();showProjects()};
-  $("adminAccountBtn").onclick=()=>$("accountModal").showModal();$("adminLogoutBtn").onclick=logout;
+  $("adminAccountBtn").onclick=openAccount;$("adminLogoutBtn").onclick=logout;
   $("adminUserSearchForm").onsubmit=searchAdminUsers;$("adminShowAllUsersBtn").onclick=showAllAdminUsers;$("adminLoadMoreUsersBtn").onclick=()=>loadAdminUsers(false);$("clearAdminUserBtn").onclick=clearAdminUser;$("adminAddForm").onsubmit=addAdmin;$("exitAdminSupportBtn").onclick=()=>closeAdminSupport(true);
   $("backProjectsBtn").onclick=async()=>{if(adminSupporting()){await closeAdminSupport(true);return}unsubscribeRealtime();unsubscribePresence();stopSignedImageRefresh();unsubscribeChatRealtime();unsubscribeChatNoticeRealtime();unsubscribeLightingRealtime();updateChatBadges(0,false);if(app.mode==="cloud"){rememberProjectsView();await loadCloudProjects();showProjects()}else showAuth()};
   $("projectSearch").oninput=e=>{app.projectSearch=e.target.value;renderProjects()};
@@ -3365,7 +3568,7 @@ function bind(){
     if(app.current)renderEditor();
     if(!$("projectsView").hidden)renderProjects();
     if(!$("adminView").hidden&&app.admin.isAdmin){renderAdminUserResults(app.admin.users);loadAdminTeam();loadAdminActivity()}
-    renderAiUsage();window.storyboardI18n?.translateTree(document.body)
+    if(app.profile)renderAccountProfile();if($("accountModal")?.open)renderCreatorScore();renderAiUsage();window.storyboardI18n?.translateTree(document.body)
   });
   document.addEventListener("click",e=>{
     if(!$("editorView")?.classList.contains("editor-actions-open"))return;

@@ -474,11 +474,14 @@ summary{padding:16px 17px;font-weight:850;cursor:pointer;list-style:none}summary
 /* v4.0 — AI storyboard generation + project visual bible */
 .ai-bible-btn{margin-top:8px;border-color:#245d70!important;color:#75e3ff!important;background:linear-gradient(135deg,rgba(22,68,82,.34),rgba(17,35,56,.3))!important}
 .frame-ai-actions{display:flex;align-items:center;gap:10px;margin-top:11px}
-.ai-generate-btn{flex:1;background:linear-gradient(135deg,#4fe0ff,#58a8ff);color:#031218;border-color:#67e7ff;box-shadow:0 7px 24px rgba(48,189,241,.16)}
+.ai-generate-btn{flex:1;background:linear-gradient(135deg,#4fe0ff,#58a8ff);color:#031218;border-color:#67e7ff;box-shadow:0 7px 24px rgba(48,189,241,.16);touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.ai-generate-btn:active:not(:disabled){transform:translateY(1px);filter:brightness(.9)}
+.ai-generate-btn.is-not-ready:not(:disabled){opacity:.78;box-shadow:none}
 .ai-generate-btn.is-generating{cursor:wait;animation:aiPulse 1.2s ease-in-out infinite}
 .ai-generate-btn:disabled{opacity:.48;cursor:not-allowed;box-shadow:none}
 .ai-generation-status{margin-top:8px;min-height:16px;color:var(--muted);font-size:10px;line-height:1.45}
-.ai-generation-status.error{color:#ff9aa2}.ai-generation-status.success{color:#86e8b0}
+.ai-generation-status.error{color:#ff9aa2}.ai-generation-status.success{color:#86e8b0}.ai-generation-status.loading{color:#8fe7ff}
+.ai-generation-status.attention{animation:aiStatusAttention .8s ease-out}
 .ai-usage-summary{display:flex;align-items:center;gap:10px;width:max-content;max-width:100%;border:1px solid #27434e;background:#0b171c;border-radius:10px;padding:7px 10px;color:#a9bbc3;font-size:9px;line-height:1.25}
 .ai-usage-summary.compact{margin-top:8px;width:100%;justify-content:center}.ai-usage-summary.frame-usage{margin-top:9px}
 .ai-usage-stat{display:flex;align-items:baseline;gap:5px;white-space:nowrap}.ai-usage-stat>span{color:#7f969f}.ai-usage-stat strong{color:#d9f7ff;font-size:11px;font-weight:850}
@@ -486,6 +489,7 @@ summary{padding:16px 17px;font-weight:850;cursor:pointer;list-style:none}summary
 .ai-usage-summary.unlimited{border-color:#315d4a;background:#0d1b15}.ai-usage-summary.unlimited .ai-usage-stat:last-child strong{color:#91ebb7}
 .ai-usage-summary.exhausted{border-color:#63363c;background:#211114}.ai-usage-summary.exhausted .ai-usage-stat:last-child strong{color:#ff9aa2}
 @keyframes aiPulse{50%{filter:brightness(.72)}}
+@keyframes aiStatusAttention{0%,100%{transform:none}35%{transform:translateX(3px)}70%{transform:translateX(-3px)}}
 .shot-ai-reference-panel{margin-top:17px;padding:13px;border:1px solid #245568;border-radius:13px;background:linear-gradient(145deg,rgba(18,49,60,.48),rgba(8,15,20,.76));display:grid;gap:8px}
 .shot-ai-reference-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:2px}.shot-ai-reference-head strong{display:block;margin-top:3px;font-size:13px}.shot-ai-reference-head .text-btn{white-space:nowrap}
 .shot-ai-reference-panel>label{margin:3px 0 -2px;color:#9bb7c2;font-size:10px;font-weight:750;text-transform:uppercase;letter-spacing:.04em}.shot-ai-reference-panel select{margin:0}
@@ -544,6 +548,38 @@ html[dir="rtl"] .dashboard-head{padding-inline-end:30px;padding-inline-start:130
 html[dir="rtl"] #editorView .topbar{padding-inline-end:24px;padding-inline-start:130px}
 .editor-mobile-context,.mobile-more-btn{display:none}
 
+/* v4.3 — cancellable generation lock */
+.ai-generation-lock{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;padding:18px;background:rgba(2,5,7,.84);backdrop-filter:blur(9px)}
+.ai-generation-lock[hidden]{display:none!important}
+.ai-generation-lock-card{position:relative;width:min(480px,100%);display:grid;justify-items:center;gap:13px;padding:28px 24px;background:linear-gradient(155deg,#14242b,#0c1013 65%);border:1px solid #3c8297;border-radius:22px;box-shadow:0 28px 90px rgba(0,0,0,.62);text-align:center}
+.ai-generation-lock-card h2{margin:0;font-size:23px}.ai-generation-lock-card p{margin:0;color:#afbec5;line-height:1.55}.ai-generation-lock-card small{max-width:390px;color:#718189;line-height:1.45}
+.ai-generation-spinner{width:54px;height:54px;border:4px solid rgba(86,218,255,.18);border-top-color:#56daff;border-radius:50%;animation:generationSpin .85s linear infinite}
+.ai-generation-lock-card .btn{min-width:180px;touch-action:manipulation}
+body.ai-generation-active{overflow:hidden!important}
+@keyframes generationSpin{to{transform:rotate(360deg)}}
+
+/* v4.3 — account, preferences and creator score */
+.account-modal-card{width:min(880px,100%);max-height:92vh}
+.account-identity-card{display:flex;align-items:center;gap:13px;margin-bottom:15px;padding:13px;border:1px solid #29343a;background:#0b0f11;border-radius:15px}
+.account-avatar{width:54px;height:54px;display:grid;place-items:center;flex:0 0 auto;border-radius:16px;background:linear-gradient(145deg,#52dcff,#3476ff);color:#041016;font-size:25px;font-weight:950;box-shadow:0 8px 24px rgba(40,155,231,.24)}
+.account-identity-card>div:last-child{display:grid;gap:2px;min-width:0}.account-identity-card strong{font-size:17px}.account-identity-card span{color:#70dcfb;font-size:12px}.account-identity-card small{overflow:hidden;text-overflow:ellipsis}
+.account-settings-grid{display:grid;gap:11px}.account-section{padding:15px;border:1px solid var(--line);background:#0d1012;border-radius:15px}.account-section-head{display:flex;justify-content:space-between;gap:12px;margin-bottom:12px}.account-section-head h3{margin:0 0 3px;font-size:16px}.account-section-head small{color:var(--muted)}
+.account-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.account-form-grid .field-help{margin:5px 0 0}.account-cooldown{min-height:15px}.account-save-btn{justify-self:end;min-width:210px}
+.account-score-card{position:relative;overflow:hidden;margin-top:15px;padding:18px;border:1px solid #6a5230;border-radius:19px;background:radial-gradient(circle at 88% 0,rgba(255,190,75,.2),transparent 34%),linear-gradient(145deg,#21190d,#11171c 67%);box-shadow:inset 0 1px rgba(255,255,255,.04)}
+.account-score-card:before{content:"";position:absolute;inset:0;background:linear-gradient(115deg,transparent 25%,rgba(255,255,255,.035) 48%,transparent 70%);pointer-events:none}
+.score-spark{position:absolute;color:#ffd36a;opacity:.35}.score-spark-one{right:24px;top:18px;font-size:24px}.score-spark-two{right:70px;top:55px;font-size:13px}
+html[dir="rtl"] .score-spark-one{right:auto;left:24px}html[dir="rtl"] .score-spark-two{right:auto;left:70px}
+.account-score-head{position:relative;display:flex;align-items:center;gap:12px;margin-bottom:14px}.score-trophy{width:48px;height:48px;display:grid;place-items:center;border:1px solid #7c6033;border-radius:15px;background:#2b210f;font-size:25px}.account-score-head h3{margin:3px 0 0;font-size:18px}.account-score-loading{padding:22px 5px;color:#d2b77e;text-align:center}
+.score-stat-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.score-stat{display:grid;gap:5px;padding:12px;border:1px solid rgba(255,213,126,.18);border-radius:13px;background:rgba(5,8,10,.48)}.score-stat span{color:#b7aa91;font-size:10px}.score-stat strong{font-size:22px;color:#ffe0a0}.score-total{background:linear-gradient(145deg,rgba(91,63,15,.65),rgba(12,17,20,.6))}
+.score-progress-wrap{margin-top:14px}.score-progress-copy{display:flex;justify-content:space-between;gap:10px;margin-bottom:7px}.score-progress-copy span{font-size:12px;font-weight:850;color:#ffe0a0}.score-progress-copy small{color:#a9997c}.score-progress{height:9px;overflow:hidden;border-radius:999px;background:#080b0d;border:1px solid #42351f}.score-progress span{display:block;width:0;height:100%;border-radius:inherit;background:linear-gradient(90deg,#ffaf34,#ffe278);box-shadow:0 0 14px rgba(255,185,58,.45);transition:width .35s ease}
+.score-breakdown{display:flex;gap:8px;flex-wrap:wrap;margin-top:11px}.score-breakdown span{padding:6px 9px;border-radius:999px;background:#151b1e;color:#aeb8bc;font-size:10px}.score-breakdown b{color:#78e2ff}
+.daily-winner{display:flex;align-items:center;gap:10px;margin-top:13px;padding:11px;border:1px solid rgba(255,128,74,.28);border-radius:13px;background:linear-gradient(90deg,rgba(94,34,15,.34),rgba(18,20,20,.55))}.daily-winner>span{font-size:24px}.daily-winner>div{display:grid;gap:2px}.daily-winner small{color:#cc9d84}.daily-winner strong{font-size:12px;color:#ffd0b6}
+.score-rules{position:relative;margin:12px 0 0;color:#8e989c;font-size:10px;line-height:1.55}
+
+/* On a wide screen, a manually selected Mobile Version still uses the
+   generated mobile rules while keeping the app readable across the viewport. */
+html[data-layout-mode="mobile"] .account-modal-card{width:100%;max-width:none}
+
 @media(max-width:950px){
   html,body{width:100%;height:100%;overflow:hidden;overscroll-behavior:none}
   body{min-height:100dvh}
@@ -564,7 +600,7 @@ html[dir="rtl"] #editorView .topbar{padding-inline-end:24px;padding-inline-start
   .dashboard-head .small-logo{width:39px;height:39px;font-size:25px;border-radius:9px}
   .dashboard-head .brand-row{gap:9px;min-width:0;min-height:42px;padding-inline-end:92px}
   html[dir="rtl"] .dashboard-head .brand-row{padding-inline-end:0;padding-inline-start:92px}
-  .dashboard-head .brand-row h1{font-size:18px;white-space:nowrap}
+  .dashboard-head .brand-row h1{font-size:21px;white-space:nowrap}
   .dashboard-head .brand-row .eyebrow{display:none}
   .dashboard-head .top-actions{
     position:static;display:grid;width:100%;grid-template-columns:repeat(auto-fit,minmax(72px,1fr));gap:6px;padding:0;background:transparent;border:0;
@@ -591,7 +627,7 @@ html[dir="rtl"] #editorView .topbar{padding-inline-end:24px;padding-inline-start
   #editorView .back-btn{width:40px;height:40px;padding:0;display:grid;place-items:center;border-radius:12px}
   .editor-mobile-context{display:grid;min-width:0;max-width:46vw;text-align:center;line-height:1.15}
   .editor-mobile-context strong,.editor-mobile-context small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .editor-mobile-context strong{font-size:14px}.editor-mobile-context small{margin-top:4px;color:var(--muted);font-size:10px}
+  .editor-mobile-context strong{font-size:17px}.editor-mobile-context small{margin-top:4px;color:var(--muted);font-size:12px}
   .mobile-more-btn{display:grid;position:absolute;right:9px;top:50%;transform:translateY(-50%);width:40px;height:40px;padding:0;place-items:center;font-size:14px}
   html[dir="rtl"] .mobile-more-btn{right:auto;left:9px}
   #editorView .editor-actions{
@@ -617,16 +653,17 @@ html[dir="rtl"] #editorView .topbar{padding-inline-end:24px;padding-inline-start
     background:rgba(7,8,9,.94);backdrop-filter:blur(12px);border-bottom:1px solid #20262b
   }
   #editorView .workspace-head>div:first-child{min-width:88px}
-  #editorView .workspace-head h2{font-size:17px}
-  #editorView .workspace-head .eyebrow{font-size:8px;letter-spacing:.08em}
+  #editorView .workspace-head h2{font-size:20px}
+  #editorView .workspace-head .eyebrow{font-size:10px;letter-spacing:.08em}
   #editorView .shot-manage-actions{flex:1;justify-content:flex-start;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
   #editorView .shot-manage-actions::-webkit-scrollbar{display:none}
   #editorView .shot-manage-actions .btn{flex:0 0 auto;font-size:10px;padding:7px 9px;min-height:34px}
   #editorView .hero-grid{grid-template-columns:1fr;gap:12px}
   #editorView .story-frame{width:min(100%,340px);max-width:none;margin:auto}
   #editorView .frame-card,#editorView .quick-card{border-radius:15px;padding:12px}
+  #editorView .ai-generate-btn{min-height:48px;font-size:14px}
   #editorView .accordion{margin-top:12px;padding-bottom:5px}
-  #editorView summary{padding:14px}
+  #editorView summary{padding:14px;font-size:15px}
   #editorView .form-grid{padding:14px}
   #editorView .editor-credit{padding-bottom:8px}
 
@@ -640,7 +677,7 @@ html[dir="rtl"] #editorView .topbar{padding-inline-end:24px;padding-inline-start
     margin:0 -9px 10px;padding:10px 11px;background:rgba(9,13,16,.96);backdrop-filter:blur(12px);border-bottom:1px solid #20323a
   }
   #editorView .sheet-toolbar>div:first-child{min-width:0}
-  #editorView .sheet-toolbar h2{font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:45vw}
+  #editorView .sheet-toolbar h2{font-size:18px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:45vw}
   #editorView .sheet-toolbar .eyebrow{display:none}
   #editorView .sheet-controls{width:auto;flex-wrap:nowrap;align-items:center}
   #editorView .sheet-controls .inline-control{display:none}
@@ -669,7 +706,9 @@ html[dir="rtl"] #editorView .topbar{padding-inline-end:24px;padding-inline-start
     width:100%;height:100%;max-height:none;margin:0;border:0;border-radius:0;padding:14px 12px calc(20px + env(safe-area-inset-bottom));overflow-y:auto;overscroll-behavior-y:contain
   }
   .modal-head{position:sticky;top:-14px;z-index:30;margin:-14px -12px 14px;padding:13px 12px 10px;background:rgba(17,19,22,.97);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
-  .modal-head h2{font-size:20px}
+  .modal-head h2{font-size:23px}
+  .account-form-grid{grid-template-columns:1fr}.account-form-grid .span-2{grid-column:auto}.account-save-btn{width:100%;justify-self:stretch}.score-stat strong{font-size:19px}
+  .ai-generation-lock{padding:12px}.ai-generation-lock-card{padding:24px 16px;border-radius:18px}.ai-generation-lock-card h2{font-size:21px}
   .collab-pane{min-height:0}.chat-messages{height:calc(100dvh - 390px);min-height:210px;max-height:none}
   .ai-bible-footer{padding-bottom:env(safe-area-inset-bottom)}
   .lighting-studio-modal,.lighting-studio-shell{height:100dvh}
