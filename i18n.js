@@ -1,4 +1,4 @@
-// Storyboard Shot Builder v4.3.1 — English / Persian interface
+// Storyboard Shot Builder v4.3.2 — English / Persian interface
 (() => {
   "use strict";
 
@@ -683,6 +683,10 @@
     [/^Optimizing and saving (.+)…$/, m => `در حال بهینه‌سازی و ذخیره ${m[1]}…`],
     [/^(.+) reference saved\. Review it, then lock it\.$/, m => `مرجع ${m[1]} ذخیره شد. آن را بررسی و سپس قفل کنید.`],
     [/^Generating (.+) reference… Keep this window open\.$/, m => `در حال ساخت مرجع ${m[1]}… این پنجره را باز نگه دارید.`],
+    [/^Creating character reference · (.+)$/, m => `در حال ساخت مرجع شخصیت · ${m[1]}`],
+    [/^Creating location reference · (.+)$/, m => `در حال ساخت مرجع لوکیشن · ${m[1]}`],
+    [/^Editing is paused while AI creates a consistent character reference for (.+)\.$/, m => `ویرایش موقتاً متوقف شده تا هوش مصنوعی مرجع یکدستی برای شخصیت ${m[1]} بسازد.`],
+    [/^Editing is paused while AI creates a consistent location reference for (.+)\.$/, m => `ویرایش موقتاً متوقف شده تا هوش مصنوعی مرجع یکدستی برای لوکیشن ${m[1]} بسازد.`],
     [/^(.+) reference generated\. Review and lock it\.(.*)$/, m => `مرجع ${m[1]} ساخته شد. آن را بررسی و قفل کنید.${translateCore(m[2])}`],
     [/^(.+) needs a generated or uploaded reference before this shot can be generated\.$/, m => `پیش از ساخت این شات، باید مرجع ${m[1]} را بسازید یا بارگذاری کنید.`],
     [/^Lock the (.+) reference before generating this shot\.$/, m => `پیش از ساخت این شات، مرجع ${m[1]} را قفل کنید.`],
@@ -779,15 +783,6 @@
     }
   }
 
-  function updateToggle() {
-    const button = document.getElementById("languageToggleBtn");
-    const label = document.getElementById("languageToggleLabel");
-    if (!button || !label) return;
-    label.textContent = language === "fa" ? "English" : "فارسی";
-    button.setAttribute("aria-label", language === "fa" ? "تغییر زبان به انگلیسی" : "Switch language to Persian");
-    button.title = language === "fa" ? "English" : "فارسی";
-  }
-
   function setLanguage(next, announce = true) {
     language = next === "fa" ? "fa" : "en";
     localStorage.setItem(STORAGE_KEY, language);
@@ -795,7 +790,6 @@
     document.documentElement.dir = language === "fa" ? "rtl" : "ltr";
     document.title = language === "fa" ? "سازنده شات‌های استوری‌بورد" : "Storyboard Shot Builder";
     translateTree(document.body);
-    updateToggle();
     if (announce) window.dispatchEvent(new CustomEvent("storyboard:languagechange", {detail:{language}}));
   }
 
@@ -829,7 +823,5 @@
   document.documentElement.lang = language;
   document.documentElement.dir = language === "fa" ? "rtl" : "ltr";
   translateTree(document.body);
-  updateToggle();
-  document.getElementById("languageToggleBtn")?.addEventListener("click", () => setLanguage(language === "fa" ? "en" : "fa"));
   observe();
 })();

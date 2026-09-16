@@ -12,19 +12,14 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="styles.css?v=431" />
+  <link rel="stylesheet" href="styles.css?v=432" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0"></script>
   <script src="config.js?v=410"></script>
-  <meta name="storyboard-build" content="v4.3.1-selectable-ai-references" />
+  <meta name="storyboard-build" content="v4.3.2-contextual-generation-dialog" />
 </head>
 <body>
 
-  <button id="languageToggleBtn" class="language-toggle" type="button" aria-label="Switch language" data-i18n="off">
-    <span class="language-toggle-icon" aria-hidden="true">文</span>
-    <span id="languageToggleLabel">فارسی</span>
-  </button>
-
-  <div id="aiGenerationLock" class="ai-generation-lock" role="dialog" aria-modal="true" aria-labelledby="aiGenerationLockTitle" hidden>
+  <dialog id="aiGenerationLock" class="ai-generation-lock" aria-labelledby="aiGenerationLockTitle">
     <div class="ai-generation-lock-card" role="status" aria-live="assertive">
       <div class="ai-generation-spinner" aria-hidden="true"></div>
       <div>
@@ -35,7 +30,7 @@
       <button id="cancelAiGenerationBtn" type="button" class="btn danger">Cancel Generation</button>
       <small>Cancel stops this browser request. An AI attempt already started may still count toward today's allowance.</small>
     </div>
-  </div>
+  </dialog>
 
   <!-- AUTH -->
   <section id="authView" class="auth-view" hidden>
@@ -934,7 +929,7 @@
     </div>
   </dialog>
 
-  <script src="i18n.js?v=431"></script>
-  <script src="app.js?v=431"></script>
+  <script src="i18n.js?v=432"></script>
+  <script src="app.js?v=432"></script>
 </body>
 </html>

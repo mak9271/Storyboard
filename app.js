@@ -1,4 +1,4 @@
-// Storyboard Shot Builder v4.3.1 — selectable AI references and generation control
+// Storyboard Shot Builder v4.3.2 — contextual generation dialog and account-only language
 const OPTIONS = {
   shotSize:["ECU · Extreme Close Up","CU · Close Up","MCU · Medium Close Up","MS · Medium Shot","MLS · Medium Long Shot","WS · Wide Shot","EWS · Extreme Wide Shot","OTS · Over The Shoulder","POV · Point of View","Insert","Top Shot"],
   angle:["Eye Level","High Angle","Low Angle","Top / Bird's Eye","Dutch Angle","Ground Level","Overhead","Custom"],
@@ -506,11 +506,11 @@ function showEditor(){
 function isMobileEditor(){const mode=currentLayoutPreference();return mode==="mobile"||(mode!=="desktop"&&window.matchMedia("(max-width: 950px)").matches)}
 function closeEditorActions(){
   $("editorView")?.classList.remove("editor-actions-open");
-  if($("mobileMoreBtn"))$("mobileMoreBtn").setAttribute("aria-expanded","false")
+  if($("mobileMoreBtn")){$("mobileMoreBtn").setAttribute("aria-expanded","false");$("mobileMoreBtn").classList.remove("active")}
 }
 function toggleEditorActions(){
   const editor=$("editorView"),open=!editor.classList.contains("editor-actions-open");
-  editor.classList.toggle("editor-actions-open",open);$("mobileMoreBtn").setAttribute("aria-expanded",String(open))
+  editor.classList.toggle("editor-actions-open",open);$("mobileMoreBtn").setAttribute("aria-expanded",String(open));$("mobileMoreBtn").classList.toggle("active",open)
 }
 function syncMobileEditorUi(){
   const editor=$("editorView");if(!editor)return;
@@ -1739,11 +1739,16 @@ function setGenerationInert(active){
 }
 function syncAiGenerationLock(){
   const overlay=$("aiGenerationLock");if(!overlay)return;
-  const active=!!app.ai.generating;overlay.hidden=!active;setGenerationInert(active);document.body.classList.toggle("ai-generation-active",active);
-  const reference=String(app.ai.generationMode||"").endsWith("_reference");
-  $("aiGenerationLockTitle").textContent=app.ai.cancelRequested?"Canceling generation…":reference?"Creating the visual reference…":"Creating your storyboard image…";
-  $("aiGenerationLockMessage").textContent=reference?"Editing is paused so this approved reference remains consistent.":"Editing is paused so the generated image matches the submitted shot settings.";
-  const cancel=$("cancelAiGenerationBtn");cancel.disabled=!active||app.ai.cancelRequested;cancel.textContent=app.ai.cancelRequested?"Canceling…":"Cancel Generation"
+  const active=!!app.ai.generating,mode=String(app.ai.generationMode||""),referenceType=mode==="character_reference"?"character":mode==="location_reference"?"location":null,asset=referenceType?aiCollection(referenceType).find(x=>x.id===app.ai.generatingAssetId):null,name=asset?.name||(referenceType==="character"?"character":"location");
+  let title="Creating your storyboard image…",message="Editing is paused so the generated image matches the submitted shot settings.";
+  if(referenceType==="character"){title=`Creating character reference · ${name}`;message=`Editing is paused while AI creates a consistent character reference for ${name}.`}
+  if(referenceType==="location"){title=`Creating location reference · ${name}`;message=`Editing is paused while AI creates a consistent location reference for ${name}.`}
+  $("aiGenerationLockTitle").textContent=uiText(app.ai.cancelRequested?"Canceling generation…":title);
+  $("aiGenerationLockMessage").textContent=uiText(message);
+  const cancel=$("cancelAiGenerationBtn");cancel.disabled=!active||app.ai.cancelRequested;cancel.textContent=uiText(app.ai.cancelRequested?"Canceling…":"Cancel Generation")
+  if(active&&!overlay.open){try{overlay.showModal()}catch(error){overlay.setAttribute("open","")}}
+  setGenerationInert(active);document.body.classList.toggle("ai-generation-active",active);
+  if(!active&&overlay.open){if(typeof overlay.close==="function")overlay.close();else overlay.removeAttribute("open")}
 }
 function cancelAiGeneration(){
   if(!app.ai.generating||app.ai.cancelRequested)return;
@@ -3469,6 +3474,7 @@ async function saveProjectDetails(){
 /* ---------- EVENTS ---------- */
 function bind(){
   $("cancelAiGenerationBtn").onclick=cancelAiGeneration;
+  $("aiGenerationLock").addEventListener("cancel",event=>{event.preventDefault();cancelAiGeneration()});
   $("mobileMoreBtn").onclick=toggleEditorActions;
   $("mobileScenesBtn").onclick=()=>setMobileEditorScreen("scenes");
   $("mobileShotBtn").onclick=()=>setMobileEditorScreen("shot");
