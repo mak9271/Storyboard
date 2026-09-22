@@ -1,54 +1,49 @@
-# Storyboard Shot Builder v4.4.0
+# Storyboard Shot Builder v4.5.0
 
-This build continues only from the user-approved `storyboard-v3.9.1-github(1).zip` lineage. It preserves the editor, collaboration, Admin Center, Lighting Studio, AI Visual Bible, bilingual UI, mobile app layout, account profile and creator score added along that line.
+This build continues only from the user-approved `storyboard-v3.9.1-github(1).zip` lineage. It includes every accepted change through v4.4 and adds the Bible Script and Scene Breakdown workflow.
 
-## v4.4.0 changes
+## v4.5.0 changes
 
-- Fixes `new row violates row-level security policy for table "projects"` with explicit owner policies for projects, scenes and shots.
-- Adds a separate optional Source Image to every Visual Bible character and location. Source and finished reference files are independent; generating, locking or cropping one does not erase the other.
-- Uses the Source Image as the primary FLUX image input when generating a character/location reference.
-- Adds full-size click/tap preview for shot images, Visual Bible source/final images and Storyboard Sheet images.
-- Adds an aspect-preserving crop editor for generated and manually uploaded shot images and for Visual Bible source/final images.
-- Makes mobile Primary Settings open the requested native selector on the first tap.
-- Requires signup/recovery passwords with at least eight characters, one lowercase letter, one uppercase letter and one symbol, with a specific warning for the missing rule.
-- Reduces the signup username hint to `3–30 characters`.
-- Removes Camera Height from shot data, the shot form and the FLUX prompt. Lighting Studio keeps its own physical 3D camera-height control because it is part of lighting-plan geometry, not the shot-generation field.
-- Promotes Manage Visual Bible to a large mobile-friendly project button and groups Storyboard Style with that area.
-- Enlarges mobile headings and the Scenes / Prev / Shot / Next / Sheet navigation.
-- Shows only the scene number above the large shot number.
-- Adds shot Copy and Paste beside the scene-level shot ＋ and − controls, while shot movement remains only in the scene list.
-- Fixes Duplicate Shot by using integer database positions instead of fractional values such as `10.5`.
-- Strengthens the FLUX prompt with early and repeated, explicit rules for shot size, camera angle, lens perspective, depth of field and a single full-bleed canvas.
-- Makes username sign-in retry one transient Edge Function failure and returns useful messages for temporary availability and rate-limit errors.
+- Renames the visible Visual Bible experience to **Bible** and gives its launch buttons, modal and Scene assignment area a consistent book icon.
+- Restores an obvious **Manage Bible** button below One-line Shot Summary inside the blue AI-reference panel.
+- Adds Scene Settings for Scene Location, Story Time, Shooting Time and Natural / Day for Night / Night for Day conversion.
+- Lets a Scene hold one Bible location and multiple Bible characters. New shots inherit them; **Apply Scene Bible to All Shots** updates existing shots.
+- Adds a Script workspace inside Bible. It accepts TXT, Markdown, Fountain, Final Draft FDX/XML, HTML and RTF text files up to 900 KB; one AI analysis accepts up to 180,000 characters.
+- Uses Cloudflare Workers AI `@cf/zai-org/glm-4.7-flash` to identify scenes, recurring characters, locations, finished-film time and explicit Day for Night / Night for Day production notes.
+- Applies a reviewed breakdown to the project without replacing existing locked references: missing characters/locations are added unlocked to Bible, script scenes are created or updated, and their Bible assignments are propagated to shots.
+- Supports exact arbitrary text selections, including ranges beginning or ending in the middle of a line. A range can be linked to an existing shot or used to create a new shot. The Script Reference Map shows every line's overlapping shot links.
+- Replaces the scene Copy/Paste letters with copy and clipboard icons. Selecting a shot from the Scene list now stays in the Scene screen.
+- Strengthens FLUX framing compliance with explicit subject-occupancy rules, prohibited crops and a final framing check. Close shots send character references before the wide location plate; wide shots keep the location first.
+- Adds Scene story/shooting conditions to the image prompt and raises FLUX guidance to `5.5`.
+- Makes the image viewer derive its desktop shape from the image's natural pixel ratio. The mobile viewer and crop editor are full-height, viewport-contained layouts.
 
-## Important deployment order for an existing installation
+## Existing installation: required deployment order
 
-Do not delete earlier saved SQL queries. Run the new database patch before uploading the v4.4 web files.
+Do not delete earlier saved SQL queries. v4.5 is an additive migration.
 
 1. Open the correct project at [Supabase Dashboard](https://supabase.com/dashboard).
 2. Open **SQL Editor** and click **New query**.
-3. Set the query name exactly to:
+3. Name it exactly:
 
-   `Storyboard v4.4 - Image Tools, Project RLS & Login Reliability`
+   `Storyboard v4.5 - Bible Script & Scene Breakdown`
 
-4. Keep **Save query enabled: YES**.
-5. Paste all of `supabase-v4.4-image-tools-project-rls-login.sql` and click **Run** once. Wait for `Success. No rows returned`.
-6. Open **Edge Functions → username-login → Code**. Replace its code with `supabase/functions/username-login/index.ts`, deploy it, and keep **Verify JWT disabled/OFF** because the function performs the password sign-in before a JWT exists.
-7. Replace the repository-root files with this package. Do not upload `node_modules`.
-8. In Cloudflare use this build/deploy command:
+4. Keep **Save query: YES**.
+5. Paste the complete contents of `supabase-v4.5-bible-script-breakdown.sql` and press **Run** once.
+6. Wait for **Success. No rows returned**. The query is safe to run again and does not delete existing project data or media.
+7. Deploy the repository-root files. Do not upload `node_modules`.
+8. Use this Cloudflare build/deploy command:
 
    ```bash
    npx wrangler deploy
    ```
 
-9. After deployment, hard-refresh the app. Page source should show `styles.css?v=440`, `config.js?v=440`, `i18n.js?v=440`, `app.js?v=440` and build `v4.4.0-image-crop-source-guidance`.
-10. Sign out and back in, create a small test project, open Visual Bible, add a source image, generate a reference, crop it, lock it and generate one shot.
-
-The v4.4 SQL is idempotent: it can be run again. It does not delete projects, users, references, scores or login history.
+9. No `username-login` Edge Function redeploy is required for v4.5; that function is unchanged.
+10. Hard-refresh the app. Page source should show `styles.css?v=450`, `config.js?v=450`, `i18n.js?v=450`, `app.js?v=450` and build `v4.5.0-bible-script-breakdown`.
+11. Sign out and back in, open a project, test Scene Settings, then open Bible → Script.
 
 ## Fresh Supabase installation
 
-Run the packaged queries in this order, saving each with the descriptive name in its header:
+Run and save the packaged queries in this order:
 
 1. `supabase-v4.0-ai.sql`
 2. `supabase-v4.1-admin.sql`
@@ -57,71 +52,63 @@ Run the packaged queries in this order, saving each with the descriptive name in
 5. `supabase-v4.1.7-ai-usage-status.sql`
 6. `supabase-v4.3-account-score.sql`
 7. `supabase-v4.4-image-tools-project-rls-login.sql`
+8. `supabase-v4.5-bible-script-breakdown.sql`
 
-Only for the first superadmin, replace the placeholder with the actual Storyboard username and run:
+Only for the first superadmin, replace the placeholder with the real Storyboard username and run:
 
 ```sql
 select public.storyboard_grant_first_superadmin('YOUR_APP_USERNAME');
 ```
 
-Then deploy the `username-login` Edge Function with Verify JWT OFF before deploying the app.
+For a fresh installation, deploy `supabase/functions/username-login/index.ts` from **Supabase → Edge Functions → username-login**, with **Verify JWT OFF**, before deploying the app.
+
+## Script workflow
+
+1. Open **Bible → Script**.
+2. Choose one of the listed text formats or paste the screenplay into the editor.
+3. Save, then select **Analyze with AI**.
+4. Review the detected scene count, characters, locations, story/shoot times and line ranges.
+5. Select **Apply Breakdown to Project**. Existing locked Bible references remain untouched. New entries are unlocked and ready for Generate/Upload, review and Lock.
+6. Select any exact text range. Choose a Scene and Shot and press **Link to Shot**, or press **Create Shot from Selection**.
+7. Use the line-by-line Script Reference Map to find linked or unlinked screenplay lines.
+
+Script text, AI analysis and shot-link offsets are stored in Postgres. The uploaded source file itself is not stored as a second binary object; supported files are converted to editable text in the browser and that text is saved.
+
+## Scene time semantics
+
+- **Story Time** is what the finished film must look like.
+- **Shooting Time** is the planned real production time.
+- **Day for Night** tells image generation to preserve a convincing night result while accounting for daytime capture, including darkened/covered windows and suppressed daylight.
+- **Night for Day** does the inverse and motivates a convincing daytime result from night capture.
 
 ## What is sent to FLUX for a shot
 
-The browser sends the current IDs and a whitelisted snapshot of the shot to the Worker. The Worker validates the Supabase access token, re-reads the project, scene and approved Visual Bible records under RLS, and constructs the final prompt. No unrestricted user-authored final prompt is accepted.
+The browser sends project/scene/shot IDs and the current shot snapshot. The Worker validates the Supabase token, re-reads the project, Scene Settings and approved Bible records under RLS, and constructs the final prompt. It sends:
 
-The generated request contains:
-
-- exact output width and height derived from Project Aspect Ratio;
-- project name and Storyboard Style;
-- scene title and scene description;
+- exact output width/height derived from Project Aspect Ratio;
+- Project Name and Storyboard Style;
+- Scene title, description, location, Story Time, Shooting Time and conversion strategy;
 - shot number, duration and one-line summary;
-- main subject, detailed action, performance/emotion, subject movement and costume/appearance;
-- Shot Size with explicit crop semantics such as CU = face/head-and-shoulders, never full body;
-- Camera Angle with explicit viewpoint semantics such as Low Angle = camera clearly below and looking upward;
-- Lens with focal-length perspective behavior;
-- Focus / Depth of Field;
-- camera movement, composition and start-frame → end-frame intention;
-- time of day and shot-specific notes inside the selected location;
-- light source, direction, quality, lighting notes, props/set elements and important notes;
-- dialogue, voice-over, SFX, music and incoming/outgoing transitions as contextual instructions that must not be printed in the image;
-- one locked location reference first, then up to three locked character references.
+- subject, action, performance/emotion, movement and costume;
+- Shot Size with strict crop and screen-occupancy rules;
+- Camera Angle, Lens perspective and Focus / Depth of Field;
+- camera movement, composition and start-frame → end-frame intent;
+- time, shot-location detail, lighting, props and notes;
+- dialogue, voice-over, SFX, music and transitions as non-printed context;
+- one locked location plus up to three locked character references.
 
-FLUX receives `prompt`, exact `width`, exact `height`, `guidance=4` and `input_image_0...n`. Cloudflare documents Guidance as the prompt-adherence control. Shot Size, Angle and Lens are still model instructions rather than deterministic camera parameters in the API, so the model remains probabilistic. v4.4 places those constraints at the beginning of the prompt, translates abbreviations into concrete framing rules, uses moderate guidance and repeats a final camera check. This materially improves adherence but cannot guarantee every generation; regenerate or crop an occasional miss.
+FLUX receives `prompt`, exact `width`, exact `height`, `guidance=5.5` and `input_image_0...n`. For CU/MCU/ECU/OTS/Insert with a character, character references come first and the wide location plate last; for wider shots, the location remains first. The model is still probabilistic, so no text-to-image model can guarantee camera grammar on every attempt, but the prompt now makes framing the first composition priority and rejects full-body results for close framing.
 
 ## Image and storage behavior
 
-- Postgres stores paths and metadata, not the image binary.
-- Private image files live in the existing Supabase Storage `storyboards` bucket.
-- A shot keeps only its current image path. Storyboard Sheet uses that same image.
+- Postgres stores media paths and metadata, not image binaries.
+- Private images live in the Supabase Storage `storyboards` bucket.
+- A shot keeps only its current image path; Storyboard Sheet uses that same image.
 - Generated/manual shot images are optimized to at most 1024 px before storage.
-- Visual Bible source and final reference images are optimized to at most 496 px for reference-input compatibility.
-- Replacement is safe: the new file is uploaded and linked first; the previous file is removed afterward.
-- Source Image and Upload Final are separate. Removing Source never removes the finished reference.
-- Cropping creates a new optimized file, updates the row and then removes the prior file.
-- Signed display URLs expire and are refreshed; cached immutable storage objects keep repeat loading fast.
-
-## AI continuity flow
-
-1. Create a character/location with a stable written description.
-2. Optionally add and crop a Source Image.
-3. Generate from Source, or upload a finished reference directly.
-4. Review/crop the final reference and press Lock.
-5. Select one project location and the relevant characters on each shot.
-6. Generate the shot. The Worker sends the locked location first and locked characters after it.
-
-Changing Storyboard Style invalidates style continuity until the affected final references are reviewed/regenerated and locked for the new style.
-
-## Password recovery and username login
-
-In Supabase **Authentication → URL Configuration**:
-
-- Site URL: `https://storyboard.mak9271.workers.dev`
-- Redirect URL: `https://storyboard.mak9271.workers.dev/`
-
-After changing redirect settings, request a fresh reset email; old recovery links may be expired or already consumed.
-
-The public `username-login` Edge Function uses the Supabase service-role secret only inside Supabase's server environment. It applies an atomic per-IP-plus-username rate limit and never exposes that secret to the browser, Worker repository or response.
+- Bible source and final references are optimized to at most 496 px.
+- Replacement/crop uploads the new object and updates the row before removing the previous object.
+- Source Image and Upload Final are independent.
+- Signed URLs are refreshed; immutable storage caching keeps repeat loading fast.
 
 ## Validation
 
@@ -131,12 +118,12 @@ npm run check
 npx wrangler deploy --dry-run
 ```
 
-Automated checks cover HTML IDs, Admin Center security, source/final image persistence, crop/preview wiring, project-creation RLS, username login rate limiting and retry, password policy, mobile first-tap selectors, large mobile navigation, integer shot duplication, camera constraint prompts, aspect dimensions, JWT guards and locked-reference multipart generation.
+Automated checks cover HTML identity, Admin access, Bible media persistence, exact Script range links, Script model/tool schema, v4.5 RLS and Scene RPC, mobile Scene behavior, natural image ratio, crop layout, strict framing prompts, reference ordering, JWT guards and authenticated multipart generation.
 
 ## Current limits
 
-- AI generation is cloud-only and requires project media permission.
-- One location is required for each generated shot; up to three recurring character references are supported.
-- Reference guidance improves identity/location consistency but no generative model guarantees pixel-identical people or sets in every pose and viewpoint.
+- Bible and AI features require a signed-in cloud project and the relevant project permission.
+- Script analysis is evidence-based but still requires user review before applying.
+- One location is required for shot generation; up to three recurring character references are supported.
+- Reference guidance improves continuity but cannot guarantee pixel-identical characters or sets in every pose and viewpoint.
 - Cancel stops the browser request; an inference already accepted upstream may still count toward the daily allowance.
-- Run a 15–20 shot pilot with real project descriptions before changing quotas or the production model.

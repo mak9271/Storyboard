@@ -12,10 +12,10 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="styles.css?v=440" />
+  <link rel="stylesheet" href="styles.css?v=450" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0"></script>
-  <script src="config.js?v=440"></script>
-  <meta name="storyboard-build" content="v4.4.0-image-crop-source-guidance" />
+  <script src="config.js?v=450"></script>
+  <meta name="storyboard-build" content="v4.5.0-bible-script-breakdown" />
 </head>
 <body>
 
@@ -277,8 +277,8 @@
           <button id="projectDetailsBtn" type="button" class="btn ghost wide project-details-btn">Project Details · Folder · Tags</button>
           <div class="visual-bible-launch-card">
             <button id="aiBibleBtn" type="button" class="btn wide ai-bible-btn">
-              <span class="ai-bible-launch-icon" aria-hidden="true">◇</span>
-              <span class="ai-bible-launch-copy"><strong>Manage Visual Bible</strong><small>Characters · Locations · Storyboard Style</small></span>
+              <span class="bible-icon ai-bible-launch-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 4.8c2.7-.7 5.3-.2 8 1.5v13c-2.7-1.7-5.3-2.2-8-1.5zM20 4.8c-2.7-.7-5.3-.2-8 1.5v13c2.7-1.7 5.3-2.2 8-1.5z"/><path d="M12 6.3v13"/></svg></span>
+              <span class="ai-bible-launch-copy"><strong>Manage Bible</strong><small>Characters · Locations · Script · Storyboard Style</small></span>
               <span class="ai-bible-launch-arrow" aria-hidden="true">→</span>
             </button>
             <div class="visual-bible-style-field">
@@ -341,6 +341,20 @@
           </div>
           <label>Description</label>
           <textarea id="sceneDescription" rows="3" placeholder="Scene notes, location, story beat..."></textarea>
+          <div class="scene-settings-divider"><span>Story &amp; Production Time</span></div>
+          <div class="grid-2 scene-time-grid">
+            <div class="span-2"><label>Scene Location</label><input id="sceneStoryLocation" placeholder="e.g. Palace Hall · Interior" /></div>
+            <div><label>Story Time</label><select id="sceneStoryTime"></select></div>
+            <div><label>Shooting Time</label><select id="sceneShootTime"></select></div>
+            <div class="span-2"><label>Time Conversion</label><select id="sceneTimeStrategy"></select></div>
+          </div>
+          <div class="scene-settings-divider"><span class="bible-divider-label"><span class="bible-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 4.8c2.7-.7 5.3-.2 8 1.5v13c-2.7-1.7-5.3-2.2-8-1.5zM20 4.8c-2.7-.7-5.3-.2-8 1.5v13c2.7-1.7 5.3-2.2 8-1.5z"/><path d="M12 6.3v13"/></svg></span><span>Bible Assignments</span></span></div>
+          <label>Bible Location</label>
+          <select id="sceneAiLocationId"><option value="">No Bible location assigned</option></select>
+          <label>Bible Characters</label>
+          <div id="sceneAiCharacterPicker" class="ai-reference-picker scene-reference-picker"></div>
+          <button id="syncSceneBibleBtn" type="button" class="btn ghost wide scene-sync-btn">Apply Scene Bible to All Shots</button>
+          <small class="field-help">New shots inherit these references. Use Apply to update every existing shot in this scene.</small>
         </div>
       </aside>
 
@@ -400,13 +414,13 @@
             <div class="shot-ai-reference-panel">
               <div class="shot-ai-reference-head">
                 <div><span class="eyebrow">AI REFERENCES FOR THIS SHOT</span><strong>Select location and characters</strong></div>
-                <button id="manageAiCharactersBtn" type="button" class="text-btn">Manage Visual Bible</button>
+                <button id="manageAiCharactersBtn" type="button" class="btn bible-inline-btn"><span class="bible-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 4.8c2.7-.7 5.3-.2 8 1.5v13c-2.7-1.7-5.3-2.2-8-1.5zM20 4.8c-2.7-.7-5.3-.2-8 1.5v13c2.7-1.7 5.3-2.2 8-1.5z"/><path d="M12 6.3v13"/></svg></span><span>Manage Bible</span></button>
               </div>
               <label>Location · Required</label>
               <select id="aiLocationId"><option value="">Choose project location…</option></select>
               <label>Characters · Optional</label>
               <div id="shotCharacterPicker" class="ai-reference-picker"></div>
-              <small class="field-help">Selections belong only to this shot. References must first be generated or uploaded and then locked in the AI Visual Bible.</small>
+              <small class="field-help">Selections belong only to this shot. References must first be generated or uploaded and then locked in the Bible.</small>
             </div>
           </section>
         </div>
@@ -514,15 +528,48 @@
     </div>
   </dialog>
 
-  <!-- AI VISUAL BIBLE MODAL -->
+  <!-- BIBLE MODAL -->
   <dialog id="aiBibleModal" class="modal">
     <div class="modal-card ai-bible-modal-card">
       <div class="modal-head">
-        <div><div class="eyebrow">PROJECT CONTINUITY</div><h2>AI Visual Bible</h2></div>
+        <div class="bible-modal-title"><span class="bible-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 4.8c2.7-.7 5.3-.2 8 1.5v13c-2.7-1.7-5.3-2.2-8-1.5zM20 4.8c-2.7-.7-5.3-.2-8 1.5v13c2.7-1.7 5.3-2.2 8-1.5z"/><path d="M12 6.3v13"/></svg></span><div><div class="eyebrow">PROJECT CONTINUITY</div><h2>Bible</h2></div></div>
         <button id="closeAiBibleBtn" class="icon-btn" type="button">×</button>
       </div>
       <p class="ai-bible-intro">Create and approve one reference for every recurring character and location. Lock approved references before generating shots.</p>
       <div id="aiBibleNotice" class="notice" hidden></div>
+
+      <details id="scriptBibleSection" class="ai-bible-section script-bible-section" open>
+        <summary class="script-section-summary">
+          <span><strong>Script</strong><small>Import, analyze and connect exact text ranges to shots.</small></span>
+          <span id="scriptFileBadge" class="script-file-badge">No script</span>
+        </summary>
+        <div class="script-toolbar">
+          <label class="btn ghost script-upload-btn">Choose Script File<input id="scriptFileInput" type="file" accept=".txt,.md,.markdown,.fountain,.fdx,.xml,.html,.htm,.rtf,text/plain,text/markdown,text/html,application/xml,text/xml,application/rtf" hidden /></label>
+          <button id="saveScriptBtn" type="button" class="btn ghost">Save Script</button>
+          <button id="analyzeScriptBtn" type="button" class="btn script-analyze-btn">✦ Analyze with AI</button>
+          <button id="applyScriptBreakdownBtn" type="button" class="btn" disabled>Apply Breakdown to Project</button>
+        </div>
+        <small class="field-help script-format-help">Accepted text formats: TXT, Markdown, Fountain, Final Draft FDX/XML, HTML and RTF · maximum 180,000 characters for one AI analysis.</small>
+        <small class="field-help script-privacy-help">Analyze sends the saved script text to Cloudflare Workers AI for this breakdown.</small>
+        <div id="scriptNotice" class="notice" hidden></div>
+        <textarea id="scriptTextEditor" class="script-editor" rows="18" dir="auto" spellcheck="false" placeholder="Choose a script file or paste screenplay text here…"></textarea>
+        <div class="script-selection-panel">
+          <div class="script-selection-copy">
+            <strong id="scriptSelectionTitle">Select text to connect it to a shot</strong>
+            <small id="scriptSelectionMeta">A selection may begin or end in the middle of any line.</small>
+          </div>
+          <div class="script-link-controls">
+            <select id="scriptLinkSceneSelect" aria-label="Scene for script selection"></select>
+            <select id="scriptLinkShotSelect" aria-label="Shot for script selection"></select>
+            <button id="linkScriptSelectionBtn" type="button" class="btn ghost" disabled>Link to Shot</button>
+            <button id="createShotFromScriptBtn" type="button" class="btn" disabled>Create Shot from Selection</button>
+          </div>
+        </div>
+        <div id="scriptAnalysisResults" class="script-analysis-results" hidden></div>
+        <div id="scriptLinkList" class="script-link-list"></div>
+        <div class="script-map-head"><div><strong>Script Reference Map</strong><small>Each line shows the shot references that overlap it.</small></div><span id="scriptCoverageBadge" class="script-coverage-badge">0% linked</span></div>
+        <div id="scriptLineMap" class="script-line-map"></div>
+      </details>
 
       <section class="ai-bible-section">
         <div class="ai-bible-section-head"><div><h3>Characters</h3><small>Identity, face, hair, body, costume and recurring details.</small></div></div>
@@ -841,7 +888,7 @@
         <div><div class="eyebrow">IMAGE PREVIEW</div><h2 id="imageViewerTitle">Storyboard Image</h2></div>
         <button id="closeImageViewerBtn" class="icon-btn" type="button" aria-label="Close image preview">×</button>
       </div>
-      <div class="image-viewer-stage">
+      <div id="imageViewerStage" class="image-viewer-stage">
         <img id="imageViewerImage" alt="" decoding="async" />
       </div>
       <p id="imageViewerCaption" class="image-viewer-caption"></p>
@@ -978,7 +1025,7 @@
     </div>
   </dialog>
 
-  <script src="i18n.js?v=440"></script>
-  <script src="app.js?v=440"></script>
+  <script src="i18n.js?v=450"></script>
+  <script src="app.js?v=450"></script>
 </body>
 </html>

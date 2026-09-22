@@ -1,8 +1,7 @@
-// Storyboard Shot Builder v4.4.0 — image crop, source-guided references and resilient sign-in
+// Storyboard Shot Builder v4.5.0 — Bible scripts, AI breakdown and precise scene continuity
 const OPTIONS = {
   shotSize:["ECU · Extreme Close Up","CU · Close Up","MCU · Medium Close Up","MS · Medium Shot","MLS · Medium Long Shot","WS · Wide Shot","EWS · Extreme Wide Shot","OTS · Over The Shoulder","POV · Point of View","Insert","Top Shot"],
   angle:["Eye Level","High Angle","Low Angle","Top / Bird's Eye","Dutch Angle","Ground Level","Overhead","Custom"],
-  cameraHeight:["Eye Level","Chest Level","Waist Level","Table Level","Ground Level","Overhead","Custom"],
   lens:["18mm","24mm","28mm","35mm","40mm","50mm","65mm","85mm","100mm","135mm","Wide","Normal","Telephoto"],
   focus:["Shallow Focus","Deep Focus","Rack Focus","Selective Focus","Soft Focus","Split Diopter","Auto / Unspecified"],
   movement:["Static","Pan Left","Pan Right","Tilt Up","Tilt Down","Dolly In","Dolly Out","Tracking Left","Tracking Right","Push In","Pull Out","Crane / Jib","Handheld","Zoom In","Zoom Out","Orbit","Whip Pan"],
@@ -15,6 +14,13 @@ const OPTIONS = {
   transitionOut:["Cut","Match Cut","Hard Cut","J Cut","L Cut","Dissolve","Fade Out","Whip Transition","To Black"]
 };
 const SHOT_FIELDS = ["shotNo","duration","shotSize","angle","lens","focus","movement","startEnd","composition","summary","subject","description","performance","subjectMovement","costume","timeOfDay","location","lightSource","lightDirection","lightQuality","lighting","props","dialogue","voiceOver","sfx","music","transitionIn","transitionOut","notes"];
+const SCENE_TIME_OPTIONS = ["Unspecified","Dawn","Morning","Day","Sunset","Twilight","Night"];
+const SCENE_TIME_STRATEGIES = [
+  ["natural","Natural / Same as Story"],
+  ["day_for_night","Day for Night"],
+  ["night_for_day","Night for Day"]
+];
+const SCRIPT_MAX_ANALYSIS_CHARS = 180000;
 const $ = id => document.getElementById(id);
 const cfg = window.APP_CONFIG || {};
 const cloudConfigured = !!(cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY && window.supabase);
@@ -91,7 +97,23 @@ let app = {
       unlimited: false,
       usageDate: ""
     },
-    migrationMessage: "Run supabase-v4.0-ai.sql to enable AI Visual Bible."
+    migrationMessage: "Run supabase-v4.0-ai.sql to enable the Bible."
+  },
+  script: {
+    ready: false,
+    loading: false,
+    saving: false,
+    analyzing: false,
+    applying: false,
+    record: null,
+    links: [],
+    analysis: null,
+    editorHydrated: false,
+    pendingFileName: "",
+    pendingFileType: "",
+    selectedStart: 0,
+    selectedEnd: 0,
+    migrationMessage: "Run the saved v4.5 Bible Script SQL query, then reload this project."
   },
   lighting: {
     diagrams: [],
@@ -117,6 +139,7 @@ let app = {
   ignoreRealtimeUntil: 0
 };
 let autosaveTimer = null;
+let scriptRenderTimer = null;
 let signedImageRefreshTimer = null;
 let presenceTrackTimer = null;
 let lastPresenceSignature = "";
@@ -130,7 +153,8 @@ function blankPermissions(){return {project_settings:false,scenes:false,shots:fa
 function editorPermissions(){return {project_settings:false,scenes:true,shots:true,media:true,members:false}}
 function permissionPreset(name){return name==="viewer"?blankPermissions():name==="editor"?editorPermissions():readPermissionUI()}
 function blankShot(no=1){return {id:uid(),shotNo:no,duration:"",shotSize:"CU · Close Up",angle:"Eye Level",lens:"50mm",focus:"Shallow Focus",movement:"Static",startEnd:"",composition:"Centered / Symmetrical",summary:"",subject:"",description:"",performance:"",subjectMovement:"",costume:"",timeOfDay:"Night",location:"",lightSource:"Candle",lightDirection:"Camera Left",lightQuality:"Low Key",lighting:"",props:"",dialogue:"",voiceOver:"",sfx:"",music:"",transitionIn:"Cut",transitionOut:"Cut",notes:"",aiCharacterIds:[],aiLocationId:"",aiGeneration:null,image:null,imagePath:null,position:no}}
-function blankScene(no=1){return {id:uid(),number:no,title:`Scene ${no}`,description:"",position:no,collapsed:false,shots:[blankShot(1)]}}
+function blankScene(no=1){return {id:uid(),number:no,title:`Scene ${no}`,description:"",storyLocation:"",storyTime:"Unspecified",shootTime:"Unspecified",timeStrategy:"natural",aiLocationId:"",aiCharacterIds:[],scriptSceneKey:null,position:no,collapsed:false,shots:[blankShot(1)]}}
+function blankShotForScene(no,scene){const shot=blankShot(no);if(!scene)return shot;shot.aiLocationId=scene.aiLocationId||"";shot.aiCharacterIds=[...(scene.aiCharacterIds||[])];if(scene.storyTime&&scene.storyTime!=="Unspecified")shot.timeOfDay=scene.storyTime;if(scene.storyLocation)shot.location=scene.storyLocation;return shot}
 function blankProject(name="Untitled Storyboard"){return {id:uid(),name,aspect:"3:4 Portrait",aspectWidth:3,aspectHeight:4,style:"Storyboard B&W",owner_id:null,role:"owner",position:0,isFavorite:false,folder:"General",tags:[],metadata:{director:"",cinematographer:"",writer:"",production:"",status:"Planning",notes:""},scenes:[blankScene(1)],updated_at:new Date().toISOString()}}
 function deepClone(x){return JSON.parse(JSON.stringify(x))}
 function normalizeTags(v){
@@ -404,6 +428,10 @@ function initOptions(){
     const el=$(id); if(!el)return; el.innerHTML="";
     vals.forEach(v=>{const o=document.createElement("option");o.value=v;o.textContent=v;el.appendChild(o)})
   });
+  for(const id of ["sceneStoryTime","sceneShootTime"]){
+    const el=$(id);if(!el)continue;el.innerHTML="";SCENE_TIME_OPTIONS.forEach(value=>{const option=document.createElement("option");option.value=value;option.textContent=value;el.appendChild(option)})
+  }
+  if($("sceneTimeStrategy")){$("sceneTimeStrategy").innerHTML="";SCENE_TIME_STRATEGIES.forEach(([value,label])=>{const option=document.createElement("option");option.value=value;option.textContent=label;$("sceneTimeStrategy").appendChild(option)})}
 }
 function getLocalProjects(){
   try{
@@ -428,7 +456,8 @@ function saveLocal(){
   if(idx>=0)app.projects[idx]=app.current; else app.projects.push(app.current);
   localStorage.setItem("storyboard-v3-projects",JSON.stringify(app.projects));
 }
-function resetAiState(){app.ai.requestController?.abort();app.ai.ready=false;app.ai.sourceReady=false;app.ai.loading=false;app.ai.generating=false;app.ai.generatingAssetId=null;app.ai.generationMode=null;app.ai.requestController=null;app.ai.cancelRequested=false;app.ai.previousFocus=null;app.ai.characters=[];app.ai.locations=[];app.ai.usage={loaded:false,loading:false,error:"",used:0,remaining:20,dailyLimit:20,personalRemaining:20,globalRemaining:70,unlimited:false,usageDate:""};syncAiGenerationLock();renderAiUsage()}
+function resetScriptState(){app.script={ready:false,loading:false,saving:false,analyzing:false,applying:false,record:null,links:[],analysis:null,editorHydrated:false,pendingFileName:"",pendingFileType:"",selectedStart:0,selectedEnd:0,migrationMessage:"Run the saved v4.5 Bible Script SQL query, then reload this project."}}
+function resetAiState(){app.ai.requestController?.abort();app.ai.ready=false;app.ai.sourceReady=false;app.ai.loading=false;app.ai.generating=false;app.ai.generatingAssetId=null;app.ai.generationMode=null;app.ai.requestController=null;app.ai.cancelRequested=false;app.ai.previousFocus=null;app.ai.characters=[];app.ai.locations=[];app.ai.usage={loaded:false,loading:false,error:"",used:0,remaining:20,dailyLimit:20,personalRemaining:20,globalRemaining:70,unlimited:false,usageDate:""};resetScriptState();syncAiGenerationLock();renderAiUsage()}
 function selectFirst(){
   const sc=app.current?.scenes?.[0]; app.activeSceneId=sc?.id||null; app.activeShotId=sc?.shots?.[0]?.id||null
 }
@@ -1047,7 +1076,7 @@ async function openCloudProject(id,options={}){
     shotData.aiLocationId=String(shotData.aiLocationId||"");
     return {...shotData,id:row.id,shotNo:row.shot_number,position:row.position,version:Number(row.version||1),imagePath:row.image_path,image}
   }));
-  const sceneObjects=(scenes||[]).map(s=>({id:s.id,number:s.scene_number,title:s.title||`Scene ${s.scene_number}`,description:s.description||"",position:Number(s.position||s.scene_number||1),collapsed:!!s.collapsed,version:Number(s.version||1),shots:signed.filter(x=>(shots||[]).find(r=>r.id===x.id)?.scene_id===s.id)}));
+  const sceneObjects=(scenes||[]).map(s=>({id:s.id,number:s.scene_number,title:s.title||`Scene ${s.scene_number}`,description:s.description||"",storyLocation:s.story_location||"",storyTime:s.story_time||"Unspecified",shootTime:s.shoot_time||"Unspecified",timeStrategy:s.time_strategy||"natural",aiLocationId:s.ai_location_id||"",aiCharacterIds:Array.isArray(s.ai_character_ids)?s.ai_character_ids.filter(Boolean):[],scriptSceneKey:s.script_scene_key||null,position:Number(s.position||s.scene_number||1),collapsed:!!s.collapsed,version:Number(s.version||1),shots:signed.filter(x=>(shots||[]).find(r=>r.id===x.id)?.scene_id===s.id)}));
   sceneObjects.sort((a,b)=>a.position-b.position).forEach((scene,i)=>{
     scene.position=i+1;scene.number=i+1;
     scene.shots.sort((a,b)=>a.position-b.position).forEach((shot,j)=>{shot.position=j+1;shot.shotNo=j+1})
@@ -1058,7 +1087,7 @@ async function openCloudProject(id,options={}){
   if(app.isOwner){app.permissions=fullPermissions()}else{
     const {data:m}=await sb.from("project_members").select("permissions").eq("project_id",id).eq("user_id",app.session.user.id).maybeSingle();app.permissions=m?.permissions||blankPermissions()
   }
-  await loadAiVisualBible(id);
+  await Promise.all([loadAiVisualBible(id),loadProjectScript(id)]);
   if(adminSupporting(id))app.admin.supportProjectName=p.name||app.admin.supportProjectName;
   const preferredScene=app.current.scenes.find(s=>s.id===preferredSceneId) || app.current.scenes[0] || null;
   app.activeSceneId=preferredScene?.id||null;
@@ -1086,6 +1115,9 @@ function subscribeRealtime(){
   if(app.ai.ready)channel=channel
     .on("postgres_changes",{event:"*",schema:"public",table:"project_ai_characters",filter:`project_id=eq.${pid}`},()=>remoteRefresh())
     .on("postgres_changes",{event:"*",schema:"public",table:"project_ai_locations",filter:`project_id=eq.${pid}`},()=>remoteRefresh());
+  if(app.script.ready)channel=channel
+    .on("postgres_changes",{event:"*",schema:"public",table:"project_scripts",filter:`project_id=eq.${pid}`},()=>remoteRefresh())
+    .on("postgres_changes",{event:"*",schema:"public",table:"script_shot_links",filter:`project_id=eq.${pid}`},()=>remoteRefresh());
   app.realtimeChannel=channel.subscribe()
 }
 function unsubscribeRealtime(){if(sb&&app.realtimeChannel){sb.removeChannel(app.realtimeChannel);app.realtimeChannel=null}}
@@ -1201,8 +1233,8 @@ function renderSceneList(){
         <button class="scene-mini move-scene-down" type="button" title="Move scene down" ${sceneIndex===scenes.length-1?"disabled":""}>↓</button>`:`
         <button class="scene-mini add-shot-scene" type="button" title="Add shot to this scene" aria-label="Add shot to this scene">＋</button>
         <button class="scene-mini delete-shot-scene" type="button" title="Delete selected shot" aria-label="Delete selected shot" ${scene.shots.length<=1?"disabled":""}>−</button>
-        <button class="scene-mini copy-shot-scene" type="button" title="Copy selected shot" aria-label="Copy selected shot">C</button>
-        <button class="scene-mini paste-shot-scene" type="button" title="Paste copied shot" aria-label="Paste copied shot" ${app.shotClipboard?"":"disabled"}>P</button>`;
+        <button class="scene-mini copy-shot-scene" type="button" title="Copy selected shot" aria-label="Copy selected shot"><svg class="scene-action-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg></button>
+        <button class="scene-mini paste-shot-scene" type="button" title="Paste copied shot" aria-label="Paste copied shot" ${app.shotClipboard?"":"disabled"}><svg class="scene-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5h6l1 2h3v13H5V7h3z"/><path d="M9 4h6v4H9zM9 12h6M12 9v6"/></svg></button>`;
     row.innerHTML=`
       <button class="scene-select" type="button" title="Click scene name to open / close">
         <span class="scene-title-stack"><strong>Scene ${scene.number}</strong><small>${escapeHtml(scene.title||"")}</small></span>
@@ -1228,7 +1260,7 @@ function renderSceneList(){
       const b=document.createElement("button");b.type="button";b.className="shot-item"+(shot.id===app.activeShotId?" active":"");
       const th=document.createElement("span");th.className="shot-thumb";if(shot.image)th.style.backgroundImage=`url(${shot.image})`;
       const txt=document.createElement("span");txt.className="shot-item-text";txt.innerHTML=`<strong>Shot ${shot.shotNo}</strong><small>${shortValue(shot.shotSize)} · ${shot.duration||"No duration"}</small>`;
-      b.append(th,txt);b.onclick=()=>{app.activeSceneId=scene.id;app.activeShotId=shot.id;app.mobileScreen="shot";app.sheetOpen=false;renderEditor();rememberWorkspace()};
+      b.append(th,txt);b.onclick=()=>{app.activeSceneId=scene.id;app.activeShotId=shot.id;app.sheetOpen=false;renderEditor();rememberWorkspace()};
       const controls=document.createElement("span");controls.className="shot-inline-actions";
       controls.innerHTML=`<button type="button" class="shot-up" title="Move shot up" ${shotIndex===0?"disabled":""}>↑</button><button type="button" class="shot-down" title="Move shot down" ${shotIndex===ordered.length-1?"disabled":""}>↓</button>`;
       controls.querySelector(".shot-up").onclick=()=>moveShotById(scene.id,shot.id,-1);
@@ -1241,7 +1273,14 @@ function renderSceneList(){
   updateSceneHeaderToggle();
 }
 function renderSceneSettings(){
-  const s=currentScene();if(!s)return;$("sceneNumber").value=s.number;$("sceneTitle").value=s.title||"";$("sceneDescription").value=s.description||""
+  const s=currentScene();if(!s)return;$("sceneNumber").value=s.number;$("sceneTitle").value=s.title||"";$("sceneDescription").value=s.description||"";
+  $("sceneStoryLocation").value=s.storyLocation||"";$("sceneStoryTime").value=SCENE_TIME_OPTIONS.includes(s.storyTime)?s.storyTime:"Unspecified";$("sceneShootTime").value=SCENE_TIME_OPTIONS.includes(s.shootTime)?s.shootTime:"Unspecified";$("sceneTimeStrategy").value=SCENE_TIME_STRATEGIES.some(([value])=>value===s.timeStrategy)?s.timeStrategy:"natural";
+  const location=$("sceneAiLocationId"),previous=s.aiLocationId||"";location.innerHTML='<option value="">No Bible location assigned</option>';
+  for(const asset of app.ai.locations){const option=document.createElement("option");option.value=asset.id;option.textContent=asset.name+(!asset.reference_path?" · needs reference":!asset.locked?" · not locked":asset.style_snapshot!==app.current.style?" · style changed":"");location.appendChild(option)}
+  location.value=[...location.options].some(option=>option.value===previous)?previous:"";
+  const characters=$("sceneAiCharacterPicker");characters.innerHTML="";s.aiCharacterIds=Array.isArray(s.aiCharacterIds)?s.aiCharacterIds:[];
+  if(!app.ai.ready||!app.ai.characters.length)characters.innerHTML=`<span class="ai-picker-empty">${app.ai.ready?"No Bible characters yet.":app.mode==="cloud"?app.ai.migrationMessage:"Bible assignments are available in cloud projects."}</span>`;
+  else for(const asset of app.ai.characters){const selected=s.aiCharacterIds.includes(asset.id),label=document.createElement("label");label.className="ai-reference-choice"+(selected?" selected":"")+(!asset.reference_path||!asset.locked||asset.style_snapshot!==app.current.style?" needs-reference":"");label.innerHTML=`<input type="checkbox" value="${asset.id}" ${selected?"checked":""}><span>${escapeHtml(asset.name)}</span>`;label.querySelector("input").onchange=event=>{s.aiCharacterIds=event.target.checked?[...new Set([...s.aiCharacterIds,asset.id])]:s.aiCharacterIds.filter(id=>id!==asset.id);onSceneChange()};characters.appendChild(label)}
 }
 function renderShot(){
   const s=currentShot(),sc=currentScene();if(!s||!sc)return;
@@ -1272,7 +1311,9 @@ function applyPermissionLocks(){
   // Project Details remains viewable for collaborators; the modal itself becomes read-only.
   $("projectDetailsBtn").disabled=false;
   $("sceneNumber").readOnly=true;$("sceneNumber").disabled=false;
-  ["sceneTitle","sceneDescription"].forEach(id=>$(id).disabled=sceneLocked);
+  ["sceneTitle","sceneDescription","sceneStoryLocation","sceneStoryTime","sceneShootTime","sceneTimeStrategy"].forEach(id=>$(id).disabled=sceneLocked);$("sceneAiLocationId").disabled=sceneLocked||!app.ai.ready;
+  $("sceneAiCharacterPicker").querySelectorAll("input").forEach(input=>input.disabled=sceneLocked||!app.ai.ready);
+  $("syncSceneBibleBtn").disabled=sceneLocked||shotLocked||!currentScene()||!app.ai.ready;
   ["addSceneBtn","deleteSceneBtn"].forEach(id=>$(id).disabled=sceneLocked);
   ["addShotBtn","duplicateShotBtn","moveShotUpBtn","moveShotDownBtn","deleteShotBtn"].forEach(id=>{if($(id))$(id).disabled=shotLocked});
   $("pasteShotBtn").disabled=shotLocked||!app.shotClipboard;
@@ -1305,11 +1346,10 @@ async function saveCloud(kind){
     if(error){setMsg("editorNotice",error.message||"Could not save project settings.","warning");return false}
   }else if(kind==="scene"&&can("scenes")){
     const s=currentScene();if(!s)return;
-    const sceneRpc=adminSupporting()?"storyboard_admin_update_scene":"update_storyboard_scene";
-    const {data,error}=await sb.rpc(sceneRpc,{p_scene_id:s.id,p_expected_version:Number(s.version||1),p_title:s.title||"",p_description:s.description||""});
+    const {data,error}=await sb.rpc("storyboard_update_scene_v45",{p_scene_id:s.id,p_expected_version:Number(s.version||1),p_title:s.title||"",p_description:s.description||"",p_story_location:s.storyLocation||"",p_story_time:s.storyTime||"Unspecified",p_shoot_time:s.shootTime||"Unspecified",p_time_strategy:s.timeStrategy||"natural",p_ai_location_id:s.aiLocationId||null,p_ai_character_ids:s.aiCharacterIds||[]});
     if(error){
       if(String(error.message||"").includes("EDIT_CONFLICT")){setMsg("editorNotice",conflictMessage("scene"),"warning");await openCloudProject(app.current.id,{sceneId:s.id,shotId:app.activeShotId,preserveSelection:true});return false}
-      setMsg("editorNotice",error.message||"Could not save scene.","warning");return false
+      const message=/storyboard_update_scene_v45|schema cache/i.test(String(error.message||""))?"Scene Settings need the saved SQL query “Storyboard v4.5 - Bible Script & Scene Breakdown”. Run it in Supabase, then reload.":error.message||"Could not save scene.";setMsg("editorNotice",message,"warning");return false
     }
     s.version=Number(data||s.version+1);return true
   }else if(kind==="shot"&&can("shots")){
@@ -1330,7 +1370,17 @@ function onProjectChange(){
   $("customAspectFields").hidden=app.current.aspect!=="Custom";renderShot();renderSheet();queueSave("project");rememberWorkspace()
 }
 function onSceneChange(){
-  if(!can("scenes"))return;const s=currentScene();if(!s)return;s.title=$("sceneTitle").value;s.description=$("sceneDescription").value;renderSceneList();renderShot();renderSheet();queueSave("scene");rememberWorkspace()
+  if(!can("scenes"))return;const s=currentScene();if(!s)return;s.title=$("sceneTitle").value;s.description=$("sceneDescription").value;s.storyLocation=$("sceneStoryLocation").value;s.storyTime=$("sceneStoryTime").value;s.shootTime=$("sceneShootTime").value;s.timeStrategy=$("sceneTimeStrategy").value;s.aiLocationId=$("sceneAiLocationId").value||"";s.aiCharacterIds=[...document.querySelectorAll('#sceneAiCharacterPicker input[type="checkbox"]:checked')].map(input=>input.value);renderSceneList();renderShot();renderSheet();queueSave("scene");rememberWorkspace()
+}
+async function syncSceneBibleToShots(){
+  const scene=currentScene();if(!scene||!can("scenes")||!can("shots"))return;
+  if(!uiConfirm(`Apply the Scene Bible location, characters and story time to all ${scene.shots.length} shot${scene.shots.length===1?"":"s"} in this scene?`))return;
+  const priorSuppress=app.suppressRealtime;app.suppressRealtime++;
+  try{
+    for(const shot of scene.shots){shot.aiLocationId=scene.aiLocationId||"";shot.aiCharacterIds=[...(scene.aiCharacterIds||[])];if(scene.storyTime&&scene.storyTime!=="Unspecified")shot.timeOfDay=scene.storyTime;if(scene.storyLocation&&!shot.location)shot.location=scene.storyLocation;if(app.mode==="cloud"){const {error}=await sb.from("shots").update({data:shotDbData(shot)}).eq("id",shot.id).eq("project_id",app.current.id);if(error)throw error}}
+    if(app.mode==="local")saveLocal();setMsg("editorNotice","Scene Bible assignments applied to every shot.");renderEditor();rememberWorkspace()
+  }catch(error){setMsg("editorNotice",error.message||"Could not apply Scene Bible assignments.","warning")}
+  finally{app.suppressRealtime=priorSuppress}
 }
 function onShotChange(id){
   if(!can("shots")||id==="shotNo")return;const s=currentShot();if(!s)return;s[id]=$(id).value;renderShot();renderSceneList();renderSheet();applyPermissionLocks();queueSave("shot");rememberWorkspace()
@@ -1426,7 +1476,7 @@ async function duplicateScene(sceneId){
   }
   app.suppressRealtime++;
   try{
-    const {data:newScene,error}=await sb.from("scenes").insert({project_id:app.current.id,scene_number:source.number+1,title:`${source.title||`Scene ${source.number}`} Copy`,description:source.description||"",position:source.position+.5,collapsed:false}).select().single();
+    const {data:newScene,error}=await sb.from("scenes").insert({project_id:app.current.id,scene_number:source.number+1,title:`${source.title||`Scene ${source.number}`} Copy`,description:source.description||"",story_location:source.storyLocation||"",story_time:source.storyTime||"Unspecified",shoot_time:source.shootTime||"Unspecified",time_strategy:source.timeStrategy||"natural",ai_location_id:source.aiLocationId||null,ai_character_ids:source.aiCharacterIds||[],position:source.position+.5,collapsed:false}).select().single();
     if(error)throw error;
     let firstShotId=null;
     for(const sh of [...source.shots].sort((a,b)=>a.position-b.position)){
@@ -1511,8 +1561,8 @@ async function addShot(){return addShotToScene(app.activeSceneId)}
 async function addShotToScene(sceneId){
   if(!can("shots"))return;const sc=app.current?.scenes.find(s=>s.id===sceneId);if(!sc)return;const no=sc.shots.length+1,pos=no;
   app.activeSceneId=sc.id;sc.collapsed=false;
-  if(app.mode==="local"){const sh=blankShot(no);sh.position=pos;sc.shots.push(sh);app.activeShotId=sh.id;saveLocal();renderEditor();rememberWorkspace();return}
-  const sh=blankShot(no);app.ignoreRealtimeUntil=Date.now()+1400;const {data,error}=await sb.from("shots").insert({project_id:app.current.id,scene_id:sc.id,shot_number:no,position:pos,data:shotDbData(sh)}).select().single();if(error){uiAlert(error.message);return}
+  if(app.mode==="local"){const sh=blankShotForScene(no,sc);sh.position=pos;sc.shots.push(sh);app.activeShotId=sh.id;saveLocal();renderEditor();rememberWorkspace();return}
+  const sh=blankShotForScene(no,sc);app.ignoreRealtimeUntil=Date.now()+1400;const {data,error}=await sb.from("shots").insert({project_id:app.current.id,scene_id:sc.id,shot_number:no,position:pos,data:shotDbData(sh)}).select().single();if(error){uiAlert(error.message);return}
   await openCloudProject(app.current.id,{sceneId:sc.id,shotId:data.id,preserveSelection:true});rememberWorkspace()
 }
 async function deleteSelectedShotFromScene(sceneId){
@@ -1609,10 +1659,11 @@ function aiAssetImageTarget(asset,type,role="reference"){
 }
 function canCropImageTarget(target){return !!(target?.url&&can("media")&&!app.ai.generating&&(target.kind==="shot"||target.kind==="asset-reference"||target.kind==="asset-source"))}
 function openImageViewer(target){
-  if(!target?.url)return;imageViewerTarget=target;$("imageViewerTitle").textContent=target.title||"Image Preview";$("imageViewerCaption").textContent=target.caption||"";$("imageViewerImage").src=target.url;
+  if(!target?.url)return;imageViewerTarget=target;$("imageViewerTitle").textContent=target.title||"Image Preview";$("imageViewerCaption").dataset.baseCaption=target.caption||"";$("imageViewerCaption").textContent=target.caption||"";const stage=$("imageViewerStage"),fallback=target.aspect||aspectNumbers(app.current);stage.style.setProperty("--viewer-aspect",`${fallback.w}/${fallback.h}`);$("imageViewerImage").src=target.url;
   $("openCropFromViewerBtn").hidden=!canCropImageTarget(target);const dialog=$("imageViewerModal");if(!dialog.open)dialog.showModal()
 }
-function closeImageViewer(){const dialog=$("imageViewerModal");if(dialog.open)dialog.close();$("imageViewerImage").removeAttribute("src");imageViewerTarget=null}
+function updateImageViewerAspect(){const image=$("imageViewerImage"),width=Number(image.naturalWidth),height=Number(image.naturalHeight);if(!width||!height)return;const stage=$("imageViewerStage"),card=document.querySelector(".image-viewer-card"),ratio=width/height,ratioLabel=String(Number(ratio.toFixed(3)));stage.style.setProperty("--viewer-aspect",`${width}/${height}`);card.style.setProperty("--viewer-ratio",String(Math.max(.18,Math.min(5,ratio))));const base=$("imageViewerCaption").dataset.baseCaption||"";$("imageViewerCaption").textContent=[base,`${width} × ${height} · ${ratioLabel}:1`].filter(Boolean).join(" · ")}
+function closeImageViewer(){const dialog=$("imageViewerModal");if(dialog.open)dialog.close();$("imageViewerImage").removeAttribute("src");document.querySelector(".image-viewer-card")?.style.removeProperty("--viewer-ratio");imageViewerTarget=null}
 function openCurrentShotImage(){const target=shotImageTarget(currentShot());if(target)openImageViewer(target)}
 function cropOutputSize(target){
   const aspect=target?.aspect||aspectNumbers(app.current),ratio=Math.max(.02,Math.min(50,aspect.w/aspect.h)),max=Math.max(128,Number(target?.maxDimension)||1024);
@@ -1665,7 +1716,7 @@ async function saveCroppedShot(target,blob){
   shot.imagePath=path;const {data:signed}=await sb.storage.from("storyboards").createSignedUrl(path,SIGNED_IMAGE_TTL_SECONDS);shot.image=signed?.signedUrl||URL.createObjectURL(blob);await removeMediaPaths([oldPath]);renderEditor();rememberWorkspace()
 }
 async function saveCroppedAiAsset(target,blob){
-  const asset=aiCollection(target.type).find(item=>item.id===target.id);if(!asset)throw new Error("Visual Bible item not found.");const source=target.kind==="asset-source",format=optimizedImageFormat(blob),role=source?"source":"reference",path=`${app.current.id}/ai/${aiFolder(target.type)}/${asset.id}/${Date.now()}-${role}-crop.${format.extension}`,oldPath=source?asset.source_path:asset.reference_path,oldUrl=source?asset.sourceUrl:asset.referenceUrl;
+  const asset=aiCollection(target.type).find(item=>item.id===target.id);if(!asset)throw new Error("Bible item not found.");const source=target.kind==="asset-source",format=optimizedImageFormat(blob),role=source?"source":"reference",path=`${app.current.id}/ai/${aiFolder(target.type)}/${asset.id}/${Date.now()}-${role}-crop.${format.extension}`,oldPath=source?asset.source_path:asset.reference_path,oldUrl=source?asset.sourceUrl:asset.referenceUrl;
   const {error:uploadError}=await sb.storage.from("storyboards").upload(path,blob,{upsert:false,contentType:format.type,cacheControl:"31536000"});if(uploadError)throw uploadError;
   const changes=source?{source_path:path,updated_at:new Date().toISOString()}:{reference_path:path,style_snapshot:null,locked:false,updated_at:new Date().toISOString()};const {error:updateError}=await sb.from(aiTable(target.type)).update(changes).eq("id",asset.id).eq("project_id",app.current.id);if(updateError){await removeMediaPaths([path]);throw updateError}
   if(source){asset.source_path=path;asset.sourceUrl=null}else{asset.reference_path=path;asset.referenceUrl=null;asset.style_snapshot=null;asset.locked=false}
@@ -1752,19 +1803,144 @@ async function loadAiVisualBible(projectId=app.current?.id){
   }else app.ai.sourceReady=true;
   app.ai.loading=false;
   if(characters.error||locations.error){
-    console.warn("AI Visual Bible is unavailable",characters.error||locations.error);
+    console.warn("Bible is unavailable",characters.error||locations.error);
     app.ai.migrationMessage="AI setup is not active yet. Run supabase-v4.0-ai.sql, then reload this project.";
     return
   }
   app.ai.characters=(characters.data||[]).map(x=>normalizeAiAsset(x,"character",previousAssets.get(x.id)));
   app.ai.locations=(locations.data||[]).map(x=>normalizeAiAsset(x,"location",previousAssets.get(x.id)));
   app.ai.ready=true;
-  // A Realtime refresh can happen while the Visual Bible dialog is open.
+  // A Realtime refresh can happen while the Bible dialog is open.
   // Restore any missing signed previews before that dialog is rendered again.
   if($("aiBibleModal")?.open)await Promise.all([...app.ai.characters,...app.ai.locations].filter(x=>(x.reference_path&&!x.referenceUrl)||(x.source_path&&!x.sourceUrl)).map(signAiAsset))
 }
+
+/* ---------- BIBLE SCRIPT + SHOT REFERENCES ---------- */
+function scriptCanEdit(){return app.mode==="cloud"&&(can("project_settings")||can("scenes")||can("shots"))}
+function scriptCanApply(){return scriptCanEdit()&&can("media")&&can("scenes")&&can("shots")}
+function cleanScriptName(value,fallback="Untitled"){return String(value||fallback).replace(/\s+/g," ").trim().slice(0,160)||fallback}
+function cleanScriptText(value,max=1200,fallback=""){return String(value||fallback).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]+/g," ").replace(/\s+/g," ").trim().slice(0,max)||fallback}
+function normalizeScriptAnalysis(value){
+  const input=value&&typeof value==="object"?value:{},characters=Array.isArray(input.characters)?input.characters:[],locations=Array.isArray(input.locations)?input.locations:[],scenes=Array.isArray(input.scenes)?input.scenes:[];
+  const uniqueItems=(items,descriptionFallback)=>[...new Map(items.map(item=>{const row=typeof item==="string"?{name:item}:item||{},name=cleanScriptName(row.name,"");return [name.toLocaleLowerCase(),{name,description:cleanScriptText(row.description,1400,descriptionFallback)}]}).filter(([key])=>key)).values()];
+  const validTime=value=>SCENE_TIME_OPTIONS.includes(value)?value:"Unspecified";
+  const sceneKeys=new Set();
+  return {
+    language:cleanScriptName(input.language,"Unknown"),
+    title:cleanScriptName(input.title,"Imported Script"),
+    characters:uniqueItems(characters,"Recurring character detected in the script; add stable appearance and costume details before generation."),
+    locations:uniqueItems(locations,"Recurring location detected in the script; add stable architecture, layout and palette details before generation."),
+    scenes:scenes.slice(0,500).map((scene,index)=>{const row=scene&&typeof scene==="object"?scene:{},fallback=`scene-${String(index+1).padStart(3,"0")}`,baseKey=cleanScriptName(row.key,fallback).toLowerCase().replace(/[^a-z0-9_-]+/g,"-").slice(0,80)||fallback;let key=baseKey,suffix=2;while(sceneKeys.has(key)){key=`${baseKey.slice(0,Math.max(1,76-String(suffix).length))}-${suffix}`;suffix++}sceneKeys.add(key);return {key,title:cleanScriptName(row.title,`Scene ${index+1}`),description:cleanScriptText(row.description,1200,"Script scene"),location:cleanScriptName(row.location,""),story_time:validTime(cleanScriptName(row.story_time,"Unspecified")),shoot_time:validTime(cleanScriptName(row.shoot_time,row.story_time||"Unspecified")),time_strategy:["natural","day_for_night","night_for_day"].includes(row.time_strategy)?row.time_strategy:"natural",characters:[...new Set((Array.isArray(row.characters)?row.characters:[]).map(name=>cleanScriptName(name,"")).filter(Boolean))].slice(0,40),start_line:Math.max(1,Number(row.start_line)||1),end_line:Math.max(1,Number(row.end_line)||Number(row.start_line)||1)}})
+  }
+}
+async function loadProjectScript(projectId=app.current?.id){
+  resetScriptState();if(app.mode!=="cloud"||!sb||!projectId)return;app.script.loading=true;
+  const recordResult=await sb.from("project_scripts").select("*").eq("project_id",projectId).maybeSingle();app.script.loading=false;
+  if(recordResult.error){console.warn("Bible Script is unavailable",recordResult.error);app.script.migrationMessage="Run the saved SQL query “Storyboard v4.5 - Bible Script & Scene Breakdown”, then reload this project.";return}
+  app.script.ready=true;app.script.record=recordResult.data||null;app.script.analysis=recordResult.data?.analysis?normalizeScriptAnalysis(recordResult.data.analysis):null;app.script.editorHydrated=false;app.script.pendingFileName="";app.script.pendingFileType="";
+  if(app.script.record){const linksResult=await sb.from("script_shot_links").select("*").eq("script_id",app.script.record.id).order("start_offset");if(!linksResult.error)app.script.links=linksResult.data||[]}
+}
+function scriptLineNumberAt(text,offset){return text.slice(0,Math.max(0,offset)).split("\n").length}
+function currentScriptSelection(){const editor=$("scriptTextEditor"),start=Math.min(editor.selectionStart||0,editor.selectionEnd||0),end=Math.max(editor.selectionStart||0,editor.selectionEnd||0),text=editor.value.slice(start,end),dbStart=[...editor.value.slice(0,start)].length,dbEnd=dbStart+[...text].length;return {start,end,dbStart,dbEnd,text}}
+function scriptShotLabel(shotId){const item=allShots().find(entry=>entry.shot.id===shotId);return item?`Scene ${item.scene.number} · Shot ${item.shot.shotNo}`:"Deleted shot"}
+function renderScriptLinkSelectors(){
+  const sceneSelect=$("scriptLinkSceneSelect"),shotSelect=$("scriptLinkShotSelect");if(!sceneSelect||!shotSelect||!app.current)return;
+  const priorScene=sceneSelect.value||app.activeSceneId||"";sceneSelect.innerHTML="";for(const scene of [...app.current.scenes].sort((a,b)=>a.position-b.position)){const option=document.createElement("option");option.value=scene.id;option.textContent=`Scene ${scene.number} · ${scene.title||"Untitled"}`;sceneSelect.appendChild(option)}sceneSelect.value=[...sceneSelect.options].some(option=>option.value===priorScene)?priorScene:(app.current.scenes[0]?.id||"");
+  const scene=app.current.scenes.find(item=>item.id===sceneSelect.value),priorShot=shotSelect.value||((scene?.id===app.activeSceneId&&app.activeShotId)||"");shotSelect.innerHTML="";for(const shot of [...(scene?.shots||[])].sort((a,b)=>a.position-b.position)){const option=document.createElement("option");option.value=shot.id;option.textContent=`Shot ${shot.shotNo} · ${shortValue(shot.shotSize)}`;shotSelect.appendChild(option)}shotSelect.value=[...shotSelect.options].some(option=>option.value===priorShot)?priorShot:(scene?.shots?.[0]?.id||"")
+}
+function updateScriptSelection(){
+  const selection=currentScriptSelection(),hasText=selection.end>selection.start&&!!selection.text.trim(),editable=app.script.ready&&scriptCanEdit()&&can("shots")&&!app.script.analyzing&&!app.script.applying;app.script.selectedStart=selection.start;app.script.selectedEnd=selection.end;
+  if(hasText){const from=scriptLineNumberAt($("scriptTextEditor").value,selection.start),to=scriptLineNumberAt($("scriptTextEditor").value,selection.end);$("scriptSelectionTitle").textContent=`Selected ${selection.end-selection.start} characters · line ${from}${to===from?"":` to ${to}`}`;$("scriptSelectionMeta").textContent=selection.text.replace(/\s+/g," ").trim().slice(0,180)}else{$("scriptSelectionTitle").textContent="Select text to connect it to a shot";$("scriptSelectionMeta").textContent="A selection may begin or end in the middle of any line."}
+  $("linkScriptSelectionBtn").disabled=!hasText||!editable||!$("scriptLinkShotSelect").value;$("createShotFromScriptBtn").disabled=!hasText||!editable||!$("scriptLinkSceneSelect").value
+}
+function renderScriptAnalysis(){
+  const wrap=$("scriptAnalysisResults"),analysis=app.script.analysis;if(!analysis){wrap.hidden=true;wrap.innerHTML="";return}wrap.hidden=false;
+  const sceneItems=analysis.scenes.slice(0,60).map(scene=>`<div class="script-analysis-item"><strong>${escapeHtml(scene.title)}</strong><small>${escapeHtml(scene.location||"Location not identified")} · Story ${escapeHtml(scene.story_time)} · Shoot ${escapeHtml(scene.shoot_time||scene.story_time)}${scene.time_strategy!=="natural"?` · ${escapeHtml(scene.time_strategy==="day_for_night"?"Day for Night":"Night for Day")}`:""} · lines ${scene.start_line}–${scene.end_line}</small><small>${escapeHtml(scene.characters.join(", ")||"No recurring characters identified")}</small></div>`).join("");
+  wrap.innerHTML=`<div class="script-analysis-summary"><div class="script-analysis-stat"><strong>${analysis.scenes.length}</strong><small>Scenes</small></div><div class="script-analysis-stat"><strong>${analysis.characters.length}</strong><small>Characters</small></div><div class="script-analysis-stat"><strong>${analysis.locations.length}</strong><small>Locations</small></div></div><div class="script-analysis-list">${sceneItems||'<div class="ai-picker-empty">No scenes were detected. Review the script formatting and analyze again.</div>'}</div>`
+}
+function goToScriptShot(shotId){const item=allShots().find(entry=>entry.shot.id===shotId);if(!item)return;app.activeSceneId=item.scene.id;app.activeShotId=item.shot.id;app.mobileScreen="shot";app.sheetOpen=false;if($("aiBibleModal").open)$("aiBibleModal").close();renderEditor();rememberWorkspace()}
+function renderScriptLinks(){
+  const wrap=$("scriptLinkList");wrap.innerHTML="";for(const link of app.script.links){const row=document.createElement("div");row.className="script-link-row";row.innerHTML=`<blockquote title="${escapeHtml(link.selected_text||"")}">${escapeHtml(String(link.selected_text||"").replace(/\s+/g," ").slice(0,170))}</blockquote><strong>${escapeHtml(scriptShotLabel(link.shot_id))}</strong><button type="button" class="btn ghost danger-text">Remove</button>`;row.querySelector("strong").onclick=()=>goToScriptShot(link.shot_id);row.querySelector("button").onclick=()=>deleteScriptLink(link.id);wrap.appendChild(row)}
+}
+function renderScriptLineMap(){
+  const wrap=$("scriptLineMap"),text=$("scriptTextEditor").value||"",lines=text.split("\n");wrap.innerHTML="";let offset=0,linkedCount=0,meaningfulCount=0;
+  lines.forEach((line,index)=>{const start=offset,end=start+[...line].length,newlineEnd=end+(index<lines.length-1?1:0),links=app.script.links.filter(link=>Number(link.start_offset)<newlineEnd&&Number(link.end_offset)>start);if(line.trim())meaningfulCount++;if(line.trim()&&links.length)linkedCount++;const row=document.createElement("div");row.className="script-line-row";const number=document.createElement("span");number.className="script-line-number";number.textContent=String(index+1);const copy=document.createElement("span");copy.className="script-line-text";copy.textContent=line||" ";const refs=document.createElement("span");refs.className="script-line-shots";if(!links.length){const empty=document.createElement("span");empty.className="script-line-unlinked";empty.textContent="—";refs.appendChild(empty)}else for(const link of links){const button=document.createElement("button");button.type="button";button.className="script-shot-ref";button.textContent=scriptShotLabel(link.shot_id);button.onclick=()=>goToScriptShot(link.shot_id);refs.appendChild(button)}row.append(number,copy,refs);wrap.appendChild(row);offset=newlineEnd});
+  const percent=meaningfulCount?Math.round(linkedCount/meaningfulCount*100):0;$("scriptCoverageBadge").textContent=`${percent}% linked`
+}
+function renderScriptBible(){
+  const ready=app.script.ready,editable=ready&&scriptCanEdit(),editor=$("scriptTextEditor"),projectId=app.current?.id||"";
+  if(!app.script.editorHydrated||editor.dataset.projectId!==projectId){editor.value=app.script.record?.content||"";editor.dataset.projectId=projectId;app.script.editorHydrated=true}
+  const fileName=app.script.pendingFileName||app.script.record?.file_name||"No script",analysisMatches=!!app.script.record&&editor.value===app.script.record.content;$("scriptFileBadge").textContent=fileName;$("scriptFileInput").disabled=!editable||app.script.analyzing||app.script.applying;editor.disabled=!editable||app.script.analyzing||app.script.applying;$("saveScriptBtn").disabled=!editable||app.script.saving||app.script.analyzing||app.script.applying;$("analyzeScriptBtn").disabled=!editable||app.script.analyzing||app.script.applying||!editor.value.trim();$("analyzeScriptBtn").textContent=app.script.analyzing?"Analyzing Script…":"✦ Analyze with AI";$("analyzeScriptBtn").classList.toggle("script-analysis-btn-busy",app.script.analyzing);$("applyScriptBreakdownBtn").disabled=!scriptCanApply()||!app.script.analysis||!analysisMatches||app.script.analyzing||app.script.applying;$("applyScriptBreakdownBtn").textContent=app.script.applying?"Applying Breakdown…":"Apply Breakdown to Project";
+  if(!ready)setMsg("scriptNotice",app.script.migrationMessage,"warning");renderScriptLinkSelectors();renderScriptAnalysis();renderScriptLinks();renderScriptLineMap();updateScriptSelection()
+}
+function rtfToPlainText(value){return String(value||"").replace(/\\u(-?\d+)\??/g,(_,code)=>String.fromCharCode(Number(code)<0?Number(code)+65536:Number(code))).replace(/\\'([0-9a-f]{2})/gi,(_,hex)=>String.fromCharCode(parseInt(hex,16))).replace(/\\(?:par|line)\b\s?/g,"\n").replace(/\\tab\b\s?/g,"\t").replace(/\\[a-z]+-?\d*\s?/gi,"").replace(/\\([{}\\])/g,"$1").replace(/[{}]/g,"").replace(/\n{3,}/g,"\n\n").trim()}
+function screenplayMarkupToText(raw,type,name){
+  const lower=String(name||"").toLowerCase();if(type.includes("rtf")||lower.endsWith(".rtf"))return rtfToPlainText(raw);
+  if(type.includes("html")||/\.html?$/.test(lower)){const doc=new DOMParser().parseFromString(raw,"text/html");return doc.body?.innerText||doc.body?.textContent||""}
+  if(type.includes("xml")||/\.(fdx|xml)$/.test(lower)){const doc=new DOMParser().parseFromString(raw,"application/xml");if(doc.querySelector("parsererror"))throw new Error("This XML/FDX file could not be read.");const paragraphs=[...doc.querySelectorAll("Paragraph")];return paragraphs.length?paragraphs.map(node=>node.textContent||"").join("\n"):doc.documentElement?.textContent||""}
+  return raw
+}
+async function loadScriptFile(event){
+  const file=event.target.files?.[0];event.target.value="";if(!file||!scriptCanEdit())return;
+  try{if(file.size>900000)throw new Error("Script files must be smaller than 900 KB.");const content=screenplayMarkupToText(await file.text(),file.type||"",file.name);if(!content.trim())throw new Error("This script file contains no readable text.");$("scriptTextEditor").value=content;app.script.pendingFileName=file.name.slice(0,240);app.script.pendingFileType=file.type||"text/plain";app.script.analysis=null;setMsg("scriptNotice",`${file.name} loaded. Review the text, then save or analyze it.`);renderScriptBible();$("scriptTextEditor").focus()}
+  catch(error){setMsg("scriptNotice",error.message||"Could not read this script file.","warning")}
+}
+async function saveProjectScript({silent=false}={}){
+  if(!app.script.ready||!scriptCanEdit())return null;const content=$("scriptTextEditor").value,existing=app.script.record,changed=content!==(existing?.content||"");if(!content.trim()){setMsg("scriptNotice","Add or import script text first.","warning");return null}
+  if(changed&&app.script.links.length&&!uiConfirm("Saving changed script text will remove existing shot links because their exact text offsets would no longer be reliable. Continue?"))return null;
+  app.script.saving=true;app.ignoreRealtimeUntil=Date.now()+1800;renderScriptBible();const payload={project_id:app.current.id,file_name:app.script.pendingFileName||existing?.file_name||"script.txt",file_type:app.script.pendingFileType||existing?.file_type||"text/plain",content,analysis:changed?null:(app.script.analysis||null),analysis_model:changed?null:(existing?.analysis_model||null),analyzed_at:changed?null:(existing?.analyzed_at||null),applied_at:changed?null:(existing?.applied_at||null)};
+  let result;if(existing)result=await sb.from("project_scripts").update(payload).eq("id",existing.id).eq("project_id",app.current.id).select().single();else result=await sb.from("project_scripts").insert({...payload,created_by:app.session.user.id}).select().single();
+  app.script.saving=false;if(result.error){setMsg("scriptNotice",result.error.message||"Could not save the script.","warning");renderScriptBible();return null}
+  if(changed&&app.script.links.length){const {error}=await sb.from("script_shot_links").delete().eq("script_id",result.data.id);if(!error)app.script.links=[]}
+  app.script.record=result.data;app.script.analysis=result.data.analysis?normalizeScriptAnalysis(result.data.analysis):null;app.script.pendingFileName="";app.script.pendingFileType="";if(!silent)setMsg("scriptNotice","Script saved.");renderScriptBible();return result.data
+}
+async function analyzeProjectScript(){
+  if(!app.script.ready||!scriptCanEdit()||app.script.analyzing)return;const text=$("scriptTextEditor").value;if(text.trim().length<20)return setMsg("scriptNotice","Add more screenplay text before analysis.","warning");if(text.length>SCRIPT_MAX_ANALYSIS_CHARS)return setMsg("scriptNotice",`This script has ${text.length.toLocaleString()} characters. AI analysis currently accepts up to ${SCRIPT_MAX_ANALYSIS_CHARS.toLocaleString()} characters at once.`,"warning");
+  const record=await saveProjectScript({silent:true});if(!record)return;app.script.analyzing=true;setMsg("scriptNotice","AI is identifying scenes, recurring characters, locations and story time…");renderScriptBible();
+  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),240000);
+  try{const {data:{session}}=await sb.auth.getSession();if(!session?.access_token)throw new Error("Your session expired. Sign in again.");const response=await fetch("/api/script/analyze",{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${session.access_token}`},body:JSON.stringify({project_id:app.current.id,script_id:record.id,script_text:text}),signal:controller.signal});const body=await response.json().catch(()=>({}));if(!response.ok)throw new Error(body.error||`Script analysis failed (${response.status}).`);const analysis=normalizeScriptAnalysis(body.analysis);if(!analysis.scenes.length)throw new Error("AI could not identify any scenes. Check screenplay headings and try again.");app.ignoreRealtimeUntil=Date.now()+1800;const analyzedAt=new Date().toISOString(),{data,error}=await sb.from("project_scripts").update({analysis,analysis_model:body.model||"glm-4.7-flash",analyzed_at:analyzedAt,applied_at:null}).eq("id",record.id).select().single();if(error)throw error;app.script.record=data;app.script.analysis=analysis;setMsg("scriptNotice",`Analysis ready: ${analysis.scenes.length} scenes, ${analysis.characters.length} characters and ${analysis.locations.length} locations. Review it, then apply the breakdown.`)}
+  catch(error){setMsg("scriptNotice",error?.name==="AbortError"?"Script analysis took too long. Try again.":error.message||"Could not analyze the script.","warning")}
+  finally{clearTimeout(timeout);app.script.analyzing=false;renderScriptBible()}
+}
+async function ensureBreakdownAsset(type,item){
+  const collection=aiCollection(type),key=cleanScriptName(item?.name,"").toLocaleLowerCase(),existing=collection.find(asset=>asset.name.toLocaleLowerCase()===key);if(existing)return existing;
+  const description=cleanScriptText(item?.description,type==="character"?1400:1800,type==="character"?"Recurring character detected in the script. Add stable face, body and costume details before generation.":"Recurring location detected in the script. Add stable architecture, layout and palette details before generation.");const {data,error}=await sb.from(aiTable(type)).insert({project_id:app.current.id,name:cleanScriptName(item.name),description,locked:false,created_by:app.session.user.id}).select().single();if(error)throw error;const asset=normalizeAiAsset(data,type);collection.push(asset);return asset
+}
+function defaultSceneCanBecomeScriptScene(scene){const shot=scene?.shots?.[0];return app.current.scenes.length===1&&scene?.shots?.length===1&&!scene.scriptSceneKey&&!scene.description?.trim()&&!scene.storyLocation?.trim()&&!shot?.image&&!String(shot?.summary||shot?.description||shot?.subject||"").trim()}
+async function applyScriptBreakdown(){
+  const analysis=app.script.analysis,record=app.script.record;if(!analysis||!record||!scriptCanApply()||app.script.applying)return;if($("scriptTextEditor").value!==record.content)return setMsg("scriptNotice","The script text changed after analysis. Save and analyze it again before applying.","warning");if(!uiConfirm(`Add or update ${analysis.scenes.length} script scenes and place ${analysis.characters.length} characters and ${analysis.locations.length} locations in the Bible? Existing locked references will not be replaced.`))return;
+  app.script.applying=true;app.suppressRealtime++;setMsg("scriptNotice","Applying the AI breakdown to the Bible and project scenes…");renderScriptBible();
+  try{
+    const characterMap=new Map(),locationMap=new Map();for(const item of analysis.characters){const asset=await ensureBreakdownAsset("character",item);characterMap.set(item.name.toLocaleLowerCase(),asset.id)}for(const item of analysis.locations){const asset=await ensureBreakdownAsset("location",item);locationMap.set(item.name.toLocaleLowerCase(),asset.id)}
+    let reusable=defaultSceneCanBecomeScriptScene(app.current.scenes[0])?app.current.scenes[0]:null,firstSceneId=null,nextPosition=Math.max(0,...app.current.scenes.map(scene=>Number(scene.position)||0));
+    for(const [index,item] of analysis.scenes.entries()){
+      const locationId=locationMap.get(item.location.toLocaleLowerCase())||null,characterIds=item.characters.map(name=>characterMap.get(name.toLocaleLowerCase())).filter(Boolean),existing=app.current.scenes.find(scene=>scene.scriptSceneKey===item.key),payload={title:item.title,description:item.description||"",story_location:item.location||"",story_time:item.story_time||"Unspecified",shoot_time:item.shoot_time||item.story_time||"Unspecified",time_strategy:item.time_strategy||"natural",ai_location_id:locationId,ai_character_ids:characterIds,script_scene_key:item.key,collapsed:false};let sceneRow;
+      if(existing){const {data,error}=await sb.from("scenes").update(payload).eq("id",existing.id).eq("project_id",app.current.id).select().single();if(error)throw error;sceneRow=data}
+      else if(reusable){const {data,error}=await sb.from("scenes").update(payload).eq("id",reusable.id).eq("project_id",app.current.id).select().single();if(error)throw error;sceneRow=data;reusable=null}
+      else{nextPosition++;const {data,error}=await sb.from("scenes").insert({project_id:app.current.id,scene_number:nextPosition,position:nextPosition,...payload}).select().single();if(error)throw error;sceneRow=data}
+      if(!firstSceneId)firstSceneId=sceneRow.id;const {data:shotRows,error:shotReadError}=await sb.from("shots").select("*").eq("scene_id",sceneRow.id).order("position");if(shotReadError)throw shotReadError;
+      if(!(shotRows||[]).length){const seed=blankShot(1);seed.aiLocationId=locationId||"";seed.aiCharacterIds=characterIds;seed.timeOfDay=item.story_time||"Unspecified";seed.location=item.location||"";seed.summary=item.description||item.title;const {error}=await sb.from("shots").insert({project_id:app.current.id,scene_id:sceneRow.id,shot_number:1,position:1,data:shotDbData(seed)});if(error)throw error}
+      else for(const row of shotRows){const data={...blankShot(row.shot_number),...(row.data||{}),aiLocationId:locationId||"",aiCharacterIds:characterIds};if(item.story_time&&item.story_time!=="Unspecified")data.timeOfDay=item.story_time;if(item.location&&!data.location)data.location=item.location;const {error}=await sb.from("shots").update({data:shotDbData(data)}).eq("id",row.id).eq("project_id",app.current.id);if(error)throw error}
+    }
+    const appliedAt=new Date().toISOString(),{error}=await sb.from("project_scripts").update({applied_at:appliedAt}).eq("id",record.id);if(error)throw error;await openCloudProject(app.current.id,{sceneId:firstSceneId,preserveSelection:true});setMsg("aiBibleNotice","Script breakdown applied. Generate or upload each new Bible reference, review it, then lock it. Scene references are already assigned to their shots.");setMsg("scriptNotice","Breakdown applied to the project.");renderAiVisualBible()
+  }catch(error){setMsg("scriptNotice",error.message||"Could not apply the script breakdown.","warning")}
+  finally{app.suppressRealtime=Math.max(0,app.suppressRealtime-1);app.script.applying=false;renderScriptBible();renderAiVisualBible()}
+}
+async function ensureScriptSavedForLink(){if(!app.script.record||$("scriptTextEditor").value!==app.script.record.content)return await saveProjectScript({silent:true});return app.script.record}
+async function linkScriptSelectionToShot(){
+  const selection=currentScriptSelection(),sceneId=$("scriptLinkSceneSelect").value,shotId=$("scriptLinkShotSelect").value;if(!selection.text.trim()||!sceneId||!shotId||!can("shots"))return;const record=await ensureScriptSavedForLink();if(!record)return;
+  app.ignoreRealtimeUntil=Date.now()+1800;const {data,error}=await sb.from("script_shot_links").insert({project_id:app.current.id,script_id:record.id,scene_id:sceneId,shot_id:shotId,start_offset:selection.dbStart,end_offset:selection.dbEnd,selected_text:selection.text,created_by:app.session.user.id}).select().single();if(error){setMsg("scriptNotice",/duplicate key/i.test(error.message||"")?"This exact text range is already linked to that shot.":error.message,"warning");return}app.script.links.push(data);app.script.links.sort((a,b)=>a.start_offset-b.start_offset);setMsg("scriptNotice",`Selected text linked to ${scriptShotLabel(shotId)}.`);renderScriptBible()
+}
+async function createShotFromScriptSelection(){
+  const selection=currentScriptSelection(),scene=app.current.scenes.find(item=>item.id===$("scriptLinkSceneSelect").value);if(!selection.text.trim()||!scene||!can("shots"))return;const record=await ensureScriptSavedForLink();if(!record)return;const no=scene.shots.length+1,shot=blankShotForScene(no,scene);shot.summary=selection.text.replace(/\s+/g," ").trim().slice(0,500);shot.description=selection.text.trim().slice(0,1800);app.suppressRealtime++;
+  try{const {data,error}=await sb.from("shots").insert({project_id:app.current.id,scene_id:scene.id,shot_number:no,position:no,data:shotDbData(shot)}).select().single();if(error)throw error;const {data:link,error:linkError}=await sb.from("script_shot_links").insert({project_id:app.current.id,script_id:record.id,scene_id:scene.id,shot_id:data.id,start_offset:selection.dbStart,end_offset:selection.dbEnd,selected_text:selection.text,created_by:app.session.user.id}).select().single();if(linkError)throw linkError;app.script.links.push(link);await openCloudProject(app.current.id,{sceneId:scene.id,shotId:data.id,preserveSelection:true});setMsg("scriptNotice",`Shot ${no} created and linked to the selected script text.`);renderAiVisualBible()}
+  catch(error){setMsg("scriptNotice",error.message||"Could not create a shot from this selection.","warning")}
+  finally{app.suppressRealtime=Math.max(0,app.suppressRealtime-1)}
+}
+async function deleteScriptLink(id){if(!scriptCanEdit()||!can("shots"))return;if(!uiConfirm("Remove this script-to-shot link? The shot itself will stay."))return;app.ignoreRealtimeUntil=Date.now()+1800;const {error}=await sb.from("script_shot_links").delete().eq("id",id).eq("project_id",app.current.id);if(error)return setMsg("scriptNotice",error.message,"warning");app.script.links=app.script.links.filter(link=>link.id!==id);renderScriptBible()}
+
 async function openAiVisualBible(){
-  if(app.mode!=="cloud")return uiAlert("AI generation is available for signed-in cloud projects.");
+  if(app.mode!=="cloud")return uiAlert("Bible and AI generation are available for signed-in cloud projects.");
   if(app.ai.ready&&!app.ai.generating)setMsg("aiBibleNotice","");
   renderAiVisualBible();$("aiBibleModal").showModal();
   await Promise.all([...app.ai.characters,...app.ai.locations].filter(x=>(x.reference_path&&!x.referenceUrl)||(x.source_path&&!x.sourceUrl)).map(signAiAsset));renderAiVisualBible()
@@ -1830,6 +2006,7 @@ function renderAiVisualBible(){
     if(!list.length){const empty=document.createElement("div");empty.className="ai-picker-empty";empty.textContent=ready?`No ${type}s yet.`:"AI database setup required.";wrap.appendChild(empty);continue}
     list.forEach(asset=>wrap.appendChild(aiAssetCard(asset,type)))
   }
+  renderScriptBible()
 }
 async function addAiAsset(type){
   if(!app.ai.ready||!can("media"))return;
@@ -1854,7 +2031,7 @@ async function toggleAiAssetLock(type,id){
   if(error)return setMsg("aiBibleNotice",error.message,"warning");asset.locked=locked;asset.style_snapshot=style_snapshot;setMsg("aiBibleNotice",`${asset.name} ${locked?`locked for ${app.current.style}`:"unlocked for editing"}.`);renderAiVisualBible();renderShot();applyPermissionLocks()
 }
 async function deleteAiAsset(type,id){
-  const asset=aiCollection(type).find(x=>x.id===id);if(!asset||!can("media")||!uiConfirm(`Delete ${asset.name} from the AI Visual Bible?`))return;
+  const asset=aiCollection(type).find(x=>x.id===id);if(!asset||!can("media")||!uiConfirm(`Delete ${asset.name} from the Bible?`))return;
   const {error}=await sb.from(aiTable(type)).delete().eq("id",id).eq("project_id",app.current.id);if(error)return setMsg("aiBibleNotice",error.message,"warning");
   await removeMediaPaths([asset.reference_path,asset.source_path]);app.ai[type==="character"?"characters":"locations"]=aiCollection(type).filter(x=>x.id!==id);
   for(const {shot} of allShots()){
@@ -1994,14 +2171,14 @@ function renderAiShotControls(){
   const selectionDisabled=!can("shots")||!app.ai.ready;
   shot.aiCharacterIds=Array.isArray(shot.aiCharacterIds)?shot.aiCharacterIds:[];
   characters.innerHTML="";
-  if(!app.ai.ready||!app.ai.characters.length){characters.innerHTML=`<span class="ai-picker-empty">${app.ai.ready?"No characters in the Visual Bible. Add one only if this shot needs a recurring character.":app.mode==="cloud"?app.ai.migrationMessage:"AI Visual Bible is available in signed-in cloud projects."}</span>`}
+  if(!app.ai.ready||!app.ai.characters.length){characters.innerHTML=`<span class="ai-picker-empty">${app.ai.ready?"No characters in the Bible. Add one only if this shot needs a recurring character.":app.mode==="cloud"?app.ai.migrationMessage:"Bible is available in signed-in cloud projects."}</span>`}
   else for(const asset of app.ai.characters){
     const styleMatches=asset.style_snapshot===app.current.style,hasReference=!!asset.reference_path,ready=asset.locked&&hasReference&&styleMatches,selected=shot.aiCharacterIds.includes(asset.id),status=!hasReference?" · needs reference":!asset.locked?" · not locked":!styleMatches?" · style changed":"",label=document.createElement("label");label.className="ai-reference-choice"+(selected?" selected":"")+(ready?"":" needs-reference");
     label.innerHTML=`<input type="checkbox" value="${asset.id}" ${selected?"checked":""} ${selectionDisabled?"disabled":""}><span>${escapeHtml(asset.name)}${status}</span>`;
     label.querySelector("input").onchange=e=>{shot.aiCharacterIds=e.target.checked?[...new Set([...shot.aiCharacterIds,asset.id])]:shot.aiCharacterIds.filter(x=>x!==asset.id);onAiShotLinksChange()};characters.appendChild(label)
   }
   const previous=shot.aiLocationId||"";
-  const locationPrompt=!app.ai.ready?"AI Visual Bible is unavailable":app.ai.locations.length?"Choose project location…":"No locations yet — open Visual Bible";
+  const locationPrompt=!app.ai.ready?"Bible is unavailable":app.ai.locations.length?"Choose project location…":"No locations yet — open Bible";
   location.innerHTML=`<option value="">${locationPrompt}</option>`;
   for(const asset of app.ai.locations){const styleMatches=asset.style_snapshot===app.current.style,hasReference=!!asset.reference_path,status=!hasReference?" · needs reference":!asset.locked?" · not locked":!styleMatches?" · style changed":"",option=document.createElement("option");option.value=asset.id;option.textContent=asset.name+status;location.appendChild(option)}
   location.value=[...location.options].some(x=>x.value===previous)?previous:"";
@@ -2252,7 +2429,7 @@ async function createCloudProjectFromJSON(projectData){
   if(!scenes.length)scenes=[{number:1,title:"Scene 1",shots:Array.isArray(projectData.shots)?projectData.shots:[]}];
   for(let si=0;si<scenes.length;si++){
     const sc=scenes[si]||{};
-    const {data:s,error:se}=await sb.from("scenes").insert({project_id:p.id,scene_number:si+1,title:sc.title||`Scene ${si+1}`,description:sc.description||"",position:si+1,collapsed:!!sc.collapsed}).select().single();
+    const {data:s,error:se}=await sb.from("scenes").insert({project_id:p.id,scene_number:si+1,title:sc.title||`Scene ${si+1}`,description:sc.description||"",story_location:sc.storyLocation||"",story_time:sc.storyTime||"Unspecified",shoot_time:sc.shootTime||"Unspecified",time_strategy:sc.timeStrategy||"natural",position:si+1,collapsed:!!sc.collapsed}).select().single();
     if(se) throw se;
     let shots=Array.isArray(sc.shots)?sc.shots:[];if(!shots.length)shots=[blankShot(1)];
     for(let i=0;i<shots.length;i++){
@@ -3646,7 +3823,7 @@ async function duplicateProject(id){
       if(copied||copiedSource){const {error:updateError}=await sb.from("project_ai_locations").update({reference_path:copied||null,source_path:copiedSource||null,style_snapshot:copied?(sourceAsset.style_snapshot||p.style):null,locked:!!(copied&&sourceAsset.locked)}).eq("id",newAsset.id);if(updateError)throw updateError}
     }
     for(const [si,sc] of (scenes||[]).entries()){
-      const {data:newSc,error:sce}=await sb.from("scenes").insert({project_id:newP.id,scene_number:si+1,title:sc.title,description:sc.description||"",position:si+1,collapsed:false}).select().single();if(sce)throw sce;
+      const {data:newSc,error:sce}=await sb.from("scenes").insert({project_id:newP.id,scene_number:si+1,title:sc.title,description:sc.description||"",story_location:sc.story_location||"",story_time:sc.story_time||"Unspecified",shoot_time:sc.shoot_time||"Unspecified",time_strategy:sc.time_strategy||"natural",ai_location_id:locationMap.get(sc.ai_location_id)||null,ai_character_ids:(sc.ai_character_ids||[]).map(id=>characterMap.get(id)).filter(Boolean),position:si+1,collapsed:false}).select().single();if(sce)throw sce;
       const rows=(shots||[]).filter(r=>r.scene_id===sc.id).sort((a,b)=>a.position-b.position);
       for(const [ri,row] of rows.entries()){
         const shotData=deepClone(row.data||{});shotData.aiCharacterIds=(shotData.aiCharacterIds||[]).map(x=>characterMap.get(x)).filter(Boolean);shotData.aiLocationId=locationMap.get(shotData.aiLocationId)||"";
@@ -3698,8 +3875,10 @@ function bind(){
   $("closeProjectDetailsBtn").onclick=()=>$("projectDetailsModal").close();$("saveProjectDetailsBtn").onclick=saveProjectDetails;$("projectDetailsBtn").onclick=()=>openProjectDetails(app.current.id);
   $("aiBibleBtn").onclick=openAiVisualBible;$("manageAiCharactersBtn").onclick=openAiVisualBible;$("closeAiBibleBtn").onclick=()=>$("aiBibleModal").close();$("doneAiBibleBtn").onclick=()=>$("aiBibleModal").close();
   $("addAiCharacterBtn").onclick=()=>addAiAsset("character");$("addAiLocationBtn").onclick=()=>addAiAsset("location");$("aiLocationId").onchange=onAiShotLinksChange;$("generateShotImageBtn").onclick=generateShotImage;
+  $("scriptFileInput").onchange=loadScriptFile;$("saveScriptBtn").onclick=()=>saveProjectScript();$("analyzeScriptBtn").onclick=analyzeProjectScript;$("applyScriptBreakdownBtn").onclick=applyScriptBreakdown;$("linkScriptSelectionBtn").onclick=linkScriptSelectionToShot;$("createShotFromScriptBtn").onclick=createShotFromScriptSelection;
+  ["select","click","keyup"].forEach(eventName=>$("scriptTextEditor").addEventListener(eventName,updateScriptSelection));$("scriptTextEditor").addEventListener("input",()=>{updateScriptSelection();$("applyScriptBreakdownBtn").disabled=true;clearTimeout(scriptRenderTimer);scriptRenderTimer=setTimeout(renderScriptLineMap,220)});$("scriptLinkSceneSelect").onchange=()=>{renderScriptLinkSelectors();updateScriptSelection()};$("scriptLinkShotSelect").onchange=updateScriptSelection;
   ["projectName","projectAspect","projectStyle","aspectWidth","aspectHeight"].forEach(id=>{["input","change"].forEach(ev=>$(id).addEventListener(ev,onProjectChange))});
-  ["sceneTitle","sceneDescription"].forEach(id=>{["input","change"].forEach(ev=>$(id).addEventListener(ev,onSceneChange))});
+  ["sceneTitle","sceneDescription","sceneStoryLocation","sceneStoryTime","sceneShootTime","sceneTimeStrategy","sceneAiLocationId"].forEach(id=>{["input","change"].forEach(ev=>$(id).addEventListener(ev,onSceneChange))});$("syncSceneBibleBtn").onclick=syncSceneBibleToShots;
   SHOT_FIELDS.filter(id=>id!=="shotNo").forEach(id=>{if($(id))["input","change"].forEach(ev=>$(id).addEventListener(ev,()=>onShotChange(id)))});
   $("addSceneBtn").onclick=addScene;$("deleteSceneBtn").onclick=()=>deleteScene();$("collapseAllScenesBtn").onclick=()=>deleteScene();$("expandAllScenesBtn").onclick=toggleAllScenes;
   $("addShotBtn").onclick=async()=>{await addShot();if(isMobileEditor())setMobileEditorScreen("shot")};$("duplicateShotBtn").onclick=duplicateShot;$("copyShotBtn").onclick=copyShot;$("pasteShotBtn").onclick=pasteShot;$("deleteShotBtn").onclick=deleteShot;
@@ -3708,6 +3887,7 @@ function bind(){
   $("frameImage").onclick=openCurrentShotImage;$("frameImage").onkeydown=event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();openCurrentShotImage()}};
   $("cropShotImageBtn").onclick=()=>{const target=shotImageTarget(currentShot());if(target)openCropEditor(target)};
   $("closeImageViewerBtn").onclick=closeImageViewer;$("doneImageViewerBtn").onclick=closeImageViewer;$("imageViewerModal").addEventListener("cancel",event=>{event.preventDefault();closeImageViewer()});
+  $("imageViewerImage").onload=updateImageViewerAspect;
   $("openCropFromViewerBtn").onclick=()=>{const target=imageViewerTarget;if(target)openCropEditor(target)};
   $("closeImageCropBtn").onclick=closeCropEditor;$("cancelCropBtn").onclick=closeCropEditor;$("resetCropBtn").onclick=resetCrop;$("saveCropBtn").onclick=saveCrop;$("cropZoom").oninput=updateCropZoom;
   $("cropCanvas").addEventListener("pointerdown",cropPointerDown);$("cropCanvas").addEventListener("pointermove",cropPointerMove);$("cropCanvas").addEventListener("pointerup",cropPointerEnd);$("cropCanvas").addEventListener("pointercancel",cropPointerEnd);
