@@ -1,4 +1,4 @@
-// Storyboard Shot Builder v4.9.2 — English / Persian interface
+// Storyboard Shot Builder v4.9.3 — English / Persian interface
 (() => {
   "use strict";
 
@@ -466,7 +466,11 @@
     "Items and scene occurrences relevant to this department.":"اقلام و حضورهای صحنه‌ای مرتبط با این گروه.",
     "Scene Breakdown Chart":"چارت تجزیه صحنه‌ها",
     "Use scene rows to coordinate schedule, shot plans, cast, locations and department flags.":"از ردیف‌های صحنه برای هماهنگی برنامه، پلان‌های شات، بازیگران، لوکیشن‌ها و علائم گروه‌ها استفاده کنید.",
+    "Scene":"صحنه",
     "Shots":"شات‌ها",
+    "INT / EXT":"داخلی / خارجی",
+    "Location":"لوکیشن",
+    "Shoot Time":"زمان فیلم‌برداری",
     "Story / Shoot":"داستان / فیلم‌برداری",
     "Conversion":"تبدیل",
     "Cast":"بازیگران",

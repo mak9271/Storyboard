@@ -1,6 +1,13 @@
-# Storyboard Shot Builder v4.9.2
+# Storyboard Shot Builder v4.9.3
 
-This build continues only from the user-approved `storyboard-v3.9.1-github(1).zip` lineage. It includes every accepted change through v4.9.1 and replaces the failing Script tool-call pipeline without changing the database schema.
+This build continues only from the user-approved `storyboard-v3.9.1-github(1).zip` lineage. It includes every accepted change through v4.9.2 and fits the complete Production Dashboard inside Collaboration without horizontal scrolling or a database change.
+
+## v4.9.3 changes
+
+- Expands the Collaboration dialog only while Production Dashboard is selected, up to the available desktop viewport width; Chat and Members keep their normal compact width.
+- Replaces the eight-column Scene Breakdown table with responsive scene cards, preserving Scene, Shots, INT/EXT, Location, Story Time, Shoot Time, Conversion, Cast and Production Flags without horizontal scrolling.
+- Makes metrics, charts, resource cards, long department items and Persian text wrap safely inside the dashboard.
+- Uses two scene-card columns on wide screens and one column on narrower screens and mobile.
 
 ## v4.9.2 changes
 
@@ -30,7 +37,7 @@ This build continues only from the user-approved `storyboard-v3.9.1-github(1).zi
 
 ## Existing installation: deployment
 
-**No new SQL query is required for v4.9.2. Do not create, save or run a v4.9.2 SQL query.** The repair is entirely in `worker.js`, `app.js` and the static app files.
+**No new SQL query is required for v4.9.3. Do not create, save or run a v4.9.3 SQL query.** This is a responsive UI update in `app.js`, `styles.css`, `i18n.js` and the versioned static files.
 
 1. If `Storyboard v4.8 - Lighting Access Repair` has not already succeeded, run the packaged v4.8 query once using the saved-query instructions from the prior release. Otherwise leave SQL Editor unchanged.
 2. Deploy the repository-root files. Do not upload `node_modules`.
@@ -41,9 +48,9 @@ This build continues only from the user-approved `storyboard-v3.9.1-github(1).zi
    ```
 
 4. No Supabase Edge Function redeploy is required.
-5. Hard-refresh the app. Page source should show `styles.css?v=492`, `config.js?v=492`, `i18n.js?v=492`, `app.js?v=492` and build `v4.9.2-provider-independent-script-analysis`.
+5. Hard-refresh the app. Page source should show `styles.css?v=493`, `config.js?v=493`, `i18n.js?v=493`, `app.js?v=493` and build `v4.9.3-responsive-production-dashboard`.
 6. Open Bible → Script and re-run **Analyze with AI** for existing scripts; older saved analyses remain readable but do not contain the new production fields.
-7. Test repeated font-size presses, Bible Aspect Ratio, character/location Source Image generation and Collaboration → Production Dashboard.
+7. Open Collaboration → Production Dashboard and verify that metrics, department cards and every Scene Breakdown card remain inside the dialog with vertical scrolling only.
 
 ## Fresh Supabase installation
 

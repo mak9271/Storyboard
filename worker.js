@@ -1,4 +1,4 @@
-// Storyboard v4.9.2 AI gateway: FLUX generation + provider-independent Script analysis.
+// Storyboard v4.9.3 AI gateway: FLUX generation + provider-independent Script analysis.
 const DEFAULT_MODEL = "@cf/black-forest-labs/flux-2-klein-4b";
 const ALLOWED_MODEL = new Set([DEFAULT_MODEL]);
 const DEFAULT_SCRIPT_MODEL = "@cf/zai-org/glm-4.7-flash";

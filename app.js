@@ -1,4 +1,4 @@
-// Storyboard Shot Builder v4.9.2 — provider-independent AI Script analysis with local recovery
+// Storyboard Shot Builder v4.9.3 — responsive Collaboration Production Dashboard
 const OPTIONS = {
   shotSize:["ECU · Extreme Close Up","CU · Close Up","MCU · Medium Close Up","MS · Medium Shot","MLS · Medium Long Shot","WS · Wide Shot","EWS · Extreme Wide Shot","OTS · Over The Shoulder","POV · Point of View","Insert","Top Shot"],
   angle:["Eye Level","High Angle","Low Angle","Top / Bird's Eye","Dutch Angle","Ground Level","Overhead","Custom"],
@@ -2536,8 +2536,8 @@ function productionSceneFlags(scene){
   return [...new Set(flags)].slice(0,8)
 }
 function productionSceneTable(analysis){
-  const rows=analysis.scenes.map((scene,index)=>{const conversion=scene.time_strategy==="day_for_night"?"Day for Night":scene.time_strategy==="night_for_day"?"Night for Day":"Natural",flags=productionSceneFlags(scene),shots=app.current?.scenes?.find(projectScene=>projectScene.scriptSceneKey===scene.key)?.shots?.length||0;return `<tr><td><strong>S${index+1}</strong><small>${escapeHtml(scene.title)}</small></td><td>${shots}</td><td>${escapeHtml(scene.interior_exterior||"Unspecified")}</td><td>${escapeHtml(scene.location||"—")}</td><td><span>${escapeHtml(scene.story_time)}</span><small>Shoot: ${escapeHtml(scene.shoot_time)}</small></td><td>${escapeHtml(conversion)}</td><td>${escapeHtml(scene.characters.join(", ")||"—")}</td><td>${escapeHtml(flags.join(", ")||"—")}</td></tr>`}).join("");
-  return `<div class="production-scene-table-wrap"><table class="production-scene-table"><thead><tr><th>Scene</th><th>Shots</th><th>INT / EXT</th><th>Location</th><th>Story / Shoot</th><th>Conversion</th><th>Cast</th><th>Production Flags</th></tr></thead><tbody>${rows}</tbody></table></div>`
+  const cards=analysis.scenes.map((scene,index)=>{const conversion=scene.time_strategy==="day_for_night"?"Day for Night":scene.time_strategy==="night_for_day"?"Night for Day":"Natural",flags=productionSceneFlags(scene),shots=app.current?.scenes?.find(projectScene=>projectScene.scriptSceneKey===scene.key)?.shots?.length||0;return `<article class="production-scene-card"><header><div><span>Scene</span><strong>S${index+1} · ${escapeHtml(scene.title)}</strong></div><div class="production-scene-shot-count"><strong>${shots}</strong><span>Shots</span></div></header><dl><div><dt>INT / EXT</dt><dd>${escapeHtml(scene.interior_exterior||"Unspecified")}</dd></div><div><dt>Location</dt><dd>${escapeHtml(scene.location||"—")}</dd></div><div><dt>Story Time</dt><dd>${escapeHtml(scene.story_time)}</dd></div><div><dt>Shoot Time</dt><dd>${escapeHtml(scene.shoot_time)}</dd></div><div><dt>Conversion</dt><dd>${escapeHtml(conversion)}</dd></div><div class="production-scene-wide"><dt>Cast</dt><dd>${escapeHtml(scene.characters.join(", ")||"—")}</dd></div><div class="production-scene-wide"><dt>Production Flags</dt><dd>${escapeHtml(flags.join(", ")||"—")}</dd></div></dl></article>`}).join("");
+  return `<div class="production-scene-grid">${cards}</div>`
 }
 function renderProductionDashboard(){
   const wrap=$("productionDashboard"),select=$("productionDashboardRole");if(!wrap||!select||!app.current)return;
@@ -2554,6 +2554,7 @@ function renderProductionDashboard(){
 function setCollabTab(tab){
   app.collabTab=["chat","members","production"].includes(tab)?tab:"chat";
   const chat=app.collabTab==="chat",members=app.collabTab==="members",production=app.collabTab==="production";
+  $("collabModal").classList.toggle("production-mode",production);
   $("collabChatTab").classList.toggle("active",chat);$("collabMembersTab").classList.toggle("active",members);$("collabProductionTab").classList.toggle("active",production);
   $("collabChatPane").hidden=!chat;$("collabMembersPane").hidden=!members;$("collabProductionPane").hidden=!production;
   if(chat){
