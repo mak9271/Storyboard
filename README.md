@@ -1,14 +1,20 @@
-# Storyboard Shot Builder v4.9.1
+# Storyboard Shot Builder v4.9.2
 
-This build continues only from the user-approved `storyboard-v3.9.1-github(1).zip` lineage. It includes every accepted change through v4.9.0 and repairs AI Script analysis without changing the database schema.
+This build continues only from the user-approved `storyboard-v3.9.1-github(1).zip` lineage. It includes every accepted change through v4.9.1 and replaces the failing Script tool-call pipeline without changing the database schema.
 
-## v4.9.1 changes
+## v4.9.2 changes
 
-- Fixes the generic **AI script analysis failed** regression introduced by the oversized v4.9 production tool schema and 16,000-token request.
-- Uses a compact category/item production schema, then expands it back into the same Assistant Director and Production Manager dashboard fields in the Worker.
-- Restores the previously working 12,000-token completion ceiling and disables unnecessary parallel tool calls for the single required breakdown tool.
-- Automatically retries once with the smaller compatibility schema if Cloudflare rejects or cannot parse the production schema. Compatibility results still preserve scenes, characters, locations, times and exact line ranges, and the UI clearly says the production chart needs a later re-analysis.
-- Returns a useful busy/rate-limit, length or structured-output message plus a short support code instead of hiding every upstream failure behind one generic sentence.
+- Removes required function/tool calling from Script analysis. The models now return compact JSON through their normal text-generation interface, avoiding the Cloudflare rejection that affected both v4.9.1 tool schemas.
+- Tries the configured multilingual GLM model first, then automatically tries Cloudflare's multilingual Gemma 4 fallback through an independent request path.
+- Adds a deterministic local scene parser as the final safety layer. Even if both Cloudflare text models are unavailable, valid saved scripts receive scene boundaries, INT/EXT, day/night, locations, dialogue-cue characters, line ranges and explicit high-level production flags instead of a failed request.
+- Clearly labels local recovery as incomplete production analysis and shows a support code. The result remains reviewable and can be applied, or re-analyzed later for full AI production details.
+- Extends `/api/ai/health` with the active Script model, fallback model and `prompt-json-v2` pipeline identifier so deployments can be verified without signing in.
+
+## Production features retained from v4.9.1
+
+- Keeps the compact category/item production schema and expands it into the same Assistant Director and Production Manager dashboard fields in the Worker.
+- Keeps the evidence-only production breakdown, exact screenplay line ranges, production-specialty access and role-aware dashboard.
+- The former required-tool and compatibility-tool requests are not used in v4.9.2; the new prompt-only model chain and local recovery replace them.
 
 ## Included v4.9.0 changes
 
@@ -24,7 +30,7 @@ This build continues only from the user-approved `storyboard-v3.9.1-github(1).zi
 
 ## Existing installation: deployment
 
-**No new SQL query is required for v4.9.1. Do not create, save or run a v4.9.1 SQL query.** The repair is entirely in `worker.js`, `app.js` and the static app files.
+**No new SQL query is required for v4.9.2. Do not create, save or run a v4.9.2 SQL query.** The repair is entirely in `worker.js`, `app.js` and the static app files.
 
 1. If `Storyboard v4.8 - Lighting Access Repair` has not already succeeded, run the packaged v4.8 query once using the saved-query instructions from the prior release. Otherwise leave SQL Editor unchanged.
 2. Deploy the repository-root files. Do not upload `node_modules`.
@@ -35,7 +41,7 @@ This build continues only from the user-approved `storyboard-v3.9.1-github(1).zi
    ```
 
 4. No Supabase Edge Function redeploy is required.
-5. Hard-refresh the app. Page source should show `styles.css?v=491`, `config.js?v=491`, `i18n.js?v=491`, `app.js?v=491` and build `v4.9.1-resilient-script-analysis`.
+5. Hard-refresh the app. Page source should show `styles.css?v=492`, `config.js?v=492`, `i18n.js?v=492`, `app.js?v=492` and build `v4.9.2-provider-independent-script-analysis`.
 6. Open Bible → Script and re-run **Analyze with AI** for existing scripts; older saved analyses remain readable but do not contain the new production fields.
 7. Test repeated font-size presses, Bible Aspect Ratio, character/location Source Image generation and Collaboration → Production Dashboard.
 

@@ -1,4 +1,4 @@
-// Storyboard Shot Builder v4.9.1 — English / Persian interface
+// Storyboard Shot Builder v4.9.2 — English / Persian interface
 (() => {
   "use strict";
 
@@ -324,6 +324,7 @@
     "AI is identifying scenes, recurring characters, locations and story time…":"هوش مصنوعی در حال شناسایی صحنه‌ها، شخصیت‌های تکرارشونده، لوکیشن‌ها و زمان داستان است…",
     "AI could not identify any scenes. Check screenplay headings and try again.":"هوش مصنوعی نتوانست صحنه‌ای شناسایی کند. سرصحنه‌های فیلمنامه را بررسی و دوباره تلاش کنید.",
     "Analysis completed in compatibility mode: scenes, characters and locations are ready. Run Analyze with AI again later to complete the production chart.":"تحلیل در حالت سازگار انجام شد: صحنه‌ها، شخصیت‌ها و لوکیشن‌ها آماده‌اند. برای تکمیل چارت تولید، بعداً دوباره تحلیل با هوش مصنوعی را اجرا کنید.",
+    "Cloudflare AI did not answer, so Storyboard created a local scene breakdown. Review the scenes, characters and locations; production details may be incomplete.":"هوش مصنوعی Cloudflare پاسخ نداد؛ بنابراین Storyboard یک تجزیهٔ محلی از صحنه‌ها ساخت. صحنه‌ها، شخصیت‌ها و لوکیشن‌ها را بررسی کنید؛ ممکن است جزئیات تولید کامل نباشد.",
     "The AI service is temporarily busy or rate-limited. Please wait one minute and try again.":"سرویس هوش مصنوعی موقتاً شلوغ است یا به محدودیت درخواست رسیده. یک دقیقه صبر کنید و دوباره تلاش کنید.",
     "The screenplay is too long for the model in one request. Shorten or split it and try again.":"فیلمنامه برای یک درخواست مدل بیش از حد طولانی است. آن را کوتاه یا بخش‌بندی کنید و دوباره تلاش کنید.",
     "The AI returned an invalid structured breakdown twice. Please try again.":"هوش مصنوعی دو بار خروجی ساختاری نامعتبر برگرداند. دوباره تلاش کنید.",
