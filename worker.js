@@ -1,4 +1,4 @@
-// Storyboard v4.9.0 AI gateway: FLUX generation + multilingual production breakdown.
+// Storyboard v4.9.1 AI gateway: FLUX generation + resilient multilingual production breakdown.
 const DEFAULT_MODEL = "@cf/black-forest-labs/flux-2-klein-4b";
 const ALLOWED_MODEL = new Set([DEFAULT_MODEL]);
 const DEFAULT_SCRIPT_MODEL = "@cf/zai-org/glm-4.7-flash";
@@ -6,6 +6,7 @@ const ALLOWED_SCRIPT_MODELS = new Set([DEFAULT_SCRIPT_MODEL]);
 const MAX_JSON_BYTES = 96 * 1024;
 const MAX_SCRIPT_JSON_BYTES = 920 * 1024;
 const MAX_SCRIPT_CHARS = 180000;
+const SCRIPT_MAX_COMPLETION_TOKENS = 12000;
 const MAX_REFERENCE_BYTES = 12 * 1024 * 1024;
 const MAX_CHARACTER_REFERENCES = 3;
 
@@ -165,10 +166,11 @@ function decodeBase64(value){
   const cleanValue=String(value||"").replace(/^data:image\/[^;]+;base64,/,"");const binary=atob(cleanValue),bytes=new Uint8Array(binary.length);for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);return bytes
 }
 async function promptHash(prompt){const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(prompt));return [...new Uint8Array(digest)].slice(0,10).map(x=>x.toString(16).padStart(2,"0")).join("")}
-const SCRIPT_STRING_LIST={type:"array",items:{type:"string"}};
+const SCRIPT_PRODUCTION_FIELDS=["extras","props","set_dressing","wardrobe","makeup_hair","vehicles","animals","stunts","special_effects","visual_effects","sound_music","special_equipment","location_requirements","safety_security","production_notes","risk_flags"];
+const SCRIPT_PRODUCTION_CATEGORIES={extras:"extras",props:"props",set_dressing:"set_dressing",wardrobe:"wardrobe",makeup_hair:"makeup_hair",vehicles:"vehicles",animals:"animals",stunts:"stunts",special_effects:"special_effects",visual_effects:"visual_effects",sound_music:"sound_music",special_equipment:"special_equipment",location_requirements:"location_requirements",safety_security:"safety_security",production_notes:"production_notes",risk_flags:"risk_flags"};
 const SCRIPT_BREAKDOWN_TOOL = {
   name:"submit_script_breakdown",
-  description:"Return the complete evidence-based screenplay breakdown.",
+  description:"Return a compact, evidence-based screenplay breakdown. Put production requirements in production_elements as category/name pairs.",
   parameters:{
     type:"object",
     additionalProperties:false,
@@ -189,26 +191,27 @@ const SCRIPT_BREAKDOWN_TOOL = {
         script_day:{type:"string"},
         unit:{type:"string"},
         special_location:{type:"boolean"},
-        characters:SCRIPT_STRING_LIST,
-        extras:SCRIPT_STRING_LIST,
-        props:SCRIPT_STRING_LIST,
-        set_dressing:SCRIPT_STRING_LIST,
-        wardrobe:SCRIPT_STRING_LIST,
-        makeup_hair:SCRIPT_STRING_LIST,
-        vehicles:SCRIPT_STRING_LIST,
-        animals:SCRIPT_STRING_LIST,
-        stunts:SCRIPT_STRING_LIST,
-        special_effects:SCRIPT_STRING_LIST,
-        visual_effects:SCRIPT_STRING_LIST,
-        sound_music:SCRIPT_STRING_LIST,
-        special_equipment:SCRIPT_STRING_LIST,
-        location_requirements:SCRIPT_STRING_LIST,
-        safety_security:SCRIPT_STRING_LIST,
-        production_notes:SCRIPT_STRING_LIST,
-        risk_flags:SCRIPT_STRING_LIST,
+        characters:{type:"array",items:{type:"string"}},
+        production_elements:{type:"array",items:{type:"object",additionalProperties:false,properties:{category:{type:"string",enum:Object.keys(SCRIPT_PRODUCTION_CATEGORIES)},name:{type:"string"}},required:["category","name"]}},
         start_line:{type:"integer"},
         end_line:{type:"integer"}
-      },required:["key","title","description","location","interior_exterior","story_time","shoot_time","time_strategy","script_day","unit","special_location","characters","extras","props","set_dressing","wardrobe","makeup_hair","vehicles","animals","stunts","special_effects","visual_effects","sound_music","special_equipment","location_requirements","safety_security","production_notes","risk_flags","start_line","end_line"]}}
+      },required:["key","title","description","location","interior_exterior","story_time","shoot_time","time_strategy","script_day","unit","special_location","characters","production_elements","start_line","end_line"]}}
+    },
+    required:["title","language","characters","locations","scenes"]
+  }
+};
+const SCRIPT_CORE_BREAKDOWN_TOOL = {
+  name:"submit_script_breakdown",
+  description:"Return the essential evidence-based screenplay scene, character and location breakdown.",
+  parameters:{
+    type:"object",
+    additionalProperties:false,
+    properties:{
+      title:{type:"string"},
+      language:{type:"string"},
+      characters:{type:"array",items:{type:"object",additionalProperties:false,properties:{name:{type:"string"},description:{type:"string"}},required:["name","description"]}},
+      locations:{type:"array",items:{type:"object",additionalProperties:false,properties:{name:{type:"string"},description:{type:"string"}},required:["name","description"]}},
+      scenes:{type:"array",items:{type:"object",additionalProperties:false,properties:{key:{type:"string"},title:{type:"string"},description:{type:"string"},location:{type:"string"},story_time:{type:"string",enum:["Unspecified","Dawn","Morning","Day","Sunset","Twilight","Night"]},shoot_time:{type:"string",enum:["Unspecified","Dawn","Morning","Day","Sunset","Twilight","Night"]},time_strategy:{type:"string",enum:["natural","day_for_night","night_for_day"]},characters:{type:"array",items:{type:"string"}},start_line:{type:"integer"},end_line:{type:"integer"}},required:["key","title","description","location","story_time","shoot_time","time_strategy","characters","start_line","end_line"]}}
     },
     required:["title","language","characters","locations","scenes"]
   }
@@ -225,7 +228,8 @@ function normalizeScriptBreakdown(raw,totalLines){
     const row=item&&typeof item==="object"?item:{},characterNames=[...new Set((Array.isArray(row.characters)?row.characters:[]).map(value=>clean(value,100)).filter(Boolean))].slice(0,40),location=clean(row.location,100),story=scriptTime(row.story_time),shoot=scriptTime(row.shoot_time),strategy=["natural","day_for_night","night_for_day"].includes(row.time_strategy)?row.time_strategy:"natural",start=Math.max(1,Math.min(totalLines,Number(row.start_line)||1)),end=Math.max(start,Math.min(totalLines,Number(row.end_line)||start)),baseKey=scriptSlug(row.key,index);
     let key=baseKey,suffix=2;while(sceneKeys.has(key)){key=`${baseKey}-${suffix}`;suffix++}sceneKeys.add(key);for(const name of characterNames)addAsset(characters,{name},"Recurring character detected in the screenplay; add stable visual identity and costume details before generation.");if(location)addAsset(locations,{name:location},"Recurring location detected in the screenplay; add stable architecture, layout and palette details before generation.");
     const normalized={key,title:clean(row.title,160)||`Scene ${index+1}`,description:clean(row.description,900)||"Script scene",location,interior_exterior:["INT","EXT","INT/EXT","Unspecified"].includes(row.interior_exterior)?row.interior_exterior:"Unspecified",story_time:story,shoot_time:shoot==="Unspecified"?story:shoot,time_strategy:strategy,script_day:clean(row.script_day,80)||"Unspecified",unit:clean(row.unit,80)||"Unspecified",special_location:!!row.special_location,characters:characterNames,start_line:start,end_line:end};
-    for(const field of ["extras","props","set_dressing","wardrobe","makeup_hair","vehicles","animals","stunts","special_effects","visual_effects","sound_music","special_equipment","location_requirements","safety_security","production_notes","risk_flags"])normalized[field]=cleanList(row[field]);
+    for(const field of SCRIPT_PRODUCTION_FIELDS)normalized[field]=cleanList(row[field]);
+    for(const element of Array.isArray(row.production_elements)?row.production_elements:[]){const field=SCRIPT_PRODUCTION_CATEGORIES[clean(element?.category,40)],name=clean(element?.name,240);if(field&&name&&!normalized[field].includes(name)&&normalized[field].length<80)normalized[field].push(name)}
     return normalized
   });
   return {title:clean(source.title,160)||"Imported Script",language:clean(source.language,80)||"Unknown",characters:[...characters.values()],locations:[...locations.values()],scenes}
@@ -237,8 +241,21 @@ function parseScriptModelResult(result){
   const text=String(candidate||"").trim().replace(/^```(?:json)?\s*/i,"").replace(/\s*```$/,""),start=text.indexOf("{"),end=text.lastIndexOf("}");if(start<0||end<=start)throw new Error("The script model returned an unreadable breakdown.");return JSON.parse(text.slice(start,end+1))
 }
 async function analyzeScriptWithModel(env,scriptText){
-  const model=ALLOWED_SCRIPT_MODELS.has(env.SCRIPT_AI_MODEL)?env.SCRIPT_AI_MODEL:DEFAULT_SCRIPT_MODEL,totalLines=scriptText.split("\n").length,system="You are a meticulous multilingual screenplay breakdown assistant for an Assistant Director and Production Manager. Read Persian, English, or mixed-language screenplays. Use only evidence in the supplied script; never invent characters, locations, equipment, props, stunts, effects, permits or production facts. Identify every dramatic scene or slugline in order. Normalize recurring character and location names so the same entity has one name. Character descriptions may contain only identity, age/role, appearance or costume evidence present in the script. Location descriptions may contain only architecture, layout, fixed elements, palette or atmosphere evidence present in the script. interior_exterior comes from the slugline or clear scene evidence. story_time is the time experienced in the finished film. shoot_time equals story_time unless an explicit production note indicates Day for Night or Night for Day, and time_strategy describes only that explicit conversion. script_day and unit must be Unspecified unless the script states them. For every scene, extract explicit production elements into the matching arrays: extras/background, hand props, set dressing, wardrobe, makeup/hair, picture vehicles, animals, stunts, practical special effects, visual effects, sound/music cues, special equipment, location access/permit needs, safety/security needs, production notes and concise risk flags. Use empty arrays when no evidence exists. special_location is true only when unusual access, construction, permit, travel, control or sensitivity is evident. Keep props separate from set dressing; practical effects separate from VFX. start_line and end_line must use the supplied L-number boundaries. Every scene character and location name must also appear in the global lists. Submit exactly one complete breakdown through the required function.";
-  const user=`Analyze this complete screenplay for scheduling, continuity, logistics and department preparation. It contains ${totalLines} numbered lines. Preserve scene order and exact line boundaries.\n\n${numberedScript(scriptText)}`,result=await env.AI.run(model,{messages:[{role:"system",content:system},{role:"user",content:user}],tools:[SCRIPT_BREAKDOWN_TOOL],tool_choice:"required",temperature:.1,max_completion_tokens:16000});return {analysis:normalizeScriptBreakdown(parseScriptModelResult(result),totalLines),model}
+  const model=ALLOWED_SCRIPT_MODELS.has(env.SCRIPT_AI_MODEL)?env.SCRIPT_AI_MODEL:DEFAULT_SCRIPT_MODEL,totalLines=scriptText.split("\n").length,system="You are a meticulous multilingual screenplay breakdown assistant for an Assistant Director and Production Manager. Read Persian, English, or mixed-language screenplays. Use only evidence in the supplied script; never invent characters, locations, equipment, props, stunts, effects, permits or production facts. Identify every dramatic scene or slugline in order. Normalize recurring character and location names so the same entity has one name. Character descriptions may contain only identity, age/role, appearance or costume evidence present in the script. Location descriptions may contain only architecture, layout, fixed elements, palette or atmosphere evidence present in the script. interior_exterior comes from the slugline or clear scene evidence. story_time is the time experienced in the finished film. shoot_time equals story_time unless an explicit production note indicates Day for Night or Night for Day, and time_strategy describes only that explicit conversion. script_day and unit must be Unspecified unless the script states them. For every scene, add each explicit production requirement once to production_elements using one allowed category: extras, props, set_dressing, wardrobe, makeup_hair, vehicles, animals, stunts, special_effects, visual_effects, sound_music, special_equipment, location_requirements, safety_security, production_notes or risk_flags. Keep the element name concise and grounded in the text. Use an empty production_elements array when none exists. special_location is true only when unusual access, construction, permit, travel, control or sensitivity is evident. Keep props separate from set dressing and practical effects separate from VFX. start_line and end_line must use the supplied L-number boundaries. Every scene character and location name must also appear in the global lists. Submit exactly one complete breakdown through the required function.";
+  const user=`Analyze this complete screenplay for scheduling, continuity, logistics and department preparation. It contains ${totalLines} numbered lines. Preserve scene order and exact line boundaries.\n\n${numberedScript(scriptText)}`,messages=[{role:"system",content:system},{role:"user",content:user}],coreSystem="You are a meticulous multilingual screenplay breakdown assistant. Read Persian, English or mixed-language screenplays. Use only evidence in the supplied text. Identify every dramatic scene in order, normalize recurring character and location names, preserve story/shoot time and explicit Day for Night or Night for Day, and use the supplied L-number boundaries for start_line and end_line. Submit exactly one complete breakdown through the required function.",coreMessages=[{role:"system",content:coreSystem},{role:"user",content:user}],request=(tool,requestMessages)=>env.AI.run(model,{messages:requestMessages,tools:[tool],tool_choice:"required",parallel_tool_calls:false,temperature:.1,max_completion_tokens:SCRIPT_MAX_COMPLETION_TOKENS});
+  try{const raw=parseScriptModelResult(await request(SCRIPT_BREAKDOWN_TOOL,messages));if(!Array.isArray(raw?.scenes)||!raw.scenes.length)throw new Error("The script model returned no scenes.");return {analysis:normalizeScriptBreakdown(raw,totalLines),model,analysisMode:"production"}}
+  catch(primaryError){
+    console.warn("Production script breakdown failed; retrying the compatibility schema.",primaryError);
+    try{const raw=parseScriptModelResult(await request(SCRIPT_CORE_BREAKDOWN_TOOL,coreMessages));if(!Array.isArray(raw?.scenes)||!raw.scenes.length)throw new Error("The script model returned no scenes.");return {analysis:normalizeScriptBreakdown(raw,totalLines),model,analysisMode:"core_fallback",warning:"Analysis completed in compatibility mode: scenes, characters and locations are ready. Run Analyze with AI again later to complete the production chart."}}
+    catch(fallbackError){const failure=new Error("SCRIPT_AI_REQUEST_FAILED");failure.primary=primaryError;failure.cause=fallbackError;throw failure}
+  }
+}
+function scriptAnalysisFailureMessage(error){
+  const detail=[error?.message,error?.primary?.message,error?.cause?.message].filter(Boolean).join(" ").toLowerCase();
+  if(/rate|quota|busy|capacity|overload|429/.test(detail))return "The AI service is temporarily busy or rate-limited. Please wait one minute and try again.";
+  if(/context|token|too long|maximum length|request too large/.test(detail))return "The screenplay is too long for the model in one request. Shorten or split it and try again.";
+  if(/tool|schema|json|parse|unreadable|no scenes/.test(detail))return "The AI returned an invalid structured breakdown twice. Please try again.";
+  return "The script AI service could not complete the request. Please try again in a minute.";
 }
 async function generateWithModel(env,prompt,dimensions,references){
   const model=ALLOWED_MODEL.has(env.AI_MODEL)?env.AI_MODEL:DEFAULT_MODEL,input=await modelInput(prompt,dimensions.width,dimensions.height,references),result=await env.AI.run(model,input);
@@ -247,8 +264,8 @@ async function generateWithModel(env,prompt,dimensions,references){
 async function handleScriptAnalyze(request,env){
   if(!env.AI||!env.SUPABASE_URL||!env.SUPABASE_ANON_KEY)return json({error:"AI service is not configured."},503);const auth=await authenticate(env,request);if(!auth)return json({error:"Sign in again to analyze a script."},401);const declared=Number(request.headers.get("Content-Length")||0);if(declared>MAX_SCRIPT_JSON_BYTES)return json({error:"Script request is too large."},413);
   let payload;try{const text=await request.text();if(text.length>MAX_SCRIPT_JSON_BYTES)return json({error:"Script request is too large."},413);payload=JSON.parse(text)}catch{return json({error:"Invalid script request."},400)}
-  try{const {projectId}=await loadContext(env,auth.token,payload);if(!await canEditScript(env,auth.token,projectId))return json({error:"You need project editing permission to analyze this script."},403);if(!isUuid(payload.script_id))return json({error:"Save the script before analysis."},400);const scriptText=String(payload.script_text||"");if(scriptText.trim().length<20)return json({error:"Add more screenplay text before analysis."},400);if(scriptText.length>MAX_SCRIPT_CHARS)return json({error:`AI analysis accepts up to ${MAX_SCRIPT_CHARS.toLocaleString()} characters at once.`},413);const scripts=await restRows(env,auth.token,"project_scripts",`id=eq.${encodeURIComponent(payload.script_id)}&project_id=eq.${encodeURIComponent(projectId)}&select=id,content`),saved=scripts[0];if(!saved)return json({error:"Script not found or access denied."},404);if(saved.content!==scriptText)return json({error:"Save the latest script text before analysis."},409);const result=await analyzeScriptWithModel(env,scriptText);return json({analysis:result.analysis,model:result.model.replace(/^@cf\//,"")})}
-  catch(error){if(error instanceof Response)return error;console.error("AI script analysis failed",error);const message=/script|configured|access|save/i.test(error?.message||"")?error.message:"AI script analysis failed. Please try again.";return json({error:message},500)}
+  try{const {projectId}=await loadContext(env,auth.token,payload);if(!await canEditScript(env,auth.token,projectId))return json({error:"You need project editing permission to analyze this script."},403);if(!isUuid(payload.script_id))return json({error:"Save the script before analysis."},400);const scriptText=String(payload.script_text||"");if(scriptText.trim().length<20)return json({error:"Add more screenplay text before analysis."},400);if(scriptText.length>MAX_SCRIPT_CHARS)return json({error:`AI analysis accepts up to ${MAX_SCRIPT_CHARS.toLocaleString()} characters at once.`},413);const scripts=await restRows(env,auth.token,"project_scripts",`id=eq.${encodeURIComponent(payload.script_id)}&project_id=eq.${encodeURIComponent(projectId)}&select=id,content`),saved=scripts[0];if(!saved)return json({error:"Script not found or access denied."},404);if(saved.content!==scriptText)return json({error:"Save the latest script text before analysis."},409);const result=await analyzeScriptWithModel(env,scriptText);return json({analysis:result.analysis,model:result.model.replace(/^@cf\//,""),analysis_mode:result.analysisMode,warning:result.warning||null})}
+  catch(error){if(error instanceof Response)return error;const requestId=crypto.randomUUID();console.error("AI script analysis failed",{requestId,error,primary:error?.primary,cause:error?.cause});return json({error:scriptAnalysisFailureMessage(error),error_code:"SCRIPT_AI_REQUEST_FAILED",request_id:requestId},502)}
 }
 async function handleGenerate(request,env){
   if(!env.AI||!env.SUPABASE_URL||!env.SUPABASE_ANON_KEY)return json({error:"AI service is not configured."},503);

@@ -1,8 +1,16 @@
-# Storyboard Shot Builder v4.9.0
+# Storyboard Shot Builder v4.9.1
 
-This build continues only from the user-approved `storyboard-v3.9.1-github(1).zip` lineage. It includes every accepted change through v4.8 and adds the role-aware screenplay production breakdown requested for collaboration.
+This build continues only from the user-approved `storyboard-v3.9.1-github(1).zip` lineage. It includes every accepted change through v4.9.0 and repairs AI Script analysis without changing the database schema.
 
-## v4.9.0 changes
+## v4.9.1 changes
+
+- Fixes the generic **AI script analysis failed** regression introduced by the oversized v4.9 production tool schema and 16,000-token request.
+- Uses a compact category/item production schema, then expands it back into the same Assistant Director and Production Manager dashboard fields in the Worker.
+- Restores the previously working 12,000-token completion ceiling and disables unnecessary parallel tool calls for the single required breakdown tool.
+- Automatically retries once with the smaller compatibility schema if Cloudflare rejects or cannot parse the production schema. Compatibility results still preserve scenes, characters, locations, times and exact line ranges, and the UI clearly says the production chart needs a later re-analysis.
+- Returns a useful busy/rate-limit, length or structured-output message plus a short support code instead of hiding every upstream failure behind one generic sentence.
+
+## Included v4.9.0 changes
 
 - Script selected-text size now changes by exactly **1 px on every press**, from 8–72 px, with the live value between − and ＋. Safe size markup persists in Postgres alongside Bold, Underline and writing direction.
 - Enlarges the **Visual** and **Script** Bible tabs.
@@ -16,7 +24,7 @@ This build continues only from the user-approved `storyboard-v3.9.1-github(1).zi
 
 ## Existing installation: deployment
 
-**No new SQL query is required for v4.9.0. Do not create or run a v4.9 SQL query.** Production specialties reuse the existing JSON permissions column, and production charts are stored inside the existing Script analysis JSON.
+**No new SQL query is required for v4.9.1. Do not create, save or run a v4.9.1 SQL query.** The repair is entirely in `worker.js`, `app.js` and the static app files.
 
 1. If `Storyboard v4.8 - Lighting Access Repair` has not already succeeded, run the packaged v4.8 query once using the saved-query instructions from the prior release. Otherwise leave SQL Editor unchanged.
 2. Deploy the repository-root files. Do not upload `node_modules`.
@@ -27,7 +35,7 @@ This build continues only from the user-approved `storyboard-v3.9.1-github(1).zi
    ```
 
 4. No Supabase Edge Function redeploy is required.
-5. Hard-refresh the app. Page source should show `styles.css?v=490`, `config.js?v=490`, `i18n.js?v=490`, `app.js?v=490` and build `v4.9.0-production-breakdown-dashboard`.
+5. Hard-refresh the app. Page source should show `styles.css?v=491`, `config.js?v=491`, `i18n.js?v=491`, `app.js?v=491` and build `v4.9.1-resilient-script-analysis`.
 6. Open Bible → Script and re-run **Analyze with AI** for existing scripts; older saved analyses remain readable but do not contain the new production fields.
 7. Test repeated font-size presses, Bible Aspect Ratio, character/location Source Image generation and Collaboration → Production Dashboard.
 

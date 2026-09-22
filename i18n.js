@@ -1,4 +1,4 @@
-// Storyboard Shot Builder v4.9.0 — English / Persian interface
+// Storyboard Shot Builder v4.9.1 — English / Persian interface
 (() => {
   "use strict";
 
@@ -323,6 +323,11 @@
     "Add more screenplay text before analysis.":"پیش از تحلیل، متن بیشتری از فیلمنامه وارد کنید.",
     "AI is identifying scenes, recurring characters, locations and story time…":"هوش مصنوعی در حال شناسایی صحنه‌ها، شخصیت‌های تکرارشونده، لوکیشن‌ها و زمان داستان است…",
     "AI could not identify any scenes. Check screenplay headings and try again.":"هوش مصنوعی نتوانست صحنه‌ای شناسایی کند. سرصحنه‌های فیلمنامه را بررسی و دوباره تلاش کنید.",
+    "Analysis completed in compatibility mode: scenes, characters and locations are ready. Run Analyze with AI again later to complete the production chart.":"تحلیل در حالت سازگار انجام شد: صحنه‌ها، شخصیت‌ها و لوکیشن‌ها آماده‌اند. برای تکمیل چارت تولید، بعداً دوباره تحلیل با هوش مصنوعی را اجرا کنید.",
+    "The AI service is temporarily busy or rate-limited. Please wait one minute and try again.":"سرویس هوش مصنوعی موقتاً شلوغ است یا به محدودیت درخواست رسیده. یک دقیقه صبر کنید و دوباره تلاش کنید.",
+    "The screenplay is too long for the model in one request. Shorten or split it and try again.":"فیلمنامه برای یک درخواست مدل بیش از حد طولانی است. آن را کوتاه یا بخش‌بندی کنید و دوباره تلاش کنید.",
+    "The AI returned an invalid structured breakdown twice. Please try again.":"هوش مصنوعی دو بار خروجی ساختاری نامعتبر برگرداند. دوباره تلاش کنید.",
+    "The script AI service could not complete the request. Please try again in a minute.":"سرویس هوش مصنوعی فیلمنامه نتوانست درخواست را کامل کند. یک دقیقه دیگر دوباره تلاش کنید.",
     "Script analysis took too long. Try again.":"تحلیل فیلمنامه بیش از حد طول کشید. دوباره تلاش کنید.",
     "Could not analyze the script.":"تحلیل فیلمنامه ممکن نشد.",
     "Loading Lighting Diagram…":"در حال بارگذاری دیاگرام نورپردازی…",
@@ -997,6 +1002,7 @@
     [/^(INT|EXT|INT\/EXT|Unspecified) · (.+) · Story (Unspecified|Dawn|Morning|Day|Sunset|Twilight|Night) · Shoot (Unspecified|Dawn|Morning|Day|Sunset|Twilight|Night)(?: · (Day for Night|Night for Day))? · lines (\d+)–(\d+)$/, m => `${m[1]} · ${m[2]} · داستان: ${translateCore(m[3])} · فیلم‌برداری: ${translateCore(m[4])}${m[5]?` · ${translateCore(m[5])}`:""} · خط‌های ${m[6]} تا ${m[7]}`],
     [/^Analysis ready: (\d+) scenes, (\d+) characters and (\d+) locations\. Review it, then apply the breakdown\.$/, m => `تحلیل آماده است: ${m[1]} صحنه، ${m[2]} شخصیت و ${m[3]} لوکیشن. آن را بررسی و سپس تجزیه را اعمال کنید.`],
     [/^Analysis ready: (\d+) scenes, (\d+) characters, (\d+) locations and a department production chart\. Review it, then apply the breakdown\.$/, m => `تحلیل آماده است: ${m[1]} صحنه، ${m[2]} شخصیت، ${m[3]} لوکیشن و چارت گروه‌های تولید. آن را بررسی و سپس تجزیه را اعمال کنید.`],
+    [/^(.+) Support code: ([a-f0-9-]+)\.$/i, m => `${translateCore(m[1])} کد پشتیبانی: ${m[2]}.`],
     [/^(.+) now opens the (.+) dashboard\.$/, m => `داشبورد ${m[1]} اکنون با نمای ${translateCore(m[2])} باز می‌شود.`],
     [/^(\d+) unique$/, m => `${m[1]} مورد یکتا`],
     [/^(\d+) scenes? · (.+)$/, m => `${m[1]} صحنه · ${m[2]}`],
