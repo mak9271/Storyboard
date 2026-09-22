@@ -1,4 +1,4 @@
-// Storyboard v4.3.2 AI gateway. Cloudflare FLUX multipart input follows the provider schema exactly.
+// Storyboard v4.4.0 AI gateway. Cloudflare FLUX multipart input follows the provider schema exactly.
 const DEFAULT_MODEL = "@cf/black-forest-labs/flux-2-klein-4b";
 const ALLOWED_MODEL = new Set([DEFAULT_MODEL]);
 const MAX_JSON_BYTES = 96 * 1024;
@@ -11,6 +11,27 @@ const STYLE_RULES = {
   "Ink": "high-contrast black ink storyboard, expressive brush line, sparse hatching, strong silhouettes, cinematic blocking",
   "Photoreal Reference": "cinematic photoreal pre-production reference, natural texture, realistic lens behavior, production-design clarity"
 };
+const SHOT_SIZE_RULES = [
+  [/^ECU\b/i,"EXTREME CLOSE-UP: an isolated facial detail, eyes, mouth, hand, or very small story detail fills almost the entire frame; never show the full body"],
+  [/^CU\b/i,"CLOSE-UP: the face and head-and-shoulders dominate roughly 70% of the frame; crop around upper chest; never deliver a full shot"],
+  [/^MCU\b/i,"MEDIUM CLOSE-UP: frame from about mid-chest upward with the face visually dominant"],
+  [/^MS\b/i,"MEDIUM SHOT: frame approximately from the waist upward; do not show the entire body"],
+  [/^MLS\b/i,"MEDIUM LONG SHOT: frame approximately from knees upward while keeping the subject prominent"],
+  [/^WS\b/i,"WIDE SHOT: show the full subject and meaningful surrounding location, with clear spatial blocking"],
+  [/^EWS\b/i,"EXTREME WIDE SHOT: the location dominates and the complete subject is small but readable within it"],
+  [/^OTS\b/i,"OVER-THE-SHOULDER: include a foreground shoulder/head edge and frame the opposing subject beyond it"],
+  [/^POV\b/i,"POINT OF VIEW: the camera is the character's eyes; do not show that observing character from outside"],
+  [/^Insert\b/i,"INSERT SHOT: isolate the specified object or action detail so it fills most of the frame"],
+  [/^Top Shot\b/i,"TOP SHOT: a true overhead composition looking straight down"],
+];
+const ANGLE_RULES = [
+  [/Low Angle/i,"LOW ANGLE: place the camera clearly below the subject and point upward; show unmistakable upward perspective and dominance"],
+  [/High Angle/i,"HIGH ANGLE: place the camera clearly above the subject and point downward; show unmistakable downward perspective"],
+  [/Top|Bird|Overhead/i,"OVERHEAD ANGLE: look straight or steeply downward from above; this must not appear eye-level"],
+  [/Ground Level/i,"GROUND-LEVEL ANGLE: lens is close to the floor and looks across or upward from ground level"],
+  [/Dutch/i,"DUTCH ANGLE: visibly roll the horizon/camera axis while preserving the requested shot size"],
+  [/Eye Level/i,"EYE-LEVEL ANGLE: camera axis is level with the subject's eyes, with no high- or low-angle tilt"],
+];
 
 function json(body,status=200,headers={}){
   return new Response(JSON.stringify(body),{status,headers:{"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store",...headers}})
@@ -42,17 +63,48 @@ function aspectDimensions(project){
   return {width:Math.max(384,Math.min(1024,w)),height:Math.max(384,Math.min(1024,h))}
 }
 function projectStyle(project){const selected=clean(project.style,80)||"Storyboard B&W";return `${selected}: ${STYLE_RULES[selected]||selected}`}
+function matchingRule(value,rules,fallback){const text=clean(value,120);return rules.find(([pattern])=>pattern.test(text))?.[1]||`${fallback}: ${text||"unspecified"}`}
+function lensRule(value){
+  const text=clean(value,80),mm=Number(text.match(/(\d+(?:\.\d+)?)\s*mm/i)?.[1]);
+  if(Number.isFinite(mm)){
+    if(mm<=24)return `${text} ULTRA-WIDE LENS: strong spatial expansion and foreground/background size difference, without fisheye distortion`;
+    if(mm<=35)return `${text} WIDE LENS: visible environmental context and expanded depth perspective`;
+    if(mm<=65)return `${text} NORMAL LENS: natural perspective and moderate spatial compression`;
+    if(mm<=100)return `${text} PORTRAIT/TELEPHOTO LENS: compressed perspective, narrower field of view and flattering facial geometry`;
+    return `${text} LONG TELEPHOTO LENS: strong spatial compression, narrow field of view and isolated subject`;
+  }
+  if(/wide/i.test(text))return "WIDE LENS: expanded depth and environmental context";
+  if(/tele/i.test(text))return "TELEPHOTO LENS: visibly compressed perspective and isolated subject";
+  return `${text||"NORMAL"} LENS: render the corresponding field of view and perspective character`;
+}
+function focusRule(value){
+  const text=clean(value,120);
+  if(/shallow|selective/i.test(text))return `${text}: keep the intended subject plane critically sharp with obvious foreground/background blur and optical falloff`;
+  if(/deep/i.test(text))return `${text}: keep foreground, subject and background visibly sharp with broad depth of field`;
+  if(/soft/i.test(text))return `${text}: retain readable features with controlled soft optical rendering, not an out-of-focus mistake`;
+  if(/split diopter/i.test(text))return `${text}: keep both a near subject and a distant subject sharp with a convincing split-diopter look`;
+  if(/rack/i.test(text))return `${text}: depict the stated end-focus subject as sharp and the other plane clearly defocused in this still frame`;
+  return `${text||"Natural focus"}: use physically plausible focus and depth of field`;
+}
 function buildReferencePrompt(type,project,asset){
-  const common=`Project: ${clean(project.name,120)}. Global visual language: ${projectStyle(project)}. Keep the image free of captions, labels, watermarks, borders and logos.`;
-  if(type==="character")return `Create a definitive visual-bible reference image for the recurring character ${clean(asset.name,80)}. Stable identity specification: ${clean(asset.description,1400)}. Show one clear full-body front three-quarter view plus a readable head-and-shoulders identity view in the same image. Neutral unobtrusive background, even reference lighting, no other people. Facial identity, age, hair, body proportions, distinguishing features and base costume must be unambiguous and reusable in later shots. ${common}`;
-  return `Create a definitive visual-bible environment plate for the recurring location ${clean(asset.name,80)}. Stable location specification: ${clean(asset.description,1600)}. Show the architecture, floor layout, entrances, windows, fixed set dressing, materials, palette and spatial relationships clearly in a wide establishing composition. No people and no unrelated place. This exact location must be reusable from different camera positions in later shots. ${common}`
+  const hasSource=!!asset.source_path;
+  const sourceCharacter=hasSource?"An attached source image is the PRIMARY identity guide. Preserve its face, apparent age, hair, skin features, body proportions, distinguishing traits and base costume; the text only clarifies it. ":"";
+  const sourceLocation=hasSource?"An attached source image is the PRIMARY location guide. Preserve its architecture, layout, entrances, materials, fixed objects and spatial relationships; the text only clarifies it. ":"";
+  const common=`Project: ${clean(project.name,120)}. Global visual language: ${projectStyle(project)}. Create one continuous full-bleed image only—no collage, contact sheet, inset, split panel, border, captions, labels, watermarks or logos.`;
+  if(type==="character")return `Create a definitive visual-bible reference portrait for the recurring character ${clean(asset.name,80)}. ${sourceCharacter}Stable identity specification: ${clean(asset.description,1400)}. Show one clear full-body front three-quarter pose in a single portrait image, with the face large and readable enough to establish identity. Neutral unobtrusive background, even reference lighting, no other people. Keep this identity exact and reusable in later shots. ${common}`;
+  return `Create a definitive visual-bible environment plate for the recurring location ${clean(asset.name,80)}. ${sourceLocation}Stable location specification: ${clean(asset.description,1600)}. Show the architecture, floor layout, entrances, windows, fixed set dressing, materials, palette and spatial relationships clearly in one wide establishing image. No people and no unrelated place. This exact location must be reusable from different camera positions in later shots. ${common}`
 }
 function fieldLine(label,value,max=500){const text=clean(value,max);return text?`${label}: ${text}.`:""}
 function buildShotPrompt(project,scene,shot,location,characters){
   const d=shot||{},characterNames=characters.map(x=>clean(x.name,80)).join(", ")||"none",dimensions=aspectDimensions(project),orientation=dimensions.width===dimensions.height?"square":dimensions.width>dimensions.height?"landscape":"portrait";
+  const framing=matchingRule(d.shotSize,SHOT_SIZE_RULES,"FRAMING"),viewpoint=matchingRule(d.angle,ANGLE_RULES,"CAMERA ANGLE"),optics=lensRule(d.lens),focus=focusRule(d.focus);
   return [
     `STRICT OUTPUT CANVAS: create exactly one ${orientation} cinematic storyboard image at ${dimensions.width} × ${dimensions.height}, using the project's ${clean(project.aspect,60)||"selected"} aspect ratio as the native full canvas.`,
     "Fill the complete canvas edge to edge with one continuous scene. Never place horizontal images, reference plates, or smaller framed pictures inside a vertical canvas (or vice versa). No collage, diptych, triptych, contact sheet, storyboard grid, split screen, inset image, border, matte, letterbox, pillarbox, empty band, or frame-within-a-frame.",
+    `NON-NEGOTIABLE SHOT SIZE — ${framing}.`,
+    `NON-NEGOTIABLE CAMERA VIEWPOINT — ${viewpoint}.`,
+    `NON-NEGOTIABLE LENS RENDERING — ${optics}.`,
+    `NON-NEGOTIABLE DEPTH OF FIELD — ${focus}.`,
     "The location and character reference files are identity and continuity inputs only. Do not copy their reference-sheet layout into the final image.",
     `Project: ${clean(project.name,120)}. Global visual language: ${projectStyle(project)}.`,
     `CONTINUITY IS THE HIGHEST PRIORITY. The first reference image is the locked location ${clean(location.name,80)}. Reproduce that same place, architecture, materials and fixed objects; do not invent, substitute or move the scene to another location. Location specification: ${clean(location.description,1400)}.`,
@@ -60,9 +112,10 @@ function buildShotPrompt(project,scene,shot,location,characters){
     "SHOT REQUIREMENTS — apply every populated field below to this single frame:",
     fieldLine("Scene",`${clean(scene?.title,160)} — ${clean(scene?.description,700)}`),
     fieldLine("Shot number",d.shotNo,40),fieldLine("Intended duration",d.duration,80),fieldLine("Shot summary",d.summary),fieldLine("Main subject",d.subject),fieldLine("Visual action",d.description),fieldLine("Performance and emotion",d.performance),fieldLine("Subject movement",d.subjectMovement),fieldLine("Intentional costume and appearance",d.costume),
-    fieldLine("Shot size and framing",d.shotSize,120),fieldLine("Camera angle",d.angle,120),fieldLine("Physical camera height",d.cameraHeight,120),fieldLine("Lens focal length and perspective",d.lens,80),fieldLine("Focus and depth-of-field behavior",d.focus,160),fieldLine("Camera movement implication",d.movement,120),fieldLine("Composition",d.composition,160),fieldLine("Start-frame to end-frame intention",d.startEnd,300),
+    fieldLine("Shot size and framing",d.shotSize,120),fieldLine("Camera angle",d.angle,120),fieldLine("Lens focal length and perspective",d.lens,80),fieldLine("Focus and depth-of-field behavior",d.focus,160),fieldLine("Camera movement implication",d.movement,120),fieldLine("Composition",d.composition,160),fieldLine("Start-frame to end-frame intention",d.startEnd,300),
     fieldLine("Time of day",d.timeOfDay,80),fieldLine("Shot-specific details inside the locked location",d.location,400),fieldLine("Light source",d.lightSource,120),fieldLine("Light direction",d.lightDirection,120),fieldLine("Light quality",d.lightQuality,120),fieldLine("Lighting notes",d.lighting,500),fieldLine("Props and set elements",d.props,500),fieldLine("Important notes",d.notes,500),
     fieldLine("Dialogue context — use only to inform expression and action; do not print it",d.dialogue,500),fieldLine("Voice-over context — do not print it",d.voiceOver,400),fieldLine("Sound-effect context",d.sfx,240),fieldLine("Music and emotional rhythm",d.music,240),fieldLine("Incoming edit transition",d.transitionIn,120),fieldLine("Outgoing edit transition",d.transitionOut,120),
+    `FINAL CAMERA CHECK: the delivered image must visibly read as ${clean(d.shotSize,80)||"the requested shot size"}, ${clean(d.angle,80)||"the requested angle"}, ${clean(d.lens,80)||"the requested lens"}, and ${clean(d.focus,100)||"the requested focus"}. Reject any full-body/wide composition when a close-up is requested and reject any eye-level composition when a low or high angle is requested.`,
     "Apply the requested lens perspective and depth of field visibly and accurately. Keep all essential action and subjects inside the single full-bleed frame. No captions, subtitles, dialogue text, speech balloons, UI, written labels, watermarks, signatures, split panels, duplicated scenes, or extra frames."
   ].filter(Boolean).join("\n")
 }
@@ -79,6 +132,10 @@ async function loadReferenceBytes(env,token,path){
 }
 async function modelInput(prompt,width,height,references){
   const form=new FormData();form.append("prompt",prompt);form.append("width",String(width));form.append("height",String(height));
+  // Cloudflare documents guidance as the model's prompt-adherence control.
+  // A moderate value improves framing/angle compliance without overcooking the
+  // four-step distilled model.
+  form.append("guidance","4");
   references.forEach((ref,index)=>form.append(`input_image_${index}`,new Blob([ref.bytes],{type:ref.type}),`reference-${index}.${ref.type.split("/")[1]||"webp"}`));
   // Cloudflare's Workers AI binding requires the serialized multipart stream
   // plus its generated boundary. Passing an ArrayBuffer is rejected upstream.
@@ -101,7 +158,7 @@ async function handleGenerate(request,env){
     const {projectId,project}=await loadContext(env,auth.token,payload),mode=clean(payload.mode,40);let prompt,references=[],dimensions=aspectDimensions(project);
     if(mode==="character_reference"||mode==="location_reference"){
       const type=mode.startsWith("character")?"character":"location",table=type==="character"?"project_ai_characters":"project_ai_locations";if(!isUuid(payload.asset_id))return json({error:"Invalid Visual Bible item."},400);
-      const rows=await restRows(env,auth.token,table,`id=eq.${encodeURIComponent(payload.asset_id)}&project_id=eq.${encodeURIComponent(projectId)}&select=id,name,description,locked`),asset=rows[0];if(!asset)return json({error:"Visual Bible item not found or access denied."},404);if(asset.locked)return json({error:"Unlock this reference before regenerating it."},409);prompt=buildReferencePrompt(type,project,asset);dimensions=type==="character"?{width:768,height:1024}:{width:1024,height:768}
+      const rows=await restRows(env,auth.token,table,`id=eq.${encodeURIComponent(payload.asset_id)}&project_id=eq.${encodeURIComponent(projectId)}&select=id,name,description,source_path,locked`),asset=rows[0];if(!asset)return json({error:"Visual Bible item not found or access denied."},404);if(asset.locked)return json({error:"Unlock this reference before regenerating it."},409);if(asset.source_path)references=[await loadReferenceBytes(env,auth.token,asset.source_path)];prompt=buildReferencePrompt(type,project,asset);dimensions=type==="character"?{width:768,height:1024}:{width:1024,height:768}
     }else if(mode==="shot"){
       if(!isUuid(payload.shot_id)||!isUuid(payload.scene_id))return json({error:"Invalid shot."},400);
       const shots=await restRows(env,auth.token,"shots",`id=eq.${encodeURIComponent(payload.shot_id)}&project_id=eq.${encodeURIComponent(projectId)}&scene_id=eq.${encodeURIComponent(payload.scene_id)}&select=id,scene_id`);if(!shots[0])return json({error:"Shot not found or access denied."},404);

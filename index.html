@@ -12,10 +12,10 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="styles.css?v=432" />
+  <link rel="stylesheet" href="styles.css?v=440" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0"></script>
-  <script src="config.js?v=410"></script>
-  <meta name="storyboard-build" content="v4.3.2-contextual-generation-dialog" />
+  <script src="config.js?v=440"></script>
+  <meta name="storyboard-build" content="v4.4.0-image-crop-source-guidance" />
 </head>
 <body>
 
@@ -59,20 +59,21 @@
           <input id="loginIdentity" autocomplete="username" placeholder="you@example.com" required />
           <label>Password</label>
           <input id="loginPassword" type="password" autocomplete="current-password" required />
-          <button class="btn wide" type="submit">Sign In</button>
+          <button id="loginSubmitBtn" class="btn wide" type="submit">Sign In</button>
           <button id="forgotPasswordBtn" class="text-btn center" type="button">Forgot password?</button>
         </form>
 
         <form id="signupForm" hidden>
           <label>Username</label>
           <input id="signupUsername" autocomplete="username" placeholder="yourname" minlength="3" maxlength="30" required />
-          <small class="field-help">3–30 characters: letters, numbers, dot, underscore or hyphen.</small>
+          <small class="field-help">3–30 characters</small>
           <label>Display Name</label>
           <input id="signupDisplayName" autocomplete="name" placeholder="Your name" />
           <label>Email</label>
           <input id="signupEmail" type="email" autocomplete="email" placeholder="you@example.com" required />
           <label>Password</label>
-          <input id="signupPassword" type="password" autocomplete="new-password" minlength="8" required />
+          <input id="signupPassword" type="password" autocomplete="new-password" minlength="8" pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*[^A-Za-z0-9\s]).{8,}" required />
+          <small class="field-help">At least 8 characters, with uppercase, lowercase and one symbol.</small>
           <button class="btn wide" type="submit">Create Account</button>
         </form>
 
@@ -83,9 +84,9 @@
             <p id="recoveryAccountLabel">Enter a new password for this Storyboard account.</p>
           </div>
           <label>New Password</label>
-          <input id="recoveryPassword" type="password" autocomplete="new-password" minlength="8" required />
+          <input id="recoveryPassword" type="password" autocomplete="new-password" minlength="8" pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*[^A-Za-z0-9\s]).{8,}" required />
           <label>Confirm New Password</label>
-          <input id="recoveryPasswordConfirm" type="password" autocomplete="new-password" minlength="8" required />
+          <input id="recoveryPasswordConfirm" type="password" autocomplete="new-password" minlength="8" pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*[^A-Za-z0-9\s]).{8,}" required />
           <button id="updatePasswordBtn" class="btn wide" type="submit">Update Password</button>
           <button id="cancelPasswordRecoveryBtn" class="text-btn center" type="button">Back to Sign In</button>
         </form>
@@ -274,11 +275,26 @@
           <div class="project-card-title-row"><label>Project Name</label><span id="projectFolderBadge" class="folder-badge">General</span></div>
           <input id="projectName" />
           <button id="projectDetailsBtn" type="button" class="btn ghost wide project-details-btn">Project Details · Folder · Tags</button>
-          <button id="aiBibleBtn" type="button" class="btn ghost wide ai-bible-btn">AI Visual Bible · Characters · Locations</button>
-          <div class="ai-usage-summary compact" data-ai-usage-summary aria-live="polite">
-            <span class="ai-usage-message">Loading AI usage…</span>
+          <div class="visual-bible-launch-card">
+            <button id="aiBibleBtn" type="button" class="btn wide ai-bible-btn">
+              <span class="ai-bible-launch-icon" aria-hidden="true">◇</span>
+              <span class="ai-bible-launch-copy"><strong>Manage Visual Bible</strong><small>Characters · Locations · Storyboard Style</small></span>
+              <span class="ai-bible-launch-arrow" aria-hidden="true">→</span>
+            </button>
+            <div class="visual-bible-style-field">
+              <label>Storyboard Style</label>
+              <select id="projectStyle">
+                <option>Storyboard B&W</option>
+                <option>Pencil</option>
+                <option>Ink</option>
+                <option>Photoreal Reference</option>
+              </select>
+            </div>
+            <div class="ai-usage-summary compact" data-ai-usage-summary aria-live="polite">
+              <span class="ai-usage-message">Loading AI usage…</span>
+            </div>
           </div>
-          <div class="grid-2">
+          <div class="grid-2 project-aspect-grid">
             <div>
               <label>Aspect Ratio</label>
               <select id="projectAspect">
@@ -288,15 +304,6 @@
                 <option>16:9</option>
                 <option>2.39:1</option>
                 <option>Custom</option>
-              </select>
-            </div>
-            <div>
-              <label>Storyboard Style</label>
-              <select id="projectStyle">
-                <option>Storyboard B&W</option>
-                <option>Pencil</option>
-                <option>Ink</option>
-                <option>Photoreal Reference</option>
               </select>
             </div>
           </div>
@@ -340,7 +347,7 @@
       <section class="workspace">
         <div class="workspace-head">
           <div>
-            <div id="shotKicker" class="eyebrow">SCENE 01 · SHOT 01</div>
+            <div id="shotKicker" class="eyebrow">SCENE 01</div>
             <h2 id="shotTitle">Shot 1</h2>
             <div id="shotPresence" class="shot-presence" hidden></div>
           </div>
@@ -349,8 +356,6 @@
             <button id="duplicateShotBtn" class="btn ghost">Duplicate</button>
             <button id="copyShotBtn" class="btn ghost">Copy</button>
             <button id="pasteShotBtn" class="btn ghost" disabled>Paste</button>
-            <button id="moveShotUpBtn" class="btn ghost" title="Move shot up">↑</button>
-            <button id="moveShotDownBtn" class="btn ghost" title="Move shot down">↓</button>
             <button id="deleteShotBtn" class="btn danger">Delete</button>
           </div>
         </div>
@@ -369,10 +374,11 @@
                 <span>Generate from this shot or add an image manually.</span>
                 <label id="chooseImageLabel" class="btn small">Choose Image<input id="frameImageInput" type="file" accept="image/*" hidden></label>
               </div>
-              <img id="frameImage" alt="" decoding="async" fetchpriority="high" hidden />
+              <img id="frameImage" alt="" decoding="async" fetchpriority="high" role="button" tabindex="0" aria-label="Open image preview" hidden />
             </div>
             <div class="frame-ai-actions">
               <button id="generateShotImageBtn" type="button" class="btn ai-generate-btn">✦ Generate Storyboard</button>
+              <button id="cropShotImageBtn" type="button" class="btn ghost small" hidden>Crop Image</button>
               <button id="removeImageBtn" class="text-btn" hidden>Remove Shot Image</button>
             </div>
             <div id="aiGenerationStatus" class="ai-generation-status" aria-live="polite">Choose a locked project location before generating.</div>
@@ -413,7 +419,6 @@
               <div><label>Duration</label><input id="duration" placeholder="e.g. 2 sec" /></div>
               <div><label>Shot Size</label><select id="shotSize"></select></div>
               <div><label>Camera Angle</label><select id="angle"></select></div>
-              <div><label>Camera Height</label><select id="cameraHeight"></select></div>
               <div><label>Lens</label><select id="lens"></select></div>
               <div><label>Focus / Depth of Field</label><select id="focus"></select></div>
               <div><label>Camera Movement</label><select id="movement"></select></div>
@@ -829,6 +834,50 @@
     </div>
   </dialog>
 
+  <!-- IMAGE PREVIEW -->
+  <dialog id="imageViewerModal" class="modal image-viewer-modal" aria-labelledby="imageViewerTitle">
+    <div class="modal-card image-viewer-card">
+      <div class="modal-head">
+        <div><div class="eyebrow">IMAGE PREVIEW</div><h2 id="imageViewerTitle">Storyboard Image</h2></div>
+        <button id="closeImageViewerBtn" class="icon-btn" type="button" aria-label="Close image preview">×</button>
+      </div>
+      <div class="image-viewer-stage">
+        <img id="imageViewerImage" alt="" decoding="async" />
+      </div>
+      <p id="imageViewerCaption" class="image-viewer-caption"></p>
+      <div class="image-viewer-actions">
+        <button id="openCropFromViewerBtn" class="btn" type="button">Crop Image</button>
+        <button id="doneImageViewerBtn" class="btn ghost" type="button">Close</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- IMAGE CROP -->
+  <dialog id="imageCropModal" class="modal image-crop-modal" aria-labelledby="imageCropTitle">
+    <div class="modal-card image-crop-card">
+      <div class="modal-head">
+        <div><div class="eyebrow">CROP IMAGE</div><h2 id="imageCropTitle">Reframe Image</h2></div>
+        <button id="closeImageCropBtn" class="icon-btn" type="button" aria-label="Close crop editor">×</button>
+      </div>
+      <p class="crop-instructions">Drag the image to reframe it. Use Zoom to move closer or farther away. The crop keeps the project aspect ratio.</p>
+      <div id="cropStage" class="crop-stage" aria-label="Crop preview">
+        <canvas id="cropCanvas"></canvas>
+        <div id="cropLoading" class="crop-loading">Loading image…</div>
+      </div>
+      <div class="crop-controls">
+        <label for="cropZoom">Zoom</label>
+        <input id="cropZoom" type="range" min="100" max="300" step="1" value="100" />
+        <output id="cropZoomValue" for="cropZoom">100%</output>
+        <button id="resetCropBtn" class="btn ghost small" type="button">Reset</button>
+      </div>
+      <div id="cropNotice" class="notice" hidden></div>
+      <div class="crop-actions">
+        <button id="cancelCropBtn" class="btn ghost" type="button">Cancel</button>
+        <button id="saveCropBtn" class="btn" type="button">Save Crop</button>
+      </div>
+    </div>
+  </dialog>
+
 
   <!-- ACCOUNT MODAL -->
   <dialog id="accountModal" class="modal">
@@ -929,7 +978,7 @@
     </div>
   </dialog>
 
-  <script src="i18n.js?v=432"></script>
-  <script src="app.js?v=432"></script>
+  <script src="i18n.js?v=440"></script>
+  <script src="app.js?v=440"></script>
 </body>
 </html>

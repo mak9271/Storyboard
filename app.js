@@ -1,4 +1,4 @@
-// Storyboard Shot Builder v4.3.2 — contextual generation dialog and account-only language
+// Storyboard Shot Builder v4.4.0 — image crop, source-guided references and resilient sign-in
 const OPTIONS = {
   shotSize:["ECU · Extreme Close Up","CU · Close Up","MCU · Medium Close Up","MS · Medium Shot","MLS · Medium Long Shot","WS · Wide Shot","EWS · Extreme Wide Shot","OTS · Over The Shoulder","POV · Point of View","Insert","Top Shot"],
   angle:["Eye Level","High Angle","Low Angle","Top / Bird's Eye","Dutch Angle","Ground Level","Overhead","Custom"],
@@ -14,7 +14,7 @@ const OPTIONS = {
   transitionIn:["Cut","Match Cut","Hard Cut","J Cut","L Cut","Dissolve","Fade In","Whip Transition","From Black"],
   transitionOut:["Cut","Match Cut","Hard Cut","J Cut","L Cut","Dissolve","Fade Out","Whip Transition","To Black"]
 };
-const SHOT_FIELDS = ["shotNo","duration","shotSize","angle","cameraHeight","lens","focus","movement","startEnd","composition","summary","subject","description","performance","subjectMovement","costume","timeOfDay","location","lightSource","lightDirection","lightQuality","lighting","props","dialogue","voiceOver","sfx","music","transitionIn","transitionOut","notes"];
+const SHOT_FIELDS = ["shotNo","duration","shotSize","angle","lens","focus","movement","startEnd","composition","summary","subject","description","performance","subjectMovement","costume","timeOfDay","location","lightSource","lightDirection","lightQuality","lighting","props","dialogue","voiceOver","sfx","music","transitionIn","transitionOut","notes"];
 const $ = id => document.getElementById(id);
 const cfg = window.APP_CONFIG || {};
 const cloudConfigured = !!(cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY && window.supabase);
@@ -69,6 +69,7 @@ let app = {
   pendingLightingDiagram: new URLSearchParams(location.search).get("diagram"),
   ai: {
     ready: false,
+    sourceReady: false,
     loading: false,
     generating: false,
     generatingAssetId: null,
@@ -120,13 +121,15 @@ let signedImageRefreshTimer = null;
 let presenceTrackTimer = null;
 let lastPresenceSignature = "";
 const LAYOUT_STORAGE_KEY = "storyboard-layout-mode";
+let imageViewerTarget=null;
+let cropState={target:null,drawable:null,cleanup:null,width:0,height:0,zoom:1,offsetX:0,offsetY:0,dragging:false,pointerId:null,startX:0,startY:0,startOffsetX:0,startOffsetY:0,saving:false};
 
 function uid(){return (crypto.randomUUID ? crypto.randomUUID() : "id-"+Date.now()+"-"+Math.random().toString(16).slice(2))}
 function fullPermissions(){return {project_settings:true,scenes:true,shots:true,media:true,members:true}}
 function blankPermissions(){return {project_settings:false,scenes:false,shots:false,media:false,members:false}}
 function editorPermissions(){return {project_settings:false,scenes:true,shots:true,media:true,members:false}}
 function permissionPreset(name){return name==="viewer"?blankPermissions():name==="editor"?editorPermissions():readPermissionUI()}
-function blankShot(no=1){return {id:uid(),shotNo:no,duration:"",shotSize:"CU · Close Up",angle:"Eye Level",cameraHeight:"Eye Level",lens:"50mm",focus:"Shallow Focus",movement:"Static",startEnd:"",composition:"Centered / Symmetrical",summary:"",subject:"",description:"",performance:"",subjectMovement:"",costume:"",timeOfDay:"Night",location:"",lightSource:"Candle",lightDirection:"Camera Left",lightQuality:"Low Key",lighting:"",props:"",dialogue:"",voiceOver:"",sfx:"",music:"",transitionIn:"Cut",transitionOut:"Cut",notes:"",aiCharacterIds:[],aiLocationId:"",aiGeneration:null,image:null,imagePath:null,position:no}}
+function blankShot(no=1){return {id:uid(),shotNo:no,duration:"",shotSize:"CU · Close Up",angle:"Eye Level",lens:"50mm",focus:"Shallow Focus",movement:"Static",startEnd:"",composition:"Centered / Symmetrical",summary:"",subject:"",description:"",performance:"",subjectMovement:"",costume:"",timeOfDay:"Night",location:"",lightSource:"Candle",lightDirection:"Camera Left",lightQuality:"Low Key",lighting:"",props:"",dialogue:"",voiceOver:"",sfx:"",music:"",transitionIn:"Cut",transitionOut:"Cut",notes:"",aiCharacterIds:[],aiLocationId:"",aiGeneration:null,image:null,imagePath:null,position:no}}
 function blankScene(no=1){return {id:uid(),number:no,title:`Scene ${no}`,description:"",position:no,collapsed:false,shots:[blankShot(1)]}}
 function blankProject(name="Untitled Storyboard"){return {id:uid(),name,aspect:"3:4 Portrait",aspectWidth:3,aspectHeight:4,style:"Storyboard B&W",owner_id:null,role:"owner",position:0,isFavorite:false,folder:"General",tags:[],metadata:{director:"",cinematographer:"",writer:"",production:"",status:"Planning",notes:""},scenes:[blankScene(1)],updated_at:new Date().toISOString()}}
 function deepClone(x){return JSON.parse(JSON.stringify(x))}
@@ -144,7 +147,7 @@ function projectMeta(p){return {director:"",cinematographer:"",writer:"",product
 function adminSupporting(projectId=app.current?.id){return !!(app.admin.isAdmin&&app.admin.supportProjectId&&app.admin.supportProjectId===projectId)}
 function projectCanEdit(p){return app.mode==="local" || p?.owner_id===app.session?.user?.id || adminSupporting(p?.id) || !!p?.dashboardPermissions?.project_settings}
 function projectIsOwner(p){return app.mode==="local" || p?.owner_id===app.session?.user?.id || adminSupporting(p?.id)}
-function shotDbData(s){const data={...s};delete data.id;delete data.image;delete data.imagePath;return data}
+function shotDbData(s){const data={...s};delete data.id;delete data.image;delete data.imagePath;delete data.cameraHeight;return data}
 function currentScene(){return app.current?.scenes.find(s=>s.id===app.activeSceneId) || app.current?.scenes[0] || null}
 function currentShot(){const sc=currentScene(); return sc?.shots.find(s=>s.id===app.activeShotId) || sc?.shots[0] || null}
 function allShots(){return (app.current?.scenes||[]).flatMap(scene=>scene.shots.map(shot=>({scene,shot})))}
@@ -425,7 +428,7 @@ function saveLocal(){
   if(idx>=0)app.projects[idx]=app.current; else app.projects.push(app.current);
   localStorage.setItem("storyboard-v3-projects",JSON.stringify(app.projects));
 }
-function resetAiState(){app.ai.requestController?.abort();app.ai.ready=false;app.ai.loading=false;app.ai.generating=false;app.ai.generatingAssetId=null;app.ai.generationMode=null;app.ai.requestController=null;app.ai.cancelRequested=false;app.ai.previousFocus=null;app.ai.characters=[];app.ai.locations=[];app.ai.usage={loaded:false,loading:false,error:"",used:0,remaining:20,dailyLimit:20,personalRemaining:20,globalRemaining:70,unlimited:false,usageDate:""};syncAiGenerationLock();renderAiUsage()}
+function resetAiState(){app.ai.requestController?.abort();app.ai.ready=false;app.ai.sourceReady=false;app.ai.loading=false;app.ai.generating=false;app.ai.generatingAssetId=null;app.ai.generationMode=null;app.ai.requestController=null;app.ai.cancelRequested=false;app.ai.previousFocus=null;app.ai.characters=[];app.ai.locations=[];app.ai.usage={loaded:false,loading:false,error:"",used:0,remaining:20,dailyLimit:20,personalRemaining:20,globalRemaining:70,unlimited:false,usageDate:""};syncAiGenerationLock();renderAiUsage()}
 function selectFirst(){
   const sc=app.current?.scenes?.[0]; app.activeSceneId=sc?.id||null; app.activeShotId=sc?.shots?.[0]?.id||null
 }
@@ -658,32 +661,78 @@ function toggleAuthTab(tab){
   $("loginTabBtn").classList.toggle("active",login);$("signupTabBtn").classList.toggle("active",!login);
   $("loginForm").hidden=!login;$("signupForm").hidden=login;setMsg("authMessage","");
 }
-let loginKind="email";
+let loginKind="email",loginPending=false;
 function setLoginKind(kind){
+  if(loginPending)return;
   loginKind=kind;const isEmail=kind==="email";
   $("loginEmailMode").classList.toggle("active",isEmail);$("loginUsernameMode").classList.toggle("active",!isEmail);
   $("loginIdentityLabel").textContent=isEmail?"Email":"Username";$("loginIdentity").placeholder=isEmail?"you@example.com":"yourname";
 }
+function waitFor(ms){return new Promise(resolve=>setTimeout(resolve,ms))}
+async function readEdgeFunctionError(error){
+  const context=error?.context,status=Number(context?.status||0),name=String(error?.name||"");let payload=null;
+  try{const response=typeof context?.clone==="function"?context.clone():context;if(typeof response?.json==="function")payload=await response.json()}catch{}
+  const code=String(payload?.code||"").toUpperCase(),message=String(payload?.error||payload?.message||"").trim();
+  const retryAfter=Math.max(0,Number(payload?.retry_after||context?.headers?.get?.("retry-after")||0));
+  const transient=[408,500,502,503,504].includes(status)||name==="FunctionsFetchError"||name==="FunctionsRelayError";
+  return {status,name,code,message,retryAfter,transient}
+}
+function usernameLoginErrorMessage(detail){
+  const invalid=detail.code==="INVALID_CREDENTIALS"||/invalid (username|login|credentials)|username or password/i.test(detail.message);
+  if(invalid)return "Username or password is incorrect.";
+  if(detail.status===429||detail.code==="RATE_LIMITED"){
+    const minutes=Math.max(1,Math.ceil((detail.retryAfter||60)/60));
+    return `Too many sign-in attempts. Try again in ${minutes} minute${minutes===1?"":"s"}.`
+  }
+  if(detail.status===404||detail.code.includes("NOT_FOUND"))return "Username sign-in is temporarily unavailable. You can still sign in with your email.";
+  return "The sign-in service is temporarily unavailable. Please wait a moment and try again."
+}
+async function signInWithUsername(username,password){
+  let lastDetail={status:0,name:"",code:"",message:"",retryAfter:0,transient:false};
+  for(let attempt=0;attempt<2;attempt+=1){
+    const {data,error}=await sb.functions.invoke("username-login",{body:{username,password}});
+    if(!error){if(!data?.session?.access_token)throw new Error(data?.error||"Username sign-in failed.");return data.session}
+    lastDetail=await readEdgeFunctionError(error);
+    if(attempt===0&&lastDetail.transient){await waitFor(650);continue}
+    break
+  }
+  throw new Error(usernameLoginErrorMessage(lastDetail))
+}
+function setLoginPending(active){
+  loginPending=active;for(const id of ["loginEmailMode","loginUsernameMode","loginIdentity","loginPassword","loginSubmitBtn"])$(id).disabled=active;
+  $("loginSubmitBtn").textContent=uiText(active?"Signing in…":"Sign In")
+}
 async function doLogin(e){
-  e.preventDefault(); if(!cloudConfigured)return;
+  e.preventDefault(); if(!cloudConfigured||loginPending)return;
   setMsg("authMessage","Signing in...");
   const identity=$("loginIdentity").value.trim(),password=$("loginPassword").value;
+  setLoginPending(true);
   try{
     if(loginKind==="email"){
       const {error}=await sb.auth.signInWithPassword({email:identity,password}); if(error)throw error;
     }else{
-      const {data,error}=await sb.functions.invoke("username-login",{body:{username:identity,password}});
-      if(error)throw error;
-      if(!data?.session?.access_token)throw new Error(data?.error||"Username sign-in failed.");
-      const {error:setErr}=await sb.auth.setSession({access_token:data.session.access_token,refresh_token:data.session.refresh_token}); if(setErr)throw setErr;
+      const session=await signInWithUsername(identity,password);
+      const {error:setErr}=await sb.auth.setSession({access_token:session.access_token,refresh_token:session.refresh_token}); if(setErr)throw setErr;
     }
     setMsg("authMessage","");
   }catch(err){setMsg("authMessage",err.message||"Sign-in failed.","warning")}
+  finally{setLoginPending(false)}
+}
+function passwordPolicyError(password){
+  if(String(password||"").length<8)return "Password must contain at least 8 characters.";
+  if(!/[a-z]/.test(password))return "Password must include at least one lowercase letter.";
+  if(!/[A-Z]/.test(password))return "Password must include at least one uppercase letter.";
+  if(!/[^A-Za-z0-9\s]/.test(password))return "Password must include at least one symbol.";
+  return ""
+}
+function updatePasswordFieldValidity(field,announce=false){
+  if(!field)return "";const error=passwordPolicyError(field.value);field.setCustomValidity(error?uiText(error):"");if(announce&&error)setMsg("authMessage",error,"warning");return error
 }
 async function doSignup(e){
   e.preventDefault(); if(!cloudConfigured)return;
   const username=$("signupUsername").value.trim().toLowerCase(),email=$("signupEmail").value.trim(),password=$("signupPassword").value,display_name=$("signupDisplayName").value.trim();
   if(!/^[a-z0-9_.-]{3,30}$/.test(username)){setMsg("authMessage","Username may contain only letters, numbers, dot, underscore and hyphen.","warning");return}
+  const passwordError=passwordPolicyError(password);if(passwordError){setMsg("authMessage",passwordError,"warning");return}
   try{
     const {data:available,error:availErr}=await sb.rpc("username_available",{p_username:username});
     if(availErr)throw availErr;if(!available){setMsg("authMessage","That username is already taken.","warning");return}
@@ -703,7 +752,7 @@ async function updateRecoveredPassword(event){
   event.preventDefault();if(!cloudConfigured)return;
   const password=$("recoveryPassword").value,confirmation=$("recoveryPasswordConfirm").value;
   if(!app.passwordRecovery.verified||!app.session)return showPasswordRecovery("This password-reset link is invalid or has expired. Request a new link from Forgot password.");
-  if(password.length<8)return setMsg("authMessage","Use a password with at least 8 characters.","warning");
+  const passwordError=passwordPolicyError(password);if(passwordError)return setMsg("authMessage",passwordError,"warning");
   if(password!==confirmation)return setMsg("authMessage","The two passwords do not match.","warning");
   app.passwordRecovery.updating=true;renderPasswordRecoveryUi();setMsg("authMessage","Updating your password…");
   const {error}=await sb.auth.updateUser({password});
@@ -922,10 +971,10 @@ async function deleteAdminProject(project){
     supportOpened=true;
     const [{data:paths},{data:characters},{data:locations}]=await Promise.all([
       sb.from("shots").select("image_path").eq("project_id",project.id),
-      sb.from("project_ai_characters").select("reference_path").eq("project_id",project.id),
-      sb.from("project_ai_locations").select("reference_path").eq("project_id",project.id)
+      sb.from("project_ai_characters").select("reference_path,source_path").eq("project_id",project.id),
+      sb.from("project_ai_locations").select("reference_path,source_path").eq("project_id",project.id)
     ]);
-    await removeMediaPaths([...(paths||[]).map(x=>x.image_path),...(characters||[]).map(x=>x.reference_path),...(locations||[]).map(x=>x.reference_path)]);
+    await removeMediaPaths([...(paths||[]).map(x=>x.image_path),...(characters||[]).flatMap(x=>[x.reference_path,x.source_path]),...(locations||[]).flatMap(x=>[x.reference_path,x.source_path])]);
     const {error}=await sb.rpc("storyboard_admin_delete_project",{p_project_id:project.id,p_target_user_id:user.user_id});if(error)throw error;
     supportOpened=false;setMsg("adminCenterNotice",`Project "${project.name}" deleted.`);await Promise.all([loadAdminUserProjects(),loadAdminActivity(),loadAdminUsers(true)])
   }catch(err){setMsg("adminCenterNotice",err.message||"Could not delete the project.","warning")}
@@ -972,10 +1021,10 @@ async function createCloudProject(){
   const myPositions=(app.projects||[]).filter(p=>p.owner_id===app.session.user.id).map(p=>Number(p.position||0));
   const position=Math.max(0,...myPositions)+1;
   const {data:p,error}=await sb.from("projects").insert({owner_id:app.session.user.id,name,aspect:"3:4 Portrait",aspect_width:3,aspect_height:4,style:"Storyboard B&W",position,is_favorite:false,folder:"General",tags:[],metadata:{director:"",cinematographer:"",writer:"",production:"",status:"Planning",notes:""}}).select().single();
-  if(error){uiAlert(error.message);return}
-  const {data:s,error:se}=await sb.from("scenes").insert({project_id:p.id,scene_number:1,title:"Scene 1",description:"",position:1,collapsed:false}).select().single(); if(se){uiAlert(se.message);return}
+  if(error){const message=/row-level security|42501/i.test(String(error.message||""))?"Project creation is blocked by an outdated database policy. Run the saved SQL query “Storyboard v4.4 - Image Tools, Project RLS & Login Reliability”, then try again.":error.message;uiAlert(message);return}
+  const {data:s,error:se}=await sb.from("scenes").insert({project_id:p.id,scene_number:1,title:"Scene 1",description:"",position:1,collapsed:false}).select().single(); if(se){await sb.from("projects").delete().eq("id",p.id);uiAlert(se.message);return}
   const shot=blankShot(1);
-  const {error:shErr}=await sb.from("shots").insert({project_id:p.id,scene_id:s.id,shot_number:1,position:1,data:shot});if(shErr){uiAlert(shErr.message);return}
+  const {error:shErr}=await sb.from("shots").insert({project_id:p.id,scene_id:s.id,shot_number:1,position:1,data:shot});if(shErr){await sb.from("projects").delete().eq("id",p.id);uiAlert(shErr.message);return}
   await loadCloudProjects();await openCloudProject(p.id)
 }
 async function openCloudProject(id,options={}){
@@ -1111,11 +1160,7 @@ async function refreshSignedImages(){
   }
   if($("aiBibleModal")?.open){
     for(const asset of [...app.ai.characters,...app.ai.locations]){
-      if(!asset.reference_path)continue;
-      jobs.push((async()=>{
-        const {data,error}=await sb.storage.from("storyboards").createSignedUrl(asset.reference_path,SIGNED_IMAGE_TTL_SECONDS);
-        if(!error&&data?.signedUrl)asset.referenceUrl=data.signedUrl
-      })())
+      if(asset.reference_path||asset.source_path)jobs.push(signAiAsset(asset))
     }
   }
   await Promise.all(jobs);
@@ -1154,8 +1199,10 @@ function renderSceneList(){
         <button class="scene-mini duplicate-scene" type="button" title="Duplicate scene">⧉</button>
         <button class="scene-mini move-scene-up" type="button" title="Move scene up" ${sceneIndex===0?"disabled":""}>↑</button>
         <button class="scene-mini move-scene-down" type="button" title="Move scene down" ${sceneIndex===scenes.length-1?"disabled":""}>↓</button>`:`
-        <button class="scene-mini add-shot-scene" type="button" title="Add shot to this scene">＋</button>
-        <button class="scene-mini delete-shot-scene" type="button" title="Delete selected shot" ${scene.shots.length<=1?"disabled":""}>−</button>`;
+        <button class="scene-mini add-shot-scene" type="button" title="Add shot to this scene" aria-label="Add shot to this scene">＋</button>
+        <button class="scene-mini delete-shot-scene" type="button" title="Delete selected shot" aria-label="Delete selected shot" ${scene.shots.length<=1?"disabled":""}>−</button>
+        <button class="scene-mini copy-shot-scene" type="button" title="Copy selected shot" aria-label="Copy selected shot">C</button>
+        <button class="scene-mini paste-shot-scene" type="button" title="Paste copied shot" aria-label="Paste copied shot" ${app.shotClipboard?"":"disabled"}>P</button>`;
     row.innerHTML=`
       <button class="scene-select" type="button" title="Click scene name to open / close">
         <span class="scene-title-stack"><strong>Scene ${scene.number}</strong><small>${escapeHtml(scene.title||"")}</small></span>
@@ -1169,8 +1216,10 @@ function renderSceneList(){
     row.querySelector(".move-scene-down")?.addEventListener("click",()=>moveScene(scene.id,1));
     row.querySelector(".add-shot-scene")?.addEventListener("click",()=>addShotToScene(scene.id));
     row.querySelector(".delete-shot-scene")?.addEventListener("click",()=>deleteSelectedShotFromScene(scene.id));
+    row.querySelector(".copy-shot-scene")?.addEventListener("click",()=>copySelectedShotFromScene(scene.id));
+    row.querySelector(".paste-shot-scene")?.addEventListener("click",()=>pasteShotIntoScene(scene.id));
     row.querySelectorAll(".rename-scene,.duplicate-scene,.move-scene-up,.move-scene-down").forEach(b=>b.disabled=b.disabled||!can("scenes"));
-    row.querySelectorAll(".add-shot-scene,.delete-shot-scene").forEach(b=>b.disabled=b.disabled||!can("shots"));
+    row.querySelectorAll(".add-shot-scene,.delete-shot-scene,.copy-shot-scene,.paste-shot-scene").forEach(b=>b.disabled=b.disabled||!can("shots"));
 
     const shots=document.createElement("div");shots.className="scene-shots";
     const ordered=[...scene.shots].sort((a,b)=>a.position-b.position);
@@ -1197,7 +1246,7 @@ function renderSceneSettings(){
 function renderShot(){
   const s=currentShot(),sc=currentScene();if(!s||!sc)return;
   SHOT_FIELDS.forEach(id=>{if($(id))$(id).value=s[id]??""});
-  $("shotKicker").textContent=`SCENE ${String(sc.number).padStart(2,"0")} · SHOT ${String(s.shotNo).padStart(2,"0")}`;
+  $("shotKicker").textContent=`SCENE ${String(sc.number).padStart(2,"0")}`;
   $("shotTitle").textContent=`Shot ${s.shotNo}`;
   $("mobileEditorTitle").textContent=app.current.name||"Storyboard";
   $("mobileEditorSubtitle").textContent=`Scene ${sc.number} · Shot ${s.shotNo}`;
@@ -1205,7 +1254,7 @@ function renderShot(){
   $("frameMeta").textContent=`${projectAspectText(app.current)} · ${shortValue(s.shotSize)} · ${s.angle}`;
   const f=$("storyFrame");f.style.aspectRatio=`${aspectNumbers(app.current).w}/${aspectNumbers(app.current).h}`;
   const img=$("frameImage"),ph=document.querySelector(".frame-placeholder");
-  if(s.image){img.src=s.image;img.hidden=false;ph.hidden=true;$("removeImageBtn").hidden=false}else{img.hidden=true;img.removeAttribute("src");ph.hidden=false;$("removeImageBtn").hidden=true}
+  if(s.image){img.src=s.image;img.hidden=false;ph.hidden=true;$("removeImageBtn").hidden=false;$("cropShotImageBtn").hidden=false}else{img.hidden=true;img.removeAttribute("src");ph.hidden=false;$("removeImageBtn").hidden=true;$("cropShotImageBtn").hidden=true}
   renderAiShotControls()
 }
 function projectAspectText(p){
@@ -1230,7 +1279,7 @@ function applyPermissionLocks(){
   $("copyShotBtn").disabled=!currentShot();
   SHOT_FIELDS.forEach(id=>{if($(id))$(id).disabled=shotLocked});
   $("shotNo").readOnly=true;$("shotNo").disabled=false;
-  $("frameImageInput").disabled=mediaLocked;$("chooseImageLabel").classList.toggle("permission-locked",mediaLocked);$("removeImageBtn").disabled=mediaLocked;
+  $("frameImageInput").disabled=mediaLocked;$("chooseImageLabel").classList.toggle("permission-locked",mediaLocked);$("removeImageBtn").disabled=mediaLocked;$("cropShotImageBtn").disabled=mediaLocked||!currentShot()?.image||app.ai.generating;
   $("aiBibleBtn").disabled=app.mode!=="cloud";
   const generateButton=$("generateShotImageBtn"),generationReady=aiShotReady();
   const generationBlocked=mediaLocked||app.mode!=="cloud"||app.ai.generating;
@@ -1286,6 +1335,21 @@ function onSceneChange(){
 function onShotChange(id){
   if(!can("shots")||id==="shotNo")return;const s=currentShot();if(!s)return;s[id]=$(id).value;renderShot();renderSceneList();renderSheet();applyPermissionLocks();queueSave("shot");rememberWorkspace()
 }
+function openPrimarySetting(fieldId){
+  const field=$(fieldId),section=$("frameSection");if(!field||field.disabled)return;
+  section.open=true;
+  // Force the newly-opened details panel to finish layout while the original
+  // tap still owns browser user activation. Without this, some mobile browsers
+  // focus the select on the first tap but refuse to open its native picker.
+  void field.offsetHeight;
+  try{field.focus({preventScroll:true})}catch{field.focus()}
+  let pickerOpened=false;
+  if(typeof field.showPicker==="function"){
+    try{field.showPicker();pickerOpened=true}catch{}
+  }
+  if(!pickerOpened){try{field.click()}catch{}}
+  requestAnimationFrame(()=>field.scrollIntoView({behavior:"auto",block:"center",inline:"nearest"}))
+}
 
 /* ---------- MEDIA COPY HELPERS ---------- */
 async function copyMediaPath(sourcePath,newProjectId,newShotId){
@@ -1296,9 +1360,9 @@ async function copyMediaPath(sourcePath,newProjectId,newShotId){
   if(error){console.warn("Could not copy storyboard image",error);return null}
   return dest
 }
-async function copyAiReferencePath(sourcePath,newProjectId,type,newAssetId){
+async function copyAiReferencePath(sourcePath,newProjectId,type,newAssetId,role="reference"){
   if(app.mode!=="cloud"||!sourcePath)return null;
-  const ext=(String(sourcePath).match(/\.([a-zA-Z0-9]+)$/)||[])[1]||"webp",dest=`${newProjectId}/ai/${aiFolder(type)}/${newAssetId}/${Date.now()}-copy.${ext}`;
+  const ext=(String(sourcePath).match(/\.([a-zA-Z0-9]+)$/)||[])[1]||"webp",dest=`${newProjectId}/ai/${aiFolder(type)}/${newAssetId}/${Date.now()}-${role}-copy.${ext}`;
   const {error}=await sb.storage.from("storyboards").copy(String(sourcePath),dest);if(error){console.warn("Could not copy AI reference",error);return null}return dest
 }
 async function removeMediaPaths(paths){
@@ -1463,15 +1527,16 @@ async function moveShotById(sceneId,shotId,delta){
 }
 async function insertShotCopy(source,afterIndex){
   const sc=currentScene();if(!sc||!source)return;
-  const copy=deepClone(source);copy.id=uid();copy.position=afterIndex+1.5;copy.shotNo=afterIndex+2;
-  if(app.mode==="local"){sc.shots.push(copy);normalizeShotNumbers(sc);app.activeShotId=copy.id;saveLocal();renderEditor();return}
+  const ordered=[...sc.shots].sort((a,b)=>a.position-b.position),insertIndex=Math.max(0,Math.min(ordered.length,Number(afterIndex)+1));
+  const copy=deepClone(source);copy.id=uid();copy.position=ordered.length+1;copy.shotNo=ordered.length+1;
+  if(app.mode==="local"){ordered.splice(insertIndex,0,copy);sc.shots=ordered;normalizeShotNumbers(sc);app.activeShotId=copy.id;saveLocal();renderEditor();return}
   app.suppressRealtime++;
   try{
     const {data:row,error}=await sb.from("shots").insert({project_id:app.current.id,scene_id:sc.id,shot_number:copy.shotNo,position:copy.position,image_path:null,data:shotDbData(copy)}).select().single();if(error)throw error;
     const copied=await copyMediaPath(source.imagePath,app.current.id,row.id);
     if(copied){const {error:u}=await sb.from("shots").update({image_path:copied}).eq("id",row.id);if(u)throw u}
-    await openCloudProject(app.current.id);const target=app.current.scenes.find(x=>x.id===sc.id);
-    if(target){normalizeShotNumbers(target);for(const s of target.shots){const {error:e}=await sb.from("shots").update({shot_number:s.shotNo,position:s.position,data:shotDbData(s)}).eq("id",s.id);if(e)throw e}}
+    await openCloudProject(app.current.id,{sceneId:sc.id,shotId:row.id,preserveSelection:true});const target=app.current.scenes.find(x=>x.id===sc.id);
+    if(target){const currentOrder=[...target.shots].sort((a,b)=>a.position-b.position),newShotIndex=currentOrder.findIndex(x=>x.id===row.id),newShot=currentOrder.splice(newShotIndex,1)[0];currentOrder.splice(insertIndex,0,newShot);target.shots=currentOrder;normalizeShotNumbers(target);for(const s of target.shots){const {error:e}=await sb.from("shots").update({shot_number:s.shotNo,position:s.position,data:shotDbData(s)}).eq("id",s.id);if(e)throw e}}
     await openCloudProject(app.current.id);app.activeSceneId=sc.id;app.activeShotId=row.id;renderEditor()
   }catch(err){uiAlert(`Could not duplicate shot: ${err.message}`)}finally{app.suppressRealtime--}
 }
@@ -1479,10 +1544,18 @@ async function duplicateShot(){
   if(!can("shots"))return;const s=currentShot(),sc=currentScene();if(!s)return;const idx=sc.shots.sort((a,b)=>a.position-b.position).findIndex(x=>x.id===s.id);await insertShotCopy(s,idx)
 }
 function copyShot(){
-  const s=currentShot();if(!s)return;app.shotClipboard=deepClone(s);if(app.mode==="cloud")app.shotClipboard.image=null;$("pasteShotBtn").disabled=!can("shots");setMsg("editorNotice",`Shot ${s.shotNo} copied. Paste inserts a copy after the current shot.`)
+  const s=currentShot();if(!s)return;app.shotClipboard=deepClone(s);if(app.mode==="cloud")app.shotClipboard.image=null;$("pasteShotBtn").disabled=!can("shots");setMsg("editorNotice",`Shot ${s.shotNo} copied. Paste inserts a copy after the current shot.`);renderSceneList()
 }
 async function pasteShot(){
   if(!can("shots")||!app.shotClipboard)return;const sc=currentScene();const s=currentShot();const idx=Math.max(0,sc.shots.sort((a,b)=>a.position-b.position).findIndex(x=>x.id===s?.id));await insertShotCopy(app.shotClipboard,idx)
+}
+function copySelectedShotFromScene(sceneId){
+  const scene=app.current?.scenes.find(item=>item.id===sceneId);if(!scene||!scene.shots.length)return;
+  const selected=scene.shots.find(item=>item.id===app.activeShotId)||[...scene.shots].sort((a,b)=>a.position-b.position)[0];app.activeSceneId=scene.id;app.activeShotId=selected.id;copyShot();renderEditor()
+}
+async function pasteShotIntoScene(sceneId){
+  if(!can("shots")||!app.shotClipboard)return;const scene=app.current?.scenes.find(item=>item.id===sceneId);if(!scene)return;
+  const ordered=[...scene.shots].sort((a,b)=>a.position-b.position),selectedIndex=ordered.findIndex(item=>item.id===app.activeShotId);app.activeSceneId=scene.id;app.activeShotId=selectedIndex>=0?ordered[selectedIndex].id:ordered.at(-1)?.id||null;scene.collapsed=false;await insertShotCopy(app.shotClipboard,selectedIndex>=0?selectedIndex:ordered.length-1)
 }
 async function moveShot(delta){
   const sc=currentScene(),s=currentShot();if(!sc||!s)return;await moveShotById(sc.id,s.id,delta)
@@ -1509,20 +1582,100 @@ function adjacentShot(delta){
 async function loadImage(e){
   const file=e.target.files[0];if(!file||!can("media"))return;const s=currentShot();
   if(app.mode==="local"){
-    const r=new FileReader();r.onload=()=>{s.image=r.result;saveLocal();renderEditor()};r.readAsDataURL(file);e.target.value="";return
+    const r=new FileReader();r.onload=()=>{s.image=r.result;s.aiGeneration=null;saveLocal();renderEditor()};r.readAsDataURL(file);e.target.value="";return
   }
   if(!/^image\/(jpeg|png|webp)$/.test(file.type)||file.size>12*1024*1024){e.target.value="";return uiAlert("Use a JPEG, PNG or WebP image up to 12 MB.")}
   try{
-    const optimized=await optimizeImageBlob(file,1024,.82),format=optimizedImageFormat(optimized),path=`${app.current.id}/${s.id}/${Date.now()}-manual.${format.extension}`,oldPath=s.imagePath;
+    const optimized=await optimizeImageBlob(file,1024,.82),format=optimizedImageFormat(optimized),path=`${app.current.id}/${s.id}/${Date.now()}-manual.${format.extension}`,oldPath=s.imagePath;s.aiGeneration=null;
     const {error}=await sb.storage.from("storyboards").upload(path,optimized,{upsert:false,contentType:format.type,cacheControl:"31536000"});if(error)throw error;
     const {error:u}=await sb.from("shots").update({image_path:path}).eq("id",s.id);if(u){await removeMediaPaths([path]);throw u}
-    s.imagePath=path;const {data}=await sb.storage.from("storyboards").createSignedUrl(path,SIGNED_IMAGE_TTL_SECONDS);s.image=data?.signedUrl||URL.createObjectURL(optimized);await removeMediaPaths([oldPath]);renderEditor()
+    s.imagePath=path;const {data}=await sb.storage.from("storyboards").createSignedUrl(path,SIGNED_IMAGE_TTL_SECONDS);s.image=data?.signedUrl||URL.createObjectURL(optimized);await removeMediaPaths([oldPath]);await saveCloud("shot");renderEditor()
   }catch(err){uiAlert(err.message||"Could not save image.")}finally{e.target.value=""}
 }
 async function removeImage(){
   if(!can("media"))return;const s=currentShot();
   if(app.mode==="cloud"&&s.imagePath){await sb.storage.from("storyboards").remove([s.imagePath]);await sb.from("shots").update({image_path:null}).eq("id",s.id)}
-  s.image=null;s.imagePath=null;if(app.mode==="local")saveLocal();renderEditor();rememberWorkspace()
+  s.image=null;s.imagePath=null;s.aiGeneration=null;if(app.mode==="local")saveLocal();else await saveCloud("shot");renderEditor();rememberWorkspace()
+}
+
+function shotById(id){return allShots().find(item=>item.shot.id===id)?.shot||null}
+function shotImageTarget(shot){
+  if(!shot?.image)return null;const scene=app.current?.scenes.find(item=>item.shots.some(candidate=>candidate.id===shot.id));
+  return {kind:"shot",id:shot.id,url:shot.image,title:`Shot ${shot.shotNo}`,caption:`${scene?.title||`Scene ${scene?.number||""}`} · ${projectAspectText(app.current)}`,maxDimension:1024}
+}
+function aiAssetImageTarget(asset,type,role="reference"){
+  const source=role==="source",url=source?asset?.sourceUrl:asset?.referenceUrl;if(!url)return null;
+  return {kind:source?"asset-source":"asset-reference",id:asset.id,type,url,title:asset.name||uiText(type),caption:source?`${asset.name} · Source image used to guide AI generation`:`${asset.name} · ${type} reference`,maxDimension:496,aspect:type==="character"?{w:3,h:4}:{w:4,h:3}}
+}
+function canCropImageTarget(target){return !!(target?.url&&can("media")&&!app.ai.generating&&(target.kind==="shot"||target.kind==="asset-reference"||target.kind==="asset-source"))}
+function openImageViewer(target){
+  if(!target?.url)return;imageViewerTarget=target;$("imageViewerTitle").textContent=target.title||"Image Preview";$("imageViewerCaption").textContent=target.caption||"";$("imageViewerImage").src=target.url;
+  $("openCropFromViewerBtn").hidden=!canCropImageTarget(target);const dialog=$("imageViewerModal");if(!dialog.open)dialog.showModal()
+}
+function closeImageViewer(){const dialog=$("imageViewerModal");if(dialog.open)dialog.close();$("imageViewerImage").removeAttribute("src");imageViewerTarget=null}
+function openCurrentShotImage(){const target=shotImageTarget(currentShot());if(target)openImageViewer(target)}
+function cropOutputSize(target){
+  const aspect=target?.aspect||aspectNumbers(app.current),ratio=Math.max(.02,Math.min(50,aspect.w/aspect.h)),max=Math.max(128,Number(target?.maxDimension)||1024);
+  return ratio>=1?{width:max,height:Math.max(1,Math.round(max/ratio))}:{width:Math.max(1,Math.round(max*ratio)),height:max}
+}
+function clearCropDrawable(){try{cropState.cleanup?.()}catch{}cropState.drawable=null;cropState.cleanup=null;cropState.width=0;cropState.height=0;cropState.dragging=false;cropState.pointerId=null}
+async function decodeCropDrawable(blob){
+  if(typeof createImageBitmap==="function"){
+    try{const bitmap=await createImageBitmap(blob);return {drawable:bitmap,width:bitmap.width,height:bitmap.height,cleanup:()=>bitmap.close?.()}}catch{}
+  }
+  const url=URL.createObjectURL(blob),image=await new Promise((resolve,reject)=>{const node=new Image();node.onload=()=>resolve(node);node.onerror=()=>reject(new Error("Could not read image."));node.src=url});
+  return {drawable:image,width:image.naturalWidth,height:image.naturalHeight,cleanup:()=>URL.revokeObjectURL(url)}
+}
+function clampCropOffset(){
+  const canvas=$("cropCanvas");if(!cropState.drawable||!canvas.width||!canvas.height)return;
+  const scale=Math.max(canvas.width/cropState.width,canvas.height/cropState.height)*cropState.zoom,maxX=Math.max(0,(cropState.width*scale-canvas.width)/2),maxY=Math.max(0,(cropState.height*scale-canvas.height)/2);
+  cropState.offsetX=Math.max(-maxX,Math.min(maxX,cropState.offsetX));cropState.offsetY=Math.max(-maxY,Math.min(maxY,cropState.offsetY))
+}
+function drawCropCanvas(){
+  const canvas=$("cropCanvas"),context=canvas.getContext("2d");if(!context||!cropState.drawable)return;
+  clampCropOffset();const scale=Math.max(canvas.width/cropState.width,canvas.height/cropState.height)*cropState.zoom,drawWidth=cropState.width*scale,drawHeight=cropState.height*scale,x=(canvas.width-drawWidth)/2+cropState.offsetX,y=(canvas.height-drawHeight)/2+cropState.offsetY;
+  context.clearRect(0,0,canvas.width,canvas.height);context.fillStyle="#050607";context.fillRect(0,0,canvas.width,canvas.height);context.drawImage(cropState.drawable,x,y,drawWidth,drawHeight)
+}
+function resetCrop(){cropState.zoom=1;cropState.offsetX=0;cropState.offsetY=0;$("cropZoom").value="100";$("cropZoomValue").value="100%";drawCropCanvas()}
+function updateCropZoom(){cropState.zoom=Math.max(1,Number($("cropZoom").value||100)/100);$("cropZoomValue").value=`${Math.round(cropState.zoom*100)}%`;drawCropCanvas()}
+async function openCropEditor(target){
+  if(!canCropImageTarget(target))return;imageViewerTarget=null;if($("imageViewerModal").open)$("imageViewerModal").close();clearCropDrawable();cropState.target=target;cropState.saving=false;
+  $("imageCropTitle").textContent=`Crop · ${target.title||"Image"}`;$("cropLoading").hidden=false;$("cropCanvas").hidden=true;$("saveCropBtn").disabled=true;setMsg("cropNotice","");resetCrop();const dialog=$("imageCropModal");if(!dialog.open)dialog.showModal();
+  try{
+    const response=await fetch(target.url,{cache:"no-store"});if(!response.ok)throw new Error("Could not load the image for cropping.");const decoded=await decodeCropDrawable(await response.blob());
+    cropState.drawable=decoded.drawable;cropState.cleanup=decoded.cleanup;cropState.width=decoded.width;cropState.height=decoded.height;const size=cropOutputSize(target),canvas=$("cropCanvas");canvas.width=size.width;canvas.height=size.height;resetCrop();canvas.hidden=false;$("cropLoading").hidden=true;$("saveCropBtn").disabled=false
+  }catch(error){$("cropLoading").hidden=true;setMsg("cropNotice",error.message||"Could not open the crop editor.","warning")}
+}
+function closeCropEditor(){if(cropState.saving)return;const dialog=$("imageCropModal");if(dialog.open)dialog.close()}
+function cropPointerDown(event){
+  if(!cropState.drawable||cropState.saving)return;const canvas=$("cropCanvas");cropState.dragging=true;cropState.pointerId=event.pointerId;cropState.startX=event.clientX;cropState.startY=event.clientY;cropState.startOffsetX=cropState.offsetX;cropState.startOffsetY=cropState.offsetY;canvas.classList.add("dragging");canvas.setPointerCapture?.(event.pointerId)
+}
+function cropPointerMove(event){
+  if(!cropState.dragging||event.pointerId!==cropState.pointerId)return;const canvas=$("cropCanvas"),rect=canvas.getBoundingClientRect();cropState.offsetX=cropState.startOffsetX+(event.clientX-cropState.startX)*(canvas.width/Math.max(1,rect.width));cropState.offsetY=cropState.startOffsetY+(event.clientY-cropState.startY)*(canvas.height/Math.max(1,rect.height));drawCropCanvas()
+}
+function cropPointerEnd(event){if(event.pointerId!==cropState.pointerId)return;cropState.dragging=false;cropState.pointerId=null;$("cropCanvas").classList.remove("dragging")}
+function cropCanvasBlob(){return new Promise((resolve,reject)=>$("cropCanvas").toBlob(blob=>blob?resolve(blob):reject(new Error("Could not create the cropped image.")),"image/webp",.9))}
+function blobToDataUrl(blob){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(reader.error||new Error("Could not save image."));reader.readAsDataURL(blob)})}
+async function saveCroppedShot(target,blob){
+  const shot=shotById(target.id);if(!shot)throw new Error("Shot not found.");
+  if(app.mode==="local"){shot.image=await blobToDataUrl(blob);saveLocal();renderEditor();return}
+  const format=optimizedImageFormat(blob),path=`${app.current.id}/${shot.id}/${Date.now()}-crop.${format.extension}`,oldPath=shot.imagePath;
+  const {error:uploadError}=await sb.storage.from("storyboards").upload(path,blob,{upsert:false,contentType:format.type,cacheControl:"31536000"});if(uploadError)throw uploadError;
+  const {error:updateError}=await sb.from("shots").update({image_path:path}).eq("id",shot.id).eq("project_id",app.current.id);if(updateError){await removeMediaPaths([path]);throw updateError}
+  shot.imagePath=path;const {data:signed}=await sb.storage.from("storyboards").createSignedUrl(path,SIGNED_IMAGE_TTL_SECONDS);shot.image=signed?.signedUrl||URL.createObjectURL(blob);await removeMediaPaths([oldPath]);renderEditor();rememberWorkspace()
+}
+async function saveCroppedAiAsset(target,blob){
+  const asset=aiCollection(target.type).find(item=>item.id===target.id);if(!asset)throw new Error("Visual Bible item not found.");const source=target.kind==="asset-source",format=optimizedImageFormat(blob),role=source?"source":"reference",path=`${app.current.id}/ai/${aiFolder(target.type)}/${asset.id}/${Date.now()}-${role}-crop.${format.extension}`,oldPath=source?asset.source_path:asset.reference_path,oldUrl=source?asset.sourceUrl:asset.referenceUrl;
+  const {error:uploadError}=await sb.storage.from("storyboards").upload(path,blob,{upsert:false,contentType:format.type,cacheControl:"31536000"});if(uploadError)throw uploadError;
+  const changes=source?{source_path:path,updated_at:new Date().toISOString()}:{reference_path:path,style_snapshot:null,locked:false,updated_at:new Date().toISOString()};const {error:updateError}=await sb.from(aiTable(target.type)).update(changes).eq("id",asset.id).eq("project_id",app.current.id);if(updateError){await removeMediaPaths([path]);throw updateError}
+  if(source){asset.source_path=path;asset.sourceUrl=null}else{asset.reference_path=path;asset.referenceUrl=null;asset.style_snapshot=null;asset.locked=false}
+  await signAiAsset(asset);if(source&&!asset.sourceUrl)asset.sourceUrl=URL.createObjectURL(blob);if(!source&&!asset.referenceUrl)asset.referenceUrl=URL.createObjectURL(blob);if(String(oldUrl||"").startsWith("blob:"))URL.revokeObjectURL(oldUrl);await removeMediaPaths([oldPath]);renderAiVisualBible();renderShot();applyPermissionLocks()
+}
+async function saveCrop(){
+  if(cropState.saving||!cropState.drawable||!cropState.target)return;cropState.saving=true;$("saveCropBtn").disabled=true;$("cancelCropBtn").disabled=true;$("closeImageCropBtn").disabled=true;setMsg("cropNotice","Saving crop…");
+  try{const blob=await cropCanvasBlob(),target=cropState.target;if(target.kind==="shot")await saveCroppedShot(target,blob);else await saveCroppedAiAsset(target,blob);setMsg("editorNotice","Image cropped and saved.");$("imageCropModal").close()}
+  catch(error){setMsg("cropNotice",error.message||"Could not save the cropped image.","warning")}
+  finally{cropState.saving=false;$("saveCropBtn").disabled=!cropState.drawable;$("cancelCropBtn").disabled=false;$("closeImageCropBtn").disabled=false}
 }
 
 /* ---------- AI VISUAL BIBLE + STORYBOARD GENERATION ---------- */
@@ -1567,12 +1720,17 @@ async function loadAiUsage(){
 }
 function normalizeAiAsset(row,type,previous=null){
   const sameReference=!!(previous&&previous.reference_path===row.reference_path);
-  return {...row,type,locked:!!row.locked,referenceUrl:sameReference?previous.referenceUrl:null,generationStatus:previous?.generationStatus||"",generationStatusKind:previous?.generationStatusKind||""}
+  const sameSource=!!(previous&&previous.source_path===row.source_path);
+  return {...row,source_path:row.source_path||null,type,locked:!!row.locked,referenceUrl:sameReference?previous.referenceUrl:null,sourceUrl:sameSource?previous.sourceUrl:null,generationStatus:previous?.generationStatus||"",generationStatusKind:previous?.generationStatusKind||""}
 }
 async function signAiAsset(asset){
-  if(!asset?.reference_path)return asset;const previousUrl=asset.referenceUrl;
-  const {data,error}=await sb.storage.from("storyboards").createSignedUrl(asset.reference_path,SIGNED_IMAGE_TTL_SECONDS);
-  if(!error&&data?.signedUrl)asset.referenceUrl=data.signedUrl;else asset.referenceUrl=previousUrl||null;
+  if(!asset)return asset;
+  const jobs=[];
+  if(asset.reference_path)jobs.push((async()=>{const previous=asset.referenceUrl,{data,error}=await sb.storage.from("storyboards").createSignedUrl(asset.reference_path,SIGNED_IMAGE_TTL_SECONDS);asset.referenceUrl=!error&&data?.signedUrl?data.signedUrl:previous||null})());
+  else asset.referenceUrl=null;
+  if(asset.source_path)jobs.push((async()=>{const previous=asset.sourceUrl,{data,error}=await sb.storage.from("storyboards").createSignedUrl(asset.source_path,SIGNED_IMAGE_TTL_SECONDS);asset.sourceUrl=!error&&data?.signedUrl?data.signedUrl:previous||null})());
+  else asset.sourceUrl=null;
+  await Promise.all(jobs);
   return asset
 }
 async function loadAiVisualBible(projectId=app.current?.id){
@@ -1580,10 +1738,18 @@ async function loadAiVisualBible(projectId=app.current?.id){
   app.ai.characters=[];app.ai.locations=[];app.ai.ready=false;
   if(app.mode!=="cloud"||!sb||!projectId)return;
   app.ai.loading=true;
-  const [characters,locations]=await Promise.all([
-    sb.from("project_ai_characters").select("id,project_id,name,description,reference_path,style_snapshot,locked,created_at,updated_at").eq("project_id",projectId).order("created_at"),
-    sb.from("project_ai_locations").select("id,project_id,name,description,reference_path,style_snapshot,locked,created_at,updated_at").eq("project_id",projectId).order("created_at")
+  const modernColumns="id,project_id,name,description,reference_path,source_path,style_snapshot,locked,created_at,updated_at",legacyColumns="id,project_id,name,description,reference_path,style_snapshot,locked,created_at,updated_at";
+  let [characters,locations]=await Promise.all([
+    sb.from("project_ai_characters").select(modernColumns).eq("project_id",projectId).order("created_at"),
+    sb.from("project_ai_locations").select(modernColumns).eq("project_id",projectId).order("created_at")
   ]);
+  const sourceColumnMissing=[characters.error,locations.error].some(error=>/source_path/i.test(String(error?.message||"")));
+  if(sourceColumnMissing){
+    [characters,locations]=await Promise.all([
+      sb.from("project_ai_characters").select(legacyColumns).eq("project_id",projectId).order("created_at"),
+      sb.from("project_ai_locations").select(legacyColumns).eq("project_id",projectId).order("created_at")
+    ]);app.ai.sourceReady=false
+  }else app.ai.sourceReady=true;
   app.ai.loading=false;
   if(characters.error||locations.error){
     console.warn("AI Visual Bible is unavailable",characters.error||locations.error);
@@ -1595,30 +1761,43 @@ async function loadAiVisualBible(projectId=app.current?.id){
   app.ai.ready=true;
   // A Realtime refresh can happen while the Visual Bible dialog is open.
   // Restore any missing signed previews before that dialog is rendered again.
-  if($("aiBibleModal")?.open)await Promise.all([...app.ai.characters,...app.ai.locations].filter(x=>x.reference_path&&!x.referenceUrl).map(signAiAsset))
+  if($("aiBibleModal")?.open)await Promise.all([...app.ai.characters,...app.ai.locations].filter(x=>(x.reference_path&&!x.referenceUrl)||(x.source_path&&!x.sourceUrl)).map(signAiAsset))
 }
 async function openAiVisualBible(){
   if(app.mode!=="cloud")return uiAlert("AI generation is available for signed-in cloud projects.");
   if(app.ai.ready&&!app.ai.generating)setMsg("aiBibleNotice","");
   renderAiVisualBible();$("aiBibleModal").showModal();
-  await Promise.all([...app.ai.characters,...app.ai.locations].filter(x=>x.reference_path&&!x.referenceUrl).map(signAiAsset));renderAiVisualBible()
+  await Promise.all([...app.ai.characters,...app.ai.locations].filter(x=>(x.reference_path&&!x.referenceUrl)||(x.source_path&&!x.sourceUrl)).map(signAiAsset));renderAiVisualBible()
 }
 function aiAssetCard(asset,type){
-  const editable=can("media"),locked=!!asset.locked,styleMatches=!locked||asset.style_snapshot===app.current.style,hasReference=!!asset.reference_path,generatingThis=app.ai.generating&&app.ai.generatingAssetId===asset.id;
+  const editable=can("media"),locked=!!asset.locked,styleMatches=!locked||asset.style_snapshot===app.current.style,hasReference=!!asset.reference_path,hasSource=!!asset.source_path,generatingThis=app.ai.generating&&app.ai.generatingAssetId===asset.id;
+  const generateLabel=generatingThis?"Generating…":hasSource?(hasReference?"Regenerate from Source":"Generate from Source"):(hasReference?"Regenerate":"Generate Reference");
   const card=document.createElement("article");card.className="ai-asset-card"+(locked?" is-locked":"");card.dataset.assetId=asset.id;card.dataset.assetType=type;
   card.innerHTML=`
     <div class="ai-asset-preview">
-      ${asset.referenceUrl?`<img src="${escapeHtml(asset.referenceUrl)}" alt="${escapeHtml(asset.name)} reference" loading="lazy">`:'<span>◇</span>'}
+      ${asset.referenceUrl?`<button type="button" class="ai-asset-image-open" aria-label="Open ${escapeHtml(asset.name)} reference"><img src="${escapeHtml(asset.referenceUrl)}" alt="${escapeHtml(asset.name)} reference" loading="lazy"></button>`:'<span>◇</span>'}
       ${locked?`<span class="ai-lock-badge">${styleMatches?"LOCKED":"STYLE CHANGED"}</span>`:""}
     </div>
     <div class="ai-asset-fields">
       <input class="ai-asset-name" value="${escapeHtml(asset.name||"")}" maxlength="80" aria-label="Name" ${!editable||locked?"disabled":""}>
       <textarea class="ai-asset-description" maxlength="1400" aria-label="Stable visual description" ${!editable||locked?"disabled":""}>${escapeHtml(asset.description||"")}</textarea>
       <div class="ai-asset-actions">
-        <button type="button" class="generate${generatingThis?" is-generating":""}" ${!editable||locked||app.ai.generating?"disabled":""}>${generatingThis?"Generating…":hasReference?"Regenerate":"Generate Reference"}</button>
-        <label class="ai-upload-label ${!editable||locked?"disabled":""}">Upload<input class="ai-reference-input" type="file" accept="image/jpeg,image/png,image/webp" hidden ${!editable||locked?"disabled":""}></label>
+        <button type="button" class="generate${generatingThis?" is-generating":""}" ${!editable||locked||app.ai.generating?"disabled":""}>${generateLabel}</button>
+        <label class="ai-upload-label ${!editable||locked||app.ai.generating?"disabled":""}" title="Upload a finished reference directly">Upload Final<input class="ai-reference-input" type="file" accept="image/jpeg,image/png,image/webp" hidden ${!editable||locked||app.ai.generating?"disabled":""}></label>
+        ${hasReference?`<button type="button" class="crop-reference" ${!editable||app.ai.generating?"disabled":""}>Crop</button>`:""}
         <button type="button" class="lock" ${!editable||(!hasReference&&!locked)?"disabled":""}>${locked?"Unlock":"Lock"}</button>
         <button type="button" class="delete" ${!editable?"disabled":""}>Delete</button>
+      </div>
+      <div class="ai-source-panel${hasSource?" has-source":""}">
+        ${hasSource&&asset.sourceUrl?`<button type="button" class="ai-source-preview has-image" aria-label="Open ${escapeHtml(asset.name)} source image"><img src="${escapeHtml(asset.sourceUrl)}" alt="${escapeHtml(asset.name)} source" loading="lazy"></button>`:`<span class="ai-source-preview" aria-hidden="true">＋</span>`}
+        <div class="ai-source-copy">
+          <strong>Source Image</strong>
+          <small>${app.ai.sourceReady?"Optional identity or location image used to guide Generate. Upload Final above replaces the finished reference directly.":"Run the v4.4 SQL once to enable Source Image."}</small>
+          <div class="ai-source-actions">
+            <label class="ai-upload-label ${!editable||!app.ai.sourceReady||app.ai.generating?"disabled":""}">${hasSource?"Replace Source":"Add Source"}<input class="ai-source-input" type="file" accept="image/jpeg,image/png,image/webp" hidden ${!editable||!app.ai.sourceReady||app.ai.generating?"disabled":""}></label>
+            ${hasSource?`<button type="button" class="crop-source" ${!editable||app.ai.generating?"disabled":""}>Crop</button><button type="button" class="remove-source" ${!editable||app.ai.generating?"disabled":""}>Remove Source</button>`:""}
+          </div>
+        </div>
       </div>
       <div class="ai-asset-status${asset.generationStatusKind?` ${escapeHtml(asset.generationStatusKind)}`:""}" role="status" aria-live="polite" ${asset.generationStatus?"":"hidden"}>${escapeHtml(asset.generationStatus||"")}</div>
     </div>`;
@@ -1626,6 +1805,12 @@ function aiAssetCard(asset,type){
   [name,description].forEach(el=>el.addEventListener("change",()=>updateAiAssetText(type,asset.id,name.value,description.value)));
   card.querySelector(".generate").onclick=()=>generateAiReference(type,asset.id);
   card.querySelector(".ai-reference-input").onchange=e=>uploadAiReference(type,asset.id,e);
+  card.querySelector(".ai-source-input").onchange=e=>uploadAiSource(type,asset.id,e);
+  card.querySelector(".ai-asset-image-open")?.addEventListener("click",()=>openImageViewer(aiAssetImageTarget(asset,type,"reference")));
+  card.querySelector(".ai-source-preview.has-image")?.addEventListener("click",()=>openImageViewer(aiAssetImageTarget(asset,type,"source")));
+  card.querySelector(".crop-reference")?.addEventListener("click",()=>openCropEditor(aiAssetImageTarget(asset,type,"reference")));
+  card.querySelector(".crop-source")?.addEventListener("click",()=>openCropEditor(aiAssetImageTarget(asset,type,"source")));
+  card.querySelector(".remove-source")?.addEventListener("click",()=>removeAiSource(type,asset.id));
   card.querySelector(".lock").onclick=()=>toggleAiAssetLock(type,asset.id);
   card.querySelector(".delete").onclick=()=>deleteAiAsset(type,asset.id);
   return card
@@ -1671,7 +1856,7 @@ async function toggleAiAssetLock(type,id){
 async function deleteAiAsset(type,id){
   const asset=aiCollection(type).find(x=>x.id===id);if(!asset||!can("media")||!uiConfirm(`Delete ${asset.name} from the AI Visual Bible?`))return;
   const {error}=await sb.from(aiTable(type)).delete().eq("id",id).eq("project_id",app.current.id);if(error)return setMsg("aiBibleNotice",error.message,"warning");
-  await removeMediaPaths([asset.reference_path]);app.ai[type==="character"?"characters":"locations"]=aiCollection(type).filter(x=>x.id!==id);
+  await removeMediaPaths([asset.reference_path,asset.source_path]);app.ai[type==="character"?"characters":"locations"]=aiCollection(type).filter(x=>x.id!==id);
   for(const {shot} of allShots()){
     if(type==="character")shot.aiCharacterIds=(shot.aiCharacterIds||[]).filter(x=>x!==id);
     else if(shot.aiLocationId===id)shot.aiLocationId=""
@@ -1703,9 +1888,9 @@ function optimizedImageFormat(blob){
   const type=["image/webp","image/png","image/jpeg"].includes(blob?.type)?blob.type:"image/webp";
   return {type,extension:type==="image/png"?"png":type==="image/jpeg"?"jpg":"webp"}
 }
-async function storeAiReference(type,asset,sourceBlob){
+async function storeAiReference(type,asset,sourceBlob,origin="ai"){
   // FLUX.2 Klein requires every reference input to be smaller than 512×512.
-  const optimized=await optimizeImageBlob(sourceBlob,496,.84),format=optimizedImageFormat(optimized),path=`${app.current.id}/ai/${aiFolder(type)}/${asset.id}/${Date.now()}.${format.extension}`,oldPath=asset.reference_path,oldUrl=asset.referenceUrl;
+  const optimized=await optimizeImageBlob(sourceBlob,496,.84),format=optimizedImageFormat(optimized),path=`${app.current.id}/ai/${aiFolder(type)}/${asset.id}/${Date.now()}-${origin==="manual"?"manual":"ai"}.${format.extension}`,oldPath=asset.reference_path,oldUrl=asset.referenceUrl;
   const {error:uploadError}=await sb.storage.from("storyboards").upload(path,optimized,{upsert:false,contentType:format.type,cacheControl:"31536000"});if(uploadError)throw uploadError;
   const {error:updateError}=await sb.from(aiTable(type)).update({reference_path:path,style_snapshot:null,locked:false,updated_at:new Date().toISOString()}).eq("id",asset.id).eq("project_id",app.current.id);
   if(updateError){await removeMediaPaths([path]);throw updateError}
@@ -1714,7 +1899,26 @@ async function storeAiReference(type,asset,sourceBlob){
 async function uploadAiReference(type,id,event){
   const file=event.target.files?.[0],asset=aiCollection(type).find(x=>x.id===id);event.target.value="";if(!file||!asset||asset.locked||!can("media"))return;
   if(!/^image\/(jpeg|png|webp)$/.test(file.type)||file.size>12*1024*1024)return setMsg("aiBibleNotice","Use a JPEG, PNG or WebP image up to 12 MB.","warning");
-  try{setMsg("aiBibleNotice",`Optimizing and saving ${asset.name}…`);await storeAiReference(type,asset,file);setMsg("aiBibleNotice",`${asset.name} reference saved. Review it, then lock it.`);renderAiVisualBible();renderShot()}catch(err){setMsg("aiBibleNotice",err.message||"Could not save reference.","warning")}
+  try{setMsg("aiBibleNotice",`Optimizing and saving ${asset.name}…`);await storeAiReference(type,asset,file,"manual");setMsg("aiBibleNotice",`${asset.name} reference saved. Review it, then lock it.`);renderAiVisualBible();renderShot()}catch(err){setMsg("aiBibleNotice",err.message||"Could not save reference.","warning")}
+}
+async function uploadAiSource(type,id,event){
+  const file=event.target.files?.[0],asset=aiCollection(type).find(x=>x.id===id);event.target.value="";if(!file||!asset||!app.ai.sourceReady||!can("media")||app.ai.generating)return;
+  if(!/^image\/(jpeg|png|webp)$/.test(file.type)||file.size>12*1024*1024)return setMsg("aiBibleNotice","Use a JPEG, PNG or WebP image up to 12 MB.","warning");
+  const oldPath=asset.source_path,oldUrl=asset.sourceUrl;
+  try{
+    setMsg("aiBibleNotice",`Optimizing and saving source image for ${asset.name}…`);
+    const optimized=await optimizeImageBlob(file,496,.86),format=optimizedImageFormat(optimized),path=`${app.current.id}/ai/${aiFolder(type)}/${asset.id}/${Date.now()}-source.${format.extension}`;
+    const {error:uploadError}=await sb.storage.from("storyboards").upload(path,optimized,{upsert:false,contentType:format.type,cacheControl:"31536000"});if(uploadError)throw uploadError;
+    const {error:updateError}=await sb.from(aiTable(type)).update({source_path:path,updated_at:new Date().toISOString()}).eq("id",asset.id).eq("project_id",app.current.id);if(updateError){await removeMediaPaths([path]);throw updateError}
+    asset.source_path=path;asset.sourceUrl=null;await signAiAsset(asset);if(!asset.sourceUrl)asset.sourceUrl=URL.createObjectURL(optimized);if(String(oldUrl||"").startsWith("blob:"))URL.revokeObjectURL(oldUrl);await removeMediaPaths([oldPath]);setMsg("aiBibleNotice",`${asset.name} source image saved. Generate will use it as the primary visual guide.`);renderAiVisualBible()
+  }catch(error){setMsg("aiBibleNotice",error.message||"Could not save source image.","warning")}
+}
+async function removeAiSource(type,id){
+  const asset=aiCollection(type).find(x=>x.id===id);if(!asset?.source_path||!app.ai.sourceReady||!can("media")||app.ai.generating)return;
+  if(!uiConfirm(`Remove the source image for ${asset.name}? The finished reference will stay unchanged.`))return;
+  const oldPath=asset.source_path,oldUrl=asset.sourceUrl,{error}=await sb.from(aiTable(type)).update({source_path:null,updated_at:new Date().toISOString()}).eq("id",asset.id).eq("project_id",app.current.id);
+  if(error)return setMsg("aiBibleNotice",error.message||"Could not remove source image.","warning");
+  asset.source_path=null;asset.sourceUrl=null;if(String(oldUrl||"").startsWith("blob:"))URL.revokeObjectURL(oldUrl);await removeMediaPaths([oldPath]);setMsg("aiBibleNotice",`${asset.name} source image removed.`);renderAiVisualBible()
 }
 function beginAiGeneration(mode,assetId=null){
   app.ai.previousFocus=document.activeElement;app.ai.generating=true;app.ai.generationMode=mode;app.ai.generatingAssetId=assetId;app.ai.cancelRequested=false;app.ai.requestController=null;syncAiGenerationLock();requestAnimationFrame(()=>$('cancelAiGenerationBtn')?.focus())
@@ -1879,6 +2083,7 @@ function renderSheet(){
       const card=document.createElement("div");card.className="sheet-shot";
       const image=shot.image?`<img src="${shot.image}" alt="" loading="lazy" decoding="async">`:`<div class="sheet-placeholder">Storyboard Frame<br>Shot ${shot.shotNo}</div>`;
       card.innerHTML=`<div class="sheet-image" style="aspect-ratio:${ar.w}/${ar.h}">${image}</div><div class="sheet-info"><div class="sheet-scene">Scene ${scene.number} · ${escapeHtml(scene.title||"")}</div><div class="sheet-info-top"><span>SHOT ${shot.shotNo}</span><span>${escapeHtml(shot.duration||"")}</span></div><div class="sheet-meta">${escapeHtml(shortValue(shot.shotSize))} · ${escapeHtml(shot.angle||"")} · ${escapeHtml(shot.lens||"")} · ${escapeHtml(shot.movement||"")}</div><div class="sheet-summary">${escapeHtml(shot.summary||shot.description||"")}</div></div>`;
+      const sheetImage=card.querySelector(".sheet-image img");if(sheetImage){sheetImage.tabIndex=0;sheetImage.setAttribute("role","button");sheetImage.setAttribute("aria-label",`Open Shot ${shot.shotNo} image`);sheetImage.onclick=()=>openImageViewer(shotImageTarget(shot));sheetImage.onkeydown=event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();openImageViewer(shotImageTarget(shot))}}}
       grid.appendChild(card)
     });
     page.appendChild(grid);pages.appendChild(page)
@@ -3394,10 +3599,10 @@ async function deleteProject(id){
     try{
       const [{data:paths},{data:characters},{data:locations}]=await Promise.all([
         sb.from("shots").select("image_path").eq("project_id",id),
-        sb.from("project_ai_characters").select("reference_path").eq("project_id",id),
-        sb.from("project_ai_locations").select("reference_path").eq("project_id",id)
+        sb.from("project_ai_characters").select("reference_path,source_path").eq("project_id",id),
+        sb.from("project_ai_locations").select("reference_path,source_path").eq("project_id",id)
       ]);
-      await removeMediaPaths([...(paths||[]).map(x=>x.image_path),...(characters||[]).map(x=>x.reference_path),...(locations||[]).map(x=>x.reference_path)]);
+      await removeMediaPaths([...(paths||[]).map(x=>x.image_path),...(characters||[]).flatMap(x=>[x.reference_path,x.source_path]),...(locations||[]).flatMap(x=>[x.reference_path,x.source_path])]);
       const rpc=await sb.rpc("delete_own_project",{p_project_id:id});
       if(rpc.error){
         const {data:deleted,error}=await sb.from("projects").delete().eq("id",id).eq("owner_id",app.session.user.id).select("id");
@@ -3432,13 +3637,13 @@ async function duplicateProject(id){
     const characterMap=new Map(),locationMap=new Map();
     for(const sourceAsset of characters||[]){
       const {data:newAsset,error:assetError}=await sb.from("project_ai_characters").insert({project_id:newP.id,name:sourceAsset.name,description:sourceAsset.description||"",locked:false,created_by:app.session.user.id}).select().single();if(assetError)throw assetError;
-      characterMap.set(sourceAsset.id,newAsset.id);const copied=await copyAiReferencePath(sourceAsset.reference_path,newP.id,"character",newAsset.id);
-      if(copied){const {error:updateError}=await sb.from("project_ai_characters").update({reference_path:copied,style_snapshot:sourceAsset.style_snapshot||p.style,locked:!!sourceAsset.locked}).eq("id",newAsset.id);if(updateError)throw updateError}
+      characterMap.set(sourceAsset.id,newAsset.id);const copied=await copyAiReferencePath(sourceAsset.reference_path,newP.id,"character",newAsset.id,"reference"),copiedSource=await copyAiReferencePath(sourceAsset.source_path,newP.id,"character",newAsset.id,"source");
+      if(copied||copiedSource){const {error:updateError}=await sb.from("project_ai_characters").update({reference_path:copied||null,source_path:copiedSource||null,style_snapshot:copied?(sourceAsset.style_snapshot||p.style):null,locked:!!(copied&&sourceAsset.locked)}).eq("id",newAsset.id);if(updateError)throw updateError}
     }
     for(const sourceAsset of locations||[]){
       const {data:newAsset,error:assetError}=await sb.from("project_ai_locations").insert({project_id:newP.id,name:sourceAsset.name,description:sourceAsset.description||"",locked:false,created_by:app.session.user.id}).select().single();if(assetError)throw assetError;
-      locationMap.set(sourceAsset.id,newAsset.id);const copied=await copyAiReferencePath(sourceAsset.reference_path,newP.id,"location",newAsset.id);
-      if(copied){const {error:updateError}=await sb.from("project_ai_locations").update({reference_path:copied,style_snapshot:sourceAsset.style_snapshot||p.style,locked:!!sourceAsset.locked}).eq("id",newAsset.id);if(updateError)throw updateError}
+      locationMap.set(sourceAsset.id,newAsset.id);const copied=await copyAiReferencePath(sourceAsset.reference_path,newP.id,"location",newAsset.id,"reference"),copiedSource=await copyAiReferencePath(sourceAsset.source_path,newP.id,"location",newAsset.id,"source");
+      if(copied||copiedSource){const {error:updateError}=await sb.from("project_ai_locations").update({reference_path:copied||null,source_path:copiedSource||null,style_snapshot:copied?(sourceAsset.style_snapshot||p.style):null,locked:!!(copied&&sourceAsset.locked)}).eq("id",newAsset.id);if(updateError)throw updateError}
     }
     for(const [si,sc] of (scenes||[]).entries()){
       const {data:newSc,error:sce}=await sb.from("scenes").insert({project_id:newP.id,scene_number:si+1,title:sc.title,description:sc.description||"",position:si+1,collapsed:false}).select().single();if(sce)throw sce;
@@ -3480,6 +3685,7 @@ function bind(){
   $("mobileShotBtn").onclick=()=>setMobileEditorScreen("shot");
   $("loginTabBtn").onclick=()=>toggleAuthTab("login");$("signupTabBtn").onclick=()=>toggleAuthTab("signup");$("loginEmailMode").onclick=()=>setLoginKind("email");$("loginUsernameMode").onclick=()=>setLoginKind("username");
   $("loginForm").onsubmit=doLogin;$("signupForm").onsubmit=doSignup;$("passwordRecoveryForm").onsubmit=updateRecoveredPassword;$("cancelPasswordRecoveryBtn").onclick=cancelPasswordRecovery;$("forgotPasswordBtn").onclick=forgotPassword;$("continueOfflineBtn").onclick=continueOffline;
+  ["signupPassword","recoveryPassword","recoveryPasswordConfirm"].forEach(id=>{const field=$(id);field.addEventListener("input",()=>updatePasswordFieldValidity(field));field.addEventListener("invalid",()=>updatePasswordFieldValidity(field,true))});
   $("logoutBtn").onclick=logout;$("newCloudProjectBtn").onclick=createCloudProject;$("emptyNewProjectBtn").onclick=createCloudProject;
   $("accountBtn").onclick=openAccount;$("closeAccountBtn").onclick=()=>$("accountModal").close();$("accountProfileForm").onsubmit=saveAccountProfile;$("accountLanguageSelect").onchange=e=>window.storyboardI18n?.setLanguage(e.target.value);$("accountLayoutSelect").onchange=e=>applyLayoutPreference(e.target.value);
   $("adminCenterBtn").onclick=openAdminCenter;$("backFromAdminBtn").onclick=async()=>{rememberProjectsView();await loadCloudProjects();showProjects()};
@@ -3496,9 +3702,17 @@ function bind(){
   ["sceneTitle","sceneDescription"].forEach(id=>{["input","change"].forEach(ev=>$(id).addEventListener(ev,onSceneChange))});
   SHOT_FIELDS.filter(id=>id!=="shotNo").forEach(id=>{if($(id))["input","change"].forEach(ev=>$(id).addEventListener(ev,()=>onShotChange(id)))});
   $("addSceneBtn").onclick=addScene;$("deleteSceneBtn").onclick=()=>deleteScene();$("collapseAllScenesBtn").onclick=()=>deleteScene();$("expandAllScenesBtn").onclick=toggleAllScenes;
-  $("addShotBtn").onclick=async()=>{await addShot();if(isMobileEditor())setMobileEditorScreen("shot")};$("duplicateShotBtn").onclick=duplicateShot;$("copyShotBtn").onclick=copyShot;$("pasteShotBtn").onclick=pasteShot;$("moveShotUpBtn").onclick=()=>moveShot(-1);$("moveShotDownBtn").onclick=()=>moveShot(1);$("deleteShotBtn").onclick=deleteShot;
+  $("addShotBtn").onclick=async()=>{await addShot();if(isMobileEditor())setMobileEditorScreen("shot")};$("duplicateShotBtn").onclick=duplicateShot;$("copyShotBtn").onclick=copyShot;$("pasteShotBtn").onclick=pasteShot;$("deleteShotBtn").onclick=deleteShot;
   $("prevShotBtn").onclick=()=>adjacentShot(-1);$("nextShotBtn").onclick=()=>adjacentShot(1);
   $("frameImageInput").onchange=loadImage;$("removeImageBtn").onclick=removeImage;
+  $("frameImage").onclick=openCurrentShotImage;$("frameImage").onkeydown=event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();openCurrentShotImage()}};
+  $("cropShotImageBtn").onclick=()=>{const target=shotImageTarget(currentShot());if(target)openCropEditor(target)};
+  $("closeImageViewerBtn").onclick=closeImageViewer;$("doneImageViewerBtn").onclick=closeImageViewer;$("imageViewerModal").addEventListener("cancel",event=>{event.preventDefault();closeImageViewer()});
+  $("openCropFromViewerBtn").onclick=()=>{const target=imageViewerTarget;if(target)openCropEditor(target)};
+  $("closeImageCropBtn").onclick=closeCropEditor;$("cancelCropBtn").onclick=closeCropEditor;$("resetCropBtn").onclick=resetCrop;$("saveCropBtn").onclick=saveCrop;$("cropZoom").oninput=updateCropZoom;
+  $("cropCanvas").addEventListener("pointerdown",cropPointerDown);$("cropCanvas").addEventListener("pointermove",cropPointerMove);$("cropCanvas").addEventListener("pointerup",cropPointerEnd);$("cropCanvas").addEventListener("pointercancel",cropPointerEnd);
+  $("cropCanvas").addEventListener("wheel",event=>{if(!cropState.drawable||cropState.saving)return;event.preventDefault();const zoom=$("cropZoom"),next=Math.max(Number(zoom.min),Math.min(Number(zoom.max),Number(zoom.value)+(event.deltaY<0?5:-5)));zoom.value=String(next);updateCropZoom()},{passive:false});
+  $("imageCropModal").addEventListener("cancel",event=>{event.preventDefault();closeCropEditor()});$("imageCropModal").addEventListener("close",()=>{clearCropDrawable();cropState.target=null;cropState.saving=false;$("cropCanvas").hidden=true;$("cropLoading").hidden=true;setMsg("cropNotice","")});
 
   // Lighting Studio v3.8
   $("openLightingDiagramBtn").onclick=()=>openLightingWorkspace();
@@ -3557,7 +3771,7 @@ function bind(){
 
   $("sheetToggleBtn").onclick=()=>isMobileEditor()?setMobileEditorScreen("sheet"):toggleSheet();$("mobileSheetBtn").onclick=()=>setMobileEditorScreen("sheet");$("closeSheetBtn").onclick=()=>isMobileEditor()?setMobileEditorScreen("shot"):toggleSheet(false);$("shotsPerPage").onchange=renderSheet;$("printSheetBtn").onclick=()=>window.print();
   $("exportBtn").onclick=exportJSON;$("importInput").onchange=e=>{const f=e.target.files[0];if(f)importJSONOnline(f).catch(err=>uiAlert(err.message||"Import failed."));e.target.value="";};
-  document.querySelectorAll("[data-focus]").forEach(b=>b.onclick=()=>{$(b.dataset.focus).focus();$(b.dataset.focus).scrollIntoView({behavior:"smooth",block:"center"})});
+  document.querySelectorAll("[data-focus]").forEach(button=>button.onclick=()=>openPrimarySetting(button.dataset.focus));
   $("collaborateBtn").onclick=openCollab;$("addMemberBtn").onclick=addMemberByUsername;$("createShareLinkBtn").onclick=createShareLink;$("copyShareLinkBtn").onclick=async()=>{await navigator.clipboard.writeText($("shareLinkOutput").value);setMsg("collabMessage","Invite link copied.")};
   $("permissionPreset").onchange=e=>{if(e.target.value!=="custom")setPermissionPreset(e.target.value)};
   $("collabMembersTab").onclick=()=>setCollabTab("members");$("collabChatTab").onclick=()=>setCollabTab("chat");$("sendChatMessageBtn").onclick=sendChatMessage;
