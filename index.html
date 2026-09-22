@@ -12,10 +12,10 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="styles.css?v=470" />
+  <link rel="stylesheet" href="styles.css?v=480" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0"></script>
-  <script src="config.js?v=470"></script>
-  <meta name="storyboard-build" content="v4.7.0-lighting-restore-script-tools-directories" />
+  <script src="config.js?v=480"></script>
+  <meta name="storyboard-build" content="v4.8.0-lighting-bible-tabs-directory-toolbar" />
 </head>
 <body>
 
@@ -121,18 +121,17 @@
 
     <main class="projects-main">
       <div id="inviteNotice" class="notice" hidden></div>
-      <div class="dashboard-tools">
-        <div class="project-search-wrap"><span>⌕</span><input id="projectSearch" type="search" placeholder="Search projects, tags, director..." /></div>
-        <select id="projectFilter" aria-label="Project filter">
-          <option value="all">All Projects</option>
-          <option value="favorites">Favorites</option>
-          <option value="recent">Recently Updated</option>
-          <option value="shared">Shared</option>
-        </select>
-        <select id="projectFolderFilter" aria-label="Folder filter"><option value="all">All folders</option></select>
-        <button id="manageProjectFoldersBtn" class="btn ghost folder-manager-btn" type="button">＋ New Folder</button>
-      </div>
       <section id="projectDirectory" class="project-directory" aria-labelledby="projectDirectoryTitle">
+        <div class="project-directory-toolbar">
+          <div class="project-search-wrap"><span>⌕</span><input id="projectSearch" type="search" placeholder="Search projects, tags, director..." /></div>
+          <select id="projectFilter" aria-label="Project filter">
+            <option value="all">All Projects</option>
+            <option value="favorites">Favorites</option>
+            <option value="recent">Recently Updated</option>
+            <option value="shared">Shared</option>
+          </select>
+          <button id="manageProjectFoldersBtn" class="btn ghost folder-manager-btn" type="button">＋ New Folder</button>
+        </div>
         <div class="project-directory-head">
           <div class="project-directory-copy">
             <button id="projectDirectoryBackBtn" class="btn ghost project-directory-back" type="button" hidden>← All Folders</button>
@@ -298,23 +297,11 @@
     <main class="app-shell">
       <aside class="sidebar">
         <div class="project-card">
-          <div class="project-card-title-row"><label>Project Name</label><span id="projectFolderBadge" class="folder-badge">General</span></div>
-          <input id="projectName" />
-          <button id="projectDetailsBtn" type="button" class="btn ghost wide project-details-btn">Project Details · Folder · Tags</button>
           <div class="visual-bible-launch-card">
             <button id="aiBibleBtn" type="button" class="btn wide ai-bible-btn">
               <span class="bible-icon ai-bible-launch-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 4.8c2.7-.7 5.3-.2 8 1.5v13c-2.7-1.7-5.3-2.2-8-1.5zM20 4.8c-2.7-.7-5.3-.2-8 1.5v13c2.7-1.7 5.3-2.2 8-1.5z"/><path d="M12 6.3v13"/></svg></span>
-              <span class="ai-bible-launch-copy"><strong>Manage Bible</strong><small>Characters · Locations · Script · Storyboard Style</small></span>
+              <span class="ai-bible-launch-copy"><strong>Manage Bible</strong><small>Visual · Script · Project Details</small></span>
             </button>
-            <div class="visual-bible-style-field">
-              <label>Storyboard Style</label>
-              <select id="projectStyle">
-                <option>Storyboard B&W</option>
-                <option>Pencil</option>
-                <option>Ink</option>
-                <option>Photoreal Reference</option>
-              </select>
-            </div>
             <div class="ai-usage-summary compact" data-ai-usage-summary aria-live="polite">
               <span class="ai-usage-message">Loading AI usage…</span>
             </div>
@@ -602,11 +589,17 @@
       <p class="ai-bible-intro">Create and approve one reference for every recurring character and location. Lock approved references before generating shots.</p>
       <div id="aiBibleNotice" class="notice" hidden></div>
 
-      <details id="scriptBibleSection" class="ai-bible-section script-bible-section">
-        <summary class="script-section-summary">
+      <div class="bible-tabs" role="tablist" aria-label="Bible sections">
+        <button id="bibleVisualTabBtn" class="bible-tab active" type="button" role="tab" aria-selected="true" aria-controls="bibleVisualPanel">Visual</button>
+        <button id="bibleScriptTabBtn" class="bible-tab" type="button" role="tab" aria-selected="false" aria-controls="bibleScriptPanel">Script</button>
+      </div>
+
+      <section id="bibleScriptPanel" class="bible-tab-panel" role="tabpanel" aria-labelledby="bibleScriptTabBtn" hidden>
+       <div id="scriptBibleSection" class="ai-bible-section script-bible-section">
+        <div class="script-section-summary">
           <span><strong>Script</strong><small>Import, analyze and connect exact text ranges to shots.</small></span>
           <span id="scriptFileBadge" class="script-file-badge">No script</span>
-        </summary>
+        </div>
         <div class="script-toolbar">
           <label class="btn ghost script-upload-btn">Choose Script File<input id="scriptFileInput" type="file" accept=".txt,.md,.markdown,.fountain,.fdx,.xml,.html,.htm,.rtf,text/plain,text/markdown,text/html,application/xml,text/xml,application/rtf" hidden /></label>
           <button id="saveScriptBtn" type="button" class="btn ghost">Save Script</button>
@@ -626,6 +619,7 @@
             <button id="scriptBoldBtn" class="btn ghost script-format-btn" type="button" aria-label="Bold selected text" title="Bold" aria-pressed="false"><strong>B</strong></button>
             <button id="scriptUnderlineBtn" class="btn ghost script-format-btn" type="button" aria-label="Underline selected text" title="Underline" aria-pressed="false"><u>U</u></button>
             <button id="scriptFontDecreaseBtn" class="btn ghost script-format-btn" type="button" aria-label="Decrease selected text size" title="Decrease text size">−</button>
+            <output id="scriptFontSizeValue" class="script-font-size-value" aria-live="polite" aria-label="Selected text size">14</output>
             <button id="scriptFontIncreaseBtn" class="btn ghost script-format-btn" type="button" aria-label="Increase selected text size" title="Increase text size">＋</button>
           </div>
         </div>
@@ -646,7 +640,32 @@
         <div id="scriptLinkList" class="script-link-list"></div>
         <div class="script-map-head"><div><strong>Script Reference Map</strong><small>Each line shows the shot references that overlap it.</small></div><span id="scriptCoverageBadge" class="script-coverage-badge">0% linked</span></div>
         <div id="scriptLineMap" class="script-line-map"></div>
-      </details>
+       </div>
+      </section>
+
+      <section id="bibleVisualPanel" class="bible-tab-panel" role="tabpanel" aria-labelledby="bibleVisualTabBtn">
+       <section id="bibleProjectSection" class="ai-bible-section bible-project-section">
+        <div class="ai-bible-section-head"><div><h3>Project</h3><small>Identity, production details and the visual language shared by every generated frame.</small></div><span id="projectFolderBadge" class="folder-badge">General</span></div>
+        <div class="bible-project-grid">
+          <div>
+            <label for="projectName">Project Name</label>
+            <input id="projectName" />
+          </div>
+          <div>
+            <label for="projectStyle">Storyboard Style</label>
+            <select id="projectStyle">
+              <option>Storyboard B&amp;W</option>
+              <option>Pencil</option>
+              <option>Ink</option>
+              <option>Photoreal Reference</option>
+            </select>
+          </div>
+          <div class="bible-project-details-action">
+            <label>Project Details</label>
+            <button id="projectDetailsBtn" type="button" class="btn ghost wide project-details-btn">Folder · Tags · Production Details</button>
+          </div>
+        </div>
+       </section>
 
       <section class="ai-bible-section">
         <div class="ai-bible-section-head"><div><h3>Characters</h3><small>Identity, face, hair, body, costume and recurring details.</small></div></div>
@@ -666,6 +685,7 @@
           <button id="addAiLocationBtn" type="button" class="btn">＋ Location</button>
         </div>
         <div id="aiLocationList" class="ai-asset-list"></div>
+      </section>
       </section>
 
       <div class="ai-bible-footer">
@@ -1091,7 +1111,7 @@
     </div>
   </dialog>
 
-  <script src="i18n.js?v=470"></script>
-  <script src="app.js?v=470"></script>
+  <script src="i18n.js?v=480"></script>
+  <script src="app.js?v=480"></script>
 </body>
 </html>

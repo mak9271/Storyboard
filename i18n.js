@@ -1,4 +1,4 @@
-// Storyboard Shot Builder v4.7.0 — English / Persian interface
+// Storyboard Shot Builder v4.8.0 — English / Persian interface
 (() => {
   "use strict";
 
@@ -248,6 +248,12 @@
     "PROJECT CONTINUITY":"تداوم پروژه",
     "Bible":"بایبل",
     "Manage Bible":"مدیریت بایبل",
+    "Visual":"بصری",
+    "Project":"پروژه",
+    "Bible sections":"بخش‌های بایبل",
+    "Visual · Script · Project Details":"بصری · فیلمنامه · جزئیات پروژه",
+    "Identity, production details and the visual language shared by every generated frame.":"هویت پروژه، جزئیات تولید و زبان بصری مشترک همه قاب‌های ساخته‌شده.",
+    "Folder · Tags · Production Details":"پوشه · برچسب‌ها · جزئیات تولید",
     "Characters · Locations · Script · Storyboard Style":"شخصیت‌ها · لوکیشن‌ها · فیلمنامه · سبک استوری‌بورد",
     "Story & Production Time":"زمان داستان و تولید",
     "Scene Location":"لوکیشن صحنه",
@@ -287,6 +293,7 @@
     "Underline":"زیرخط",
     "Decrease selected text size":"کوچک‌کردن متن انتخاب‌شده",
     "Increase selected text size":"بزرگ‌کردن متن انتخاب‌شده",
+    "Selected text size":"اندازه متن انتخاب‌شده",
     "Decrease text size":"کوچک‌کردن اندازه متن",
     "Increase text size":"بزرگ‌کردن اندازه متن",
     "Choose a script file or paste screenplay text here…":"فایل فیلمنامه را انتخاب کنید یا متن آن را اینجا بچسبانید…",
@@ -317,6 +324,8 @@
     "AI could not identify any scenes. Check screenplay headings and try again.":"هوش مصنوعی نتوانست صحنه‌ای شناسایی کند. سرصحنه‌های فیلمنامه را بررسی و دوباره تلاش کنید.",
     "Script analysis took too long. Try again.":"تحلیل فیلمنامه بیش از حد طول کشید. دوباره تلاش کنید.",
     "Could not analyze the script.":"تحلیل فیلمنامه ممکن نشد.",
+    "Loading Lighting Diagram…":"در حال بارگذاری دیاگرام نورپردازی…",
+    "Could not open Lighting Diagram.":"بازکردن دیاگرام نورپردازی ممکن نشد.",
     "The script text changed after analysis. Save and analyze it again before applying.":"متن فیلمنامه پس از تحلیل تغییر کرده است. پیش از اعمال، آن را ذخیره و دوباره تحلیل کنید.",
     "Applying the AI breakdown to the Bible and project scenes…":"در حال اعمال تجزیه هوش مصنوعی در بایبل و صحنه‌های پروژه…",
     "Breakdown applied to the project.":"تجزیه فیلمنامه در پروژه اعمال شد.",
@@ -878,6 +887,7 @@
     [/^Could not ([^:]+): (.+)$/, m => `${translateCore(`Could not ${m[1]}.`)} ${m[2]}`],
     [/^Remaining includes both your (\d+)-generation personal allowance and the shared app pool\. Counters reset at 00:00 UTC\.$/, m => `باقی‌مانده، هم سهمیه شخصی ${m[1]} تصویر و هم سهمیه مشترک اپ را در نظر می‌گیرد. شمارنده‌ها ساعت ۰۰:۰۰ UTC بازنشانی می‌شوند.`],
     [/^Lighting Diagram database is not ready: (.+)$/, m => `دیتابیس دیاگرام نورپردازی آماده نیست: ${m[1]}`],
+    [/^Lighting Diagram setup is not active\. Run the saved SQL query “Storyboard v4\.8 - Lighting Access Repair”, then reload this project\. Details: (.+)$/, m => `تنظیمات دیاگرام نورپردازی فعال نیست. کوئری ذخیره‌شده «Storyboard v4.8 - Lighting Access Repair» را اجرا و سپس پروژه را دوباره بارگذاری کنید. جزئیات: ${m[1]}`],
     [/^Lighting Diagram setup is not active\. Run the saved SQL query “Storyboard v4\.7 - Lighting & Image Restore”, then reload this project\. Details: (.+)$/, m => `تنظیمات دیاگرام نورپردازی فعال نیست. کوئری ذخیره‌شده «Storyboard v4.7 - Lighting & Image Restore» را اجرا و سپس پروژه را دوباره بارگذاری کنید. جزئیات: ${m[1]}`],
     [/^Playing (.+) · (.+)$/, m => `در حال پخش ${translateCore(m[1])} · ${m[2]}`],
     [/^Paused (.+) · (.+)$/, m => `مکث در ${translateCore(m[1])} · ${m[2]}`],

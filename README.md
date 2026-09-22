@@ -1,29 +1,29 @@
-# Storyboard Shot Builder v4.7.0
+# Storyboard Shot Builder v4.8.0
 
-This build continues only from the user-approved `storyboard-v3.9.1-github(1).zip` lineage. It includes every accepted change through v4.6 and restores Lighting Studio persistence, reversible shot crops, compact Script formatting and directory-style project folders.
+This build continues only from the user-approved `storyboard-v3.9.1-github(1).zip` lineage. It includes every accepted change through v4.7 and repairs Lighting access, reorganizes Bible, improves selected-text sizing and moves dashboard controls into Project Directory.
 
-## v4.7.0 changes
+## v4.8.0 changes
 
-- Restores the complete Lighting Diagram workspace and its secure Supabase persistence. Owners, permitted editors and active admin-support sessions can edit; other project members can view.
-- Keeps the first shot image that existed before Crop. The enlarged image viewer shows **Restore Original** after a crop; restoring removes the redundant cropped object.
-- Opens Bible → Script folded every time the Bible opens and folds it again when the Bible closes.
-- Replaces the long Bold control with equal-size **B**, **U**, **−** and **＋** controls. Bold and Underline toggle; −/＋ resize only the selected text. Safe formatting persists in `content_html`.
-- Makes New Project, Admin Center, Account and Log Out equal-height/equal-width dashboard actions.
-- Adds directory-style folder navigation: open General or a named folder, browse only its projects, go back to All Folders, and create, rename or delete folders.
-- Retains all v4.6 behavior: per-account folder assignments, inline aspect-locked Crop, bilingual Script direction and the ordered desktop/mobile project menu.
+- Makes the Lighting Diagram launcher always available inside an active project and opens the workspace before loading database records, so setup errors appear inside the Lighting window.
+- Adds a self-contained, repeatable Lighting access repair migration. It replaces the old v3.7/v4.7 Lighting policies while preserving every existing diagram and supporting owners, permitted collaborators and active admin-support sessions.
+- Splits Bible into **Visual** and **Script** tabs. Bible always reopens on Visual.
+- Moves Project Name, Project Details, current folder and Storyboard Style into Bible → Visual.
+- Makes Script **− / size / ＋** controls cumulative: every press changes one level, and the current pixel size is shown between the buttons.
+- Moves Search, All Projects and New Folder into Project Directory. Folder navigation now happens through directory cards; the redundant All Folders select is removed.
+- Retains all v4.7 behavior, including reversible crops, directory folders and Lighting Studio tools.
 
 ## Existing installation: required deployment order
 
-Do not delete earlier saved SQL queries. v4.7 is an additive migration.
+The saved v3.7 Lighting query is old source text, not a live database component. Do not run it again after v4.8. You may rename it to `ARCHIVE — v3.7 Lighting (Do Not Run)` or delete that saved query after v4.8 succeeds; deleting a saved SQL Editor query does not undo database objects.
 
 1. Open the correct project at [Supabase Dashboard](https://supabase.com/dashboard).
 2. Open **SQL Editor** and click **New query**.
 3. Name it exactly:
 
-   `Storyboard v4.7 - Lighting & Image Restore`
+   `Storyboard v4.8 - Lighting Access Repair`
 
 4. Keep **Save query: YES**.
-5. Paste the complete contents of `supabase-v4.7-lighting-image-restore.sql` and press **Run** once.
+5. Paste the complete contents of `supabase-v4.8-lighting-access-repair.sql` and press **Run** once.
 6. Wait for **Success. No rows returned**. The query is safe to run again and does not delete existing project data or media.
 7. Deploy the repository-root files. Do not upload `node_modules`.
 8. Use this Cloudflare build/deploy command:
@@ -32,9 +32,9 @@ Do not delete earlier saved SQL queries. v4.7 is an additive migration.
    npx wrangler deploy
    ```
 
-9. No `username-login` Edge Function redeploy is required for v4.7; that function is unchanged.
-10. Hard-refresh the app. Page source should show `styles.css?v=470`, `config.js?v=470`, `i18n.js?v=470`, `app.js?v=470` and build `v4.7.0-lighting-restore-script-tools-directories`.
-11. Sign out and back in. Test Lighting Diagram, crop a shot then Restore Original, open/close Bible → Script, and enter/back out of a project folder.
+9. No Supabase Edge Function redeploy is required for v4.8; those functions are unchanged.
+10. Hard-refresh the app. Page source should show `styles.css?v=480`, `config.js?v=480`, `i18n.js?v=480`, `app.js?v=480` and build `v4.8.0-lighting-bible-tabs-directory-toolbar`.
+11. Sign out and back in. Test Lighting Diagram, Bible → Visual/Script, repeated Script font-size presses and Project Directory navigation.
 
 ## Fresh Supabase installation
 
@@ -50,6 +50,7 @@ Run and save the packaged queries in this order:
 8. `supabase-v4.5-bible-script-breakdown.sql`
 9. `supabase-v4.6-project-folders-rich-script.sql`
 10. `supabase-v4.7-lighting-image-restore.sql`
+11. `supabase-v4.8-lighting-access-repair.sql`
 
 Only for the first superadmin, replace the placeholder with the real Storyboard username and run:
 
@@ -61,8 +62,8 @@ For a fresh installation, deploy `supabase/functions/username-login/index.ts` fr
 
 ## Script workflow
 
-1. Open **Bible → Script**.
-2. Unfold Script, choose LTR for English or RTL for Persian, then choose one of the listed text formats or paste the screenplay into the editor. Select text and use **B**, **U**, **−** or **＋** when needed.
+1. Open **Bible**, then select the **Script** tab.
+2. Choose LTR for English or RTL for Persian, then choose one of the listed text formats or paste the screenplay into the editor. Select text and use **B**, **U**, **−**, the displayed size and **＋** when needed.
 3. Save, then select **Analyze with AI**.
 4. Review the detected scene count, characters, locations, story/shoot times and line ranges.
 5. Select **Apply Breakdown to Project**. Existing locked Bible references remain untouched. New entries are unlocked and ready for Generate/Upload, review and Lock.
@@ -115,7 +116,7 @@ npm run check
 npx wrangler deploy --dry-run
 ```
 
-Automated checks cover HTML identity, Admin access, Lighting RLS/persistence, reversible shot crops, exact Script range links, safe B/U/font-size formatting, folder directory navigation, per-user folder RLS, mobile project filters, strict framing prompts, reference ordering, JWT guards and authenticated multipart generation.
+Automated checks cover HTML identity, Admin access, repaired Lighting RLS/persistence, reversible shot crops, exact Script range links, cumulative B/U/font-size formatting, folder directory navigation, per-user folder RLS, mobile project controls, strict framing prompts, reference ordering, JWT guards and authenticated multipart generation.
 
 ## Current limits
 

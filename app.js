@@ -1,4 +1,4 @@
-// Storyboard Shot Builder v4.7.0 — Lighting restore, reversible crops, Script tools and folder directories
+// Storyboard Shot Builder v4.8.0 — Lighting access repair, split Bible and directory toolbar
 const OPTIONS = {
   shotSize:["ECU · Extreme Close Up","CU · Close Up","MCU · Medium Close Up","MS · Medium Shot","MLS · Medium Long Shot","WS · Wide Shot","EWS · Extreme Wide Shot","OTS · Over The Shoulder","POV · Point of View","Insert","Top Shot"],
   angle:["Eye Level","High Angle","Low Angle","Top / Bird's Eye","Dutch Angle","Ground Level","Overhead","Custom"],
@@ -21,6 +21,7 @@ const SCENE_TIME_STRATEGIES = [
   ["night_for_day","Night for Day"]
 ];
 const SCRIPT_MAX_ANALYSIS_CHARS = 180000;
+const SCRIPT_FONT_LEVEL_PX = Object.freeze({1:10,2:12,3:14,4:16,5:18,6:24,7:32});
 const $ = id => document.getElementById(id);
 const cfg = window.APP_CONFIG || {};
 const cloudConfigured = !!(cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY && window.supabase);
@@ -117,6 +118,10 @@ let app = {
     pendingFileType: "",
     selectedStart: 0,
     selectedEnd: 0,
+    selectionCache: null,
+    savedRange: null,
+    fontSizeLevel: 3,
+    fontSizeApplying: false,
     migrationMessage: "Run the saved v4.5 Bible Script SQL query, then reload this project."
   },
   lighting: {
@@ -461,7 +466,7 @@ function saveLocal(){
   localStorage.setItem("storyboard-v3-projects",JSON.stringify(app.projects));
   localStorage.setItem("storyboard-v46-folders",JSON.stringify(app.projectFolders||[]));
 }
-function resetScriptState(){app.script={ready:false,loading:false,saving:false,analyzing:false,applying:false,record:null,links:[],analysis:null,editorHydrated:false,pendingFileName:"",pendingFileType:"",selectedStart:0,selectedEnd:0,selectionCache:null,savedRange:null,migrationMessage:"Run the saved v4.5 Bible Script SQL and v4.6 Project Folders & Rich Script SQL queries, then reload this project."}}
+function resetScriptState(){app.script={ready:false,loading:false,saving:false,analyzing:false,applying:false,record:null,links:[],analysis:null,editorHydrated:false,pendingFileName:"",pendingFileType:"",selectedStart:0,selectedEnd:0,selectionCache:null,savedRange:null,fontSizeLevel:3,fontSizeApplying:false,migrationMessage:"Run the saved v4.5 Bible Script SQL and v4.6 Project Folders & Rich Script SQL queries, then reload this project."}}
 function resetAiState(){app.ai.requestController?.abort();app.ai.ready=false;app.ai.sourceReady=false;app.ai.loading=false;app.ai.generating=false;app.ai.generatingAssetId=null;app.ai.generationMode=null;app.ai.requestController=null;app.ai.cancelRequested=false;app.ai.previousFocus=null;app.ai.characters=[];app.ai.locations=[];app.ai.usage={loaded:false,loading:false,error:"",used:0,remaining:20,dailyLimit:20,personalRemaining:20,globalRemaining:70,unlimited:false,usageDate:""};resetScriptState();syncAiGenerationLock();renderAiUsage()}
 function selectFirst(){
   const sc=app.current?.scenes?.[0]; app.activeSceneId=sc?.id||null; app.activeShotId=sc?.shots?.[0]?.id||null
@@ -880,11 +885,8 @@ function filteredProjects(){
   })
 }
 function refreshFolderFilter(){
-  const el=$("projectFolderFilter"); if(!el)return;
-  const keep=app.projectFolder;
-  const folders=[...(app.projectFolders||[])].sort((a,b)=>a.name.localeCompare(b.name));
-  el.innerHTML='<option value="all">All folders</option><option value="general">General</option>'+folders.map(folder=>`<option value="${escapeHtml(folder.id)}">${escapeHtml(folder.name)}</option>`).join("");
-  const values=[...el.options].map(option=>option.value);el.value=values.includes(keep)?keep:"all";app.projectFolder=el.value;
+  const valid=app.projectFolder==="all"||app.projectFolder==="general"||(app.projectFolders||[]).some(folder=>folder.id===app.projectFolder);
+  if(!valid)app.projectFolder="all";
 }
 function projectMatchesActiveView(p){
   const now=Date.now(),recentMs=30*24*60*60*1000;
@@ -1365,6 +1367,11 @@ function aspectNumbers(p){
   if(p.aspect==="Custom")return {w:Math.max(.1,Number(p.aspectWidth)||3),h:Math.max(.1,Number(p.aspectHeight)||4)};
   const m=String(p.aspect||"3:4").match(/([\d.]+)\s*:\s*([\d.]+)/);return m?{w:Number(m[1]),h:Number(m[2])}:{w:3,h:4}
 }
+function syncLightingLauncher(){
+  const button=$("openLightingDiagramBtn");if(!button)return;const enabled=!!app.current;
+  button.disabled=!enabled;button.setAttribute("aria-disabled",String(!enabled));button.classList.toggle("permission-locked",!enabled);
+  if(enabled)button.removeAttribute("disabled")
+}
 function applyPermissionLocks(){
   const projectLocked=!can("project_settings"),sceneLocked=!can("scenes"),shotLocked=!can("shots"),mediaLocked=!can("media");
   ["projectName","projectAspect","projectStyle","aspectWidth","aspectHeight"].forEach(id=>$(id).disabled=projectLocked);
@@ -1390,9 +1397,9 @@ function applyPermissionLocks(){
   generateButton.title=generationReady.ready?"":uiText(generationReady.message);
   $("aiLocationId").disabled=shotLocked||!app.ai.ready;
   $("shotCharacterPicker").querySelectorAll("input").forEach(x=>x.disabled=shotLocked||!app.ai.ready);
-  // Lighting Studio can always be opened for the active project. Its own
-  // controls enforce edit permissions and show the database setup warning.
-  if($("openLightingDiagramBtn"))$("openLightingDiagramBtn").disabled=!app.current;
+  // Lighting Studio is always launchable for an active project. Edit controls
+  // inside the workspace still honor project permissions.
+  syncLightingLauncher();
   $("collaborateBtn").hidden=app.mode!=="cloud";
 }
 
@@ -1952,8 +1959,22 @@ function applyScriptFormat(command,value=null){
 }
 function toggleScriptBold(){applyScriptFormat("bold")}
 function toggleScriptUnderline(){applyScriptFormat("underline")}
-function changeScriptFontSize(delta){const current=Math.max(1,Math.min(7,Number(document.queryCommandValue?.("fontSize"))||3)),next=Math.max(1,Math.min(7,current+delta));applyScriptFormat("fontSize",String(next))}
-function updateScriptFormatState(){for(const [id,command] of [["scriptBoldBtn","bold"],["scriptUnderlineBtn","underline"]]){const button=$(id),active=!!scriptSelectionRange()&&!!document.queryCommandState?.(command);button.classList.toggle("active",active);button.setAttribute("aria-pressed",String(active))}}
+function clampScriptFontLevel(value){return Math.max(1,Math.min(7,Number(value)||3))}
+function scriptSelectionFontLevel(){return clampScriptFontLevel(document.queryCommandValue?.("fontSize")||app.script.fontSizeLevel||3)}
+function syncScriptFontSizeValue(){const output=$("scriptFontSizeValue"),level=clampScriptFontLevel(app.script.fontSizeLevel);if(output){output.value=String(SCRIPT_FONT_LEVEL_PX[level]);output.textContent=String(SCRIPT_FONT_LEVEL_PX[level]);output.title=`${SCRIPT_FONT_LEVEL_PX[level]} px`}}
+function changeScriptFontSize(delta){
+  if(!scriptSelectionRange()&&!restoreScriptSelection())return;
+  const current=clampScriptFontLevel(app.script.fontSizeLevel||scriptSelectionFontLevel()),next=clampScriptFontLevel(current+Number(delta||0));
+  if(next===current){syncScriptFontSizeValue();return}
+  app.script.fontSizeLevel=next;app.script.fontSizeApplying=true;syncScriptFontSizeValue();
+  try{applyScriptFormat("fontSize",String(next))}finally{app.script.fontSizeApplying=false;app.script.fontSizeLevel=next;syncScriptFontSizeValue()}
+}
+function updateScriptFormatState(){
+  const range=scriptSelectionRange();
+  for(const [id,command] of [["scriptBoldBtn","bold"],["scriptUnderlineBtn","underline"]]){const button=$(id),active=!!range&&!!document.queryCommandState?.(command);button.classList.toggle("active",active);button.setAttribute("aria-pressed",String(active))}
+  if(range&&!app.script.fontSizeApplying)app.script.fontSizeLevel=scriptSelectionFontLevel();
+  syncScriptFontSizeValue()
+}
 function scriptShotLabel(shotId){const item=allShots().find(entry=>entry.shot.id===shotId);return item?`Scene ${item.scene.number} · Shot ${item.shot.shotNo}`:"Deleted shot"}
 function renderScriptLinkSelectors(){
   const sceneSelect=$("scriptLinkSceneSelect"),shotSelect=$("scriptLinkShotSelect");if(!sceneSelect||!shotSelect||!app.current)return;
@@ -2052,10 +2073,17 @@ async function createShotFromScriptSelection(){
 }
 async function deleteScriptLink(id){if(!scriptCanEdit()||!can("shots"))return;if(!uiConfirm("Remove this script-to-shot link? The shot itself will stay."))return;app.ignoreRealtimeUntil=Date.now()+1800;const {error}=await sb.from("script_shot_links").delete().eq("id",id).eq("project_id",app.current.id);if(error)return setMsg("scriptNotice",error.message,"warning");app.script.links=app.script.links.filter(link=>link.id!==id);renderScriptBible()}
 
-async function openAiVisualBible(){
+function setBibleSection(section="visual",{focusProject=false}={}){
+  const selected=section==="script"?"script":"visual",visual=selected==="visual";
+  $("bibleVisualPanel").hidden=!visual;$("bibleScriptPanel").hidden=visual;
+  for(const [id,active] of [["bibleVisualTabBtn",visual],["bibleScriptTabBtn",!visual]]){const button=$(id);button.classList.toggle("active",active);button.setAttribute("aria-selected",String(active));button.tabIndex=active?0:-1}
+  if(focusProject&&visual)requestAnimationFrame(()=>$("bibleProjectSection")?.scrollIntoView({block:"start",behavior:"smooth"}))
+}
+async function openAiVisualBible(options={}){
   if(app.mode!=="cloud")return uiAlert("Bible and AI generation are available for signed-in cloud projects.");
   if(app.ai.ready&&!app.ai.generating)setMsg("aiBibleNotice","");
-  const dialog=$("aiBibleModal");if(!dialog.open)$("scriptBibleSection").open=false;renderAiVisualBible();if(!dialog.open)dialog.showModal();
+  const settings=options&&typeof options==="object"&&!options.currentTarget?options:{},dialog=$("aiBibleModal");setBibleSection(settings.section||"visual",{focusProject:false});renderAiVisualBible();if(!dialog.open)dialog.showModal();
+  if(settings.focusProject)setBibleSection("visual",{focusProject:true});
   await Promise.all([...app.ai.characters,...app.ai.locations].filter(x=>(x.reference_path&&!x.referenceUrl)||(x.source_path&&!x.sourceUrl)).map(signAiAsset));renderAiVisualBible()
 }
 function aiAssetCard(asset,type){
@@ -3001,7 +3029,7 @@ async function loadLightingDiagrams(preferredId=null){
       .select("id,project_id,scene_id,shot_id,created_by,name,data,updated_at")
       .eq("project_id",app.current.id).order("updated_at",{ascending:false});
     if(error){
-      setMsg("lightingDiagramNotice",`Lighting Diagram setup is not active. Run the saved SQL query “Storyboard v4.7 - Lighting & Image Restore”, then reload this project. Details: ${error.message}`,"warning");
+      setMsg("lightingDiagramNotice",`Lighting Diagram setup is not active. Run the saved SQL query “Storyboard v4.8 - Lighting Access Repair”, then reload this project. Details: ${error.message}`,"warning");
       app.lighting.diagrams=[]
     }else{
       setMsg("lightingDiagramNotice","");
@@ -3015,14 +3043,13 @@ async function loadLightingDiagrams(preferredId=null){
 }
 async function openLightingWorkspace(options={}){
   if(!app.current)return;
-  populateLightingCameraSelects();
-  renderLightingCameraSummary();
-  await loadLightingDiagrams(options.diagramId||null);
-  applyLightingPermissions();
-  app.lighting.viewMode="plan";
-  renderLightingViewMode();
-  $("lightingDiagramModal").showModal();
-  subscribeLightingRealtime()
+  const dialog=$("lightingDiagramModal");if(!dialog.open)dialog.showModal();
+  setMsg("lightingDiagramNotice","Loading Lighting Diagram…");
+  try{
+    populateLightingCameraSelects();renderLightingCameraSummary();
+    await loadLightingDiagrams(options.diagramId||null);applyLightingPermissions();
+    app.lighting.viewMode="plan";renderLightingViewMode();subscribeLightingRealtime()
+  }catch(error){console.error("Could not open Lighting Diagram",error);setMsg("lightingDiagramNotice",`Could not open Lighting Diagram. ${error.message||"Reload the project and try again."}`,"warning")}
 }
 function closeLightingWorkspace(){
   if(app.lighting.dirty&&!uiConfirm("Close Lighting Diagram without saving the latest changes?"))return;
@@ -4038,16 +4065,16 @@ function bind(){
   $("adminCenterBtn").onclick=openAdminCenter;$("backFromAdminBtn").onclick=async()=>{rememberProjectsView();await loadCloudProjects();showProjects()};
   $("adminAccountBtn").onclick=openAccount;$("adminLogoutBtn").onclick=logout;
   $("adminUserSearchForm").onsubmit=searchAdminUsers;$("adminShowAllUsersBtn").onclick=showAllAdminUsers;$("adminLoadMoreUsersBtn").onclick=()=>loadAdminUsers(false);$("clearAdminUserBtn").onclick=clearAdminUser;$("adminAddForm").onsubmit=addAdmin;$("exitAdminSupportBtn").onclick=()=>closeAdminSupport(true);
-  $("backProjectsBtn").onclick=returnToProjects;$("editorProjectsBtn").onclick=returnToProjects;$("editorAccountBtn").onclick=()=>{closeEditorActions();openAccount()};$("editorLogoutBtn").onclick=()=>{closeEditorActions();logout()};$("headerBibleBtn").onclick=()=>{closeEditorActions();openAiVisualBible()};$("headerProjectSettingsBtn").onclick=()=>{closeEditorActions();openProjectDetails(app.current.id)};
+  $("backProjectsBtn").onclick=returnToProjects;$("editorProjectsBtn").onclick=returnToProjects;$("editorAccountBtn").onclick=()=>{closeEditorActions();openAccount()};$("editorLogoutBtn").onclick=()=>{closeEditorActions();logout()};$("headerBibleBtn").onclick=()=>{closeEditorActions();openAiVisualBible()};$("headerProjectSettingsBtn").onclick=()=>{closeEditorActions();openAiVisualBible({section:"visual",focusProject:true})};
   $("projectSearch").oninput=e=>{app.projectSearch=e.target.value;renderProjects()};
   $("projectFilter").onchange=e=>{app.projectFilter=e.target.value;renderProjects()};
-  $("projectFolderFilter").onchange=e=>openProjectDirectory(e.target.value);
   $("projectDirectoryBackBtn").onclick=()=>openProjectDirectory("all");
   $("renameCurrentFolderBtn").onclick=()=>{if(app.projectFolder!=="all"&&app.projectFolder!=="general")renameProjectFolder(app.projectFolder)};
   $("deleteCurrentFolderBtn").onclick=()=>{if(app.projectFolder!=="all"&&app.projectFolder!=="general")deleteProjectFolder(app.projectFolder)};
   $("closeProjectDetailsBtn").onclick=()=>$("projectDetailsModal").close();$("saveProjectDetailsBtn").onclick=saveProjectDetails;$("projectDetailsBtn").onclick=()=>openProjectDetails(app.current.id);
-  $("aiBibleBtn").onclick=openAiVisualBible;$("manageAiCharactersBtn").onclick=openAiVisualBible;$("closeAiBibleBtn").onclick=()=>$("aiBibleModal").close();$("doneAiBibleBtn").onclick=()=>$("aiBibleModal").close();
-  $("aiBibleModal").addEventListener("close",()=>{$("scriptBibleSection").open=false});
+  $("aiBibleBtn").onclick=()=>openAiVisualBible();$("manageAiCharactersBtn").onclick=()=>openAiVisualBible();$("closeAiBibleBtn").onclick=()=>$("aiBibleModal").close();$("doneAiBibleBtn").onclick=()=>$("aiBibleModal").close();
+  $("bibleVisualTabBtn").onclick=()=>setBibleSection("visual");$("bibleScriptTabBtn").onclick=()=>setBibleSection("script");
+  $("aiBibleModal").addEventListener("close",()=>setBibleSection("visual"));
   $("addAiCharacterBtn").onclick=()=>addAiAsset("character");$("addAiLocationBtn").onclick=()=>addAiAsset("location");$("aiLocationId").onchange=onAiShotLinksChange;$("generateShotImageBtn").onclick=generateShotImage;
   $("scriptFileInput").onchange=loadScriptFile;$("saveScriptBtn").onclick=()=>saveProjectScript();$("analyzeScriptBtn").onclick=analyzeProjectScript;$("applyScriptBreakdownBtn").onclick=applyScriptBreakdown;$("linkScriptSelectionBtn").onclick=linkScriptSelectionToShot;$("createShotFromScriptBtn").onclick=createShotFromScriptSelection;
   ["click","keyup","mouseup","focus"].forEach(eventName=>$("scriptTextEditor").addEventListener(eventName,()=>{updateScriptSelection();updateScriptFormatState()}));$("scriptTextEditor").addEventListener("input",()=>{updateScriptSelection();updateScriptFormatState();$("applyScriptBreakdownBtn").disabled=true;clearTimeout(scriptRenderTimer);scriptRenderTimer=setTimeout(renderScriptLineMap,220)});$("scriptTextEditor").addEventListener("beforeinput",event=>{if(event.inputType==="insertParagraph"){event.preventDefault();document.execCommand("insertLineBreak",false)}});$("scriptTextEditor").addEventListener("paste",event=>{event.preventDefault();document.execCommand("insertText",false,event.clipboardData?.getData("text/plain")||"")});$("scriptDirectionSelect").onchange=event=>setScriptDirection(event.target.value);["scriptBoldBtn","scriptUnderlineBtn","scriptFontDecreaseBtn","scriptFontIncreaseBtn"].forEach(id=>$(id).addEventListener("pointerdown",event=>event.preventDefault()));$("scriptBoldBtn").onclick=toggleScriptBold;$("scriptUnderlineBtn").onclick=toggleScriptUnderline;$("scriptFontDecreaseBtn").onclick=()=>changeScriptFontSize(-1);$("scriptFontIncreaseBtn").onclick=()=>changeScriptFontSize(1);document.addEventListener("selectionchange",()=>{if(scriptSelectionRange()){updateScriptSelection();updateScriptFormatState()}});$("scriptLinkSceneSelect").onchange=()=>{renderScriptLinkSelectors();updateScriptSelection()};$("scriptLinkShotSelect").onchange=updateScriptSelection;
