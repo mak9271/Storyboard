@@ -12,10 +12,10 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="styles.css?v=480" />
+  <link rel="stylesheet" href="styles.css?v=490" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0"></script>
-  <script src="config.js?v=480"></script>
-  <meta name="storyboard-build" content="v4.8.0-lighting-bible-tabs-directory-toolbar" />
+  <script src="config.js?v=490"></script>
+  <meta name="storyboard-build" content="v4.9.0-production-breakdown-dashboard" />
 </head>
 <body>
 
@@ -306,30 +306,6 @@
               <span class="ai-usage-message">Loading AI usage…</span>
             </div>
           </div>
-          <div class="grid-2 project-aspect-grid">
-            <div>
-              <label>Aspect Ratio</label>
-              <select id="projectAspect">
-                <option>3:4 Portrait</option>
-                <option>9:16 Portrait</option>
-                <option>4:3</option>
-                <option>16:9</option>
-                <option>2.39:1</option>
-                <option>Custom</option>
-              </select>
-            </div>
-          </div>
-          <div id="customAspectFields" class="custom-aspect" hidden>
-            <div>
-              <label>Width</label>
-              <input id="aspectWidth" type="number" min="0.1" step="0.1" value="3" />
-            </div>
-            <span>:</span>
-            <div>
-              <label>Height</label>
-              <input id="aspectHeight" type="number" min="0.1" step="0.1" value="4" />
-            </div>
-          </div>
         </div>
 
         <div class="scene-header">
@@ -431,7 +407,7 @@
               <select id="aiLocationId"><option value="">Choose project location…</option></select>
               <label>Characters · Optional</label>
               <div id="shotCharacterPicker" class="ai-reference-picker"></div>
-              <small class="field-help">Selections belong only to this shot. References must first be generated or uploaded and then locked in the Bible.</small>
+              <small class="field-help">Selections belong only to this shot. References must first be generated and then locked in the Bible.</small>
             </div>
           </section>
         </div>
@@ -660,9 +636,31 @@
               <option>Photoreal Reference</option>
             </select>
           </div>
+          <div>
+            <label for="projectAspect">Aspect Ratio</label>
+            <select id="projectAspect">
+              <option>3:4 Portrait</option>
+              <option>9:16 Portrait</option>
+              <option>4:3</option>
+              <option>16:9</option>
+              <option>2.39:1</option>
+              <option>Custom</option>
+            </select>
+          </div>
           <div class="bible-project-details-action">
             <label>Project Details</label>
             <button id="projectDetailsBtn" type="button" class="btn ghost wide project-details-btn">Folder · Tags · Production Details</button>
+          </div>
+          <div id="customAspectFields" class="custom-aspect bible-custom-aspect" hidden>
+            <div>
+              <label for="aspectWidth">Width</label>
+              <input id="aspectWidth" type="number" min="0.1" step="0.1" value="3" />
+            </div>
+            <span>:</span>
+            <div>
+              <label for="aspectHeight">Height</label>
+              <input id="aspectHeight" type="number" min="0.1" step="0.1" value="4" />
+            </div>
           </div>
         </div>
        </section>
@@ -720,6 +718,7 @@
           </span>
         </button>
         <button id="collabMembersTab" type="button" class="mini-seg">Members & Access</button>
+        <button id="collabProductionTab" type="button" class="mini-seg">Production Dashboard</button>
       </div>
 
       <section id="collabChatPane" class="collab-pane">
@@ -767,6 +766,22 @@
             <label class="check-row"><input id="permMembers" type="checkbox" /> Manage collaborators</label>
           </div>
 
+          <label for="inviteProductionRole">Production Specialty</label>
+          <select id="inviteProductionRole">
+            <option value="general">General Production</option>
+            <option value="assistant_director">Assistant Director</option>
+            <option value="production_manager">Production Manager</option>
+            <option value="producer">Producer</option>
+            <option value="director">Director</option>
+            <option value="art_props">Art &amp; Props</option>
+            <option value="costume_makeup">Costume &amp; Makeup</option>
+            <option value="locations">Locations</option>
+            <option value="sfx_vfx">SFX / VFX</option>
+            <option value="camera">Camera Department</option>
+            <option value="sound">Sound Department</option>
+          </select>
+          <small class="field-help">The member’s dashboard opens with the production information most relevant to this specialty.</small>
+
           <button id="createShareLinkBtn" type="button" class="btn ghost wide">Create Invite Link</button>
           <div id="shareLinkBox" class="share-link-box" hidden>
             <input id="shareLinkOutput" readonly />
@@ -776,6 +791,27 @@
 
         <div class="members-head"><strong>Project members</strong></div>
         <div id="membersList" class="members-list"></div>
+      </section>
+
+      <section id="collabProductionPane" class="collab-pane production-dashboard-pane" hidden>
+        <div class="production-dashboard-head">
+          <div>
+            <strong>Script Production Breakdown</strong>
+            <small>Department-ready planning data generated from the latest AI script analysis.</small>
+          </div>
+          <label>Dashboard View
+            <select id="productionDashboardRole">
+              <option value="all">All Departments</option>
+              <option value="assistant_director">Assistant Director</option>
+              <option value="production_manager">Production Manager</option>
+              <option value="art_props">Art &amp; Props</option>
+              <option value="costume_makeup">Costume &amp; Makeup</option>
+              <option value="locations">Locations</option>
+              <option value="sfx_vfx">SFX / VFX</option>
+            </select>
+          </label>
+        </div>
+        <div id="productionDashboard" class="production-dashboard"></div>
       </section>
       <div id="collabMessage" class="notice" hidden></div>
     </div>
@@ -1111,7 +1147,7 @@
     </div>
   </dialog>
 
-  <script src="i18n.js?v=480"></script>
-  <script src="app.js?v=480"></script>
+  <script src="i18n.js?v=490"></script>
+  <script src="app.js?v=490"></script>
 </body>
 </html>

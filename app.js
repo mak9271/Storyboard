@@ -1,4 +1,4 @@
-// Storyboard Shot Builder v4.8.0 — Lighting access repair, split Bible and directory toolbar
+// Storyboard Shot Builder v4.9.0 — production breakdown dashboard and Bible project controls
 const OPTIONS = {
   shotSize:["ECU · Extreme Close Up","CU · Close Up","MCU · Medium Close Up","MS · Medium Shot","MLS · Medium Long Shot","WS · Wide Shot","EWS · Extreme Wide Shot","OTS · Over The Shoulder","POV · Point of View","Insert","Top Shot"],
   angle:["Eye Level","High Angle","Low Angle","Top / Bird's Eye","Dutch Angle","Ground Level","Overhead","Custom"],
@@ -21,7 +21,41 @@ const SCENE_TIME_STRATEGIES = [
   ["night_for_day","Night for Day"]
 ];
 const SCRIPT_MAX_ANALYSIS_CHARS = 180000;
-const SCRIPT_FONT_LEVEL_PX = Object.freeze({1:10,2:12,3:14,4:16,5:18,6:24,7:32});
+const SCRIPT_LEGACY_FONT_LEVEL_PX = Object.freeze({1:10,2:12,3:14,4:16,5:18,6:24,7:32});
+const SCRIPT_FONT_MIN_PX = 8;
+const SCRIPT_FONT_MAX_PX = 72;
+const SCRIPT_FONT_DEFAULT_PX = 14;
+const PRODUCTION_ROLE_LABELS = Object.freeze({
+  general:"General Production",
+  assistant_director:"Assistant Director",
+  production_manager:"Production Manager",
+  producer:"Producer",
+  director:"Director",
+  art_props:"Art & Props",
+  costume_makeup:"Costume & Makeup",
+  locations:"Locations",
+  sfx_vfx:"SFX / VFX",
+  camera:"Camera Department",
+  sound:"Sound Department"
+});
+const PRODUCTION_ELEMENT_FIELDS = Object.freeze([
+  ["extras","Extras / Background"],
+  ["props","Props"],
+  ["set_dressing","Set Dressing"],
+  ["wardrobe","Wardrobe"],
+  ["makeup_hair","Makeup / Hair"],
+  ["vehicles","Vehicles"],
+  ["animals","Animals"],
+  ["stunts","Stunts"],
+  ["special_effects","Special Effects"],
+  ["visual_effects","Visual Effects"],
+  ["sound_music","Sound / Music"],
+  ["special_equipment","Special Equipment"],
+  ["location_requirements","Location Requirements"],
+  ["safety_security","Safety / Security"],
+  ["production_notes","Production Notes"],
+  ["risk_flags","Production Flags"]
+]);
 const $ = id => document.getElementById(id);
 const cfg = window.APP_CONFIG || {};
 const cloudConfigured = !!(cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY && window.supabase);
@@ -60,6 +94,7 @@ let app = {
   chatChannel: null,
   chatNoticeChannel: null,
   collabTab: "chat",
+  productionDashboardProjectId: null,
   permissions: fullPermissions(),
   isOwner: true,
   admin: {
@@ -120,7 +155,7 @@ let app = {
     selectedEnd: 0,
     selectionCache: null,
     savedRange: null,
-    fontSizeLevel: 3,
+    fontSizePx: SCRIPT_FONT_DEFAULT_PX,
     fontSizeApplying: false,
     migrationMessage: "Run the saved v4.5 Bible Script SQL query, then reload this project."
   },
@@ -160,7 +195,9 @@ function uid(){return (crypto.randomUUID ? crypto.randomUUID() : "id-"+Date.now(
 function fullPermissions(){return {project_settings:true,scenes:true,shots:true,media:true,members:true}}
 function blankPermissions(){return {project_settings:false,scenes:false,shots:false,media:false,members:false}}
 function editorPermissions(){return {project_settings:false,scenes:true,shots:true,media:true,members:false}}
-function permissionPreset(name){return name==="viewer"?blankPermissions():name==="editor"?editorPermissions():readPermissionUI()}
+function normalizeProductionRole(value){return Object.hasOwn(PRODUCTION_ROLE_LABELS,value)?value:"general"}
+function inviteProductionRole(){return normalizeProductionRole($("inviteProductionRole")?.value||"general")}
+function permissionPreset(name){const base=name==="viewer"?blankPermissions():name==="editor"?editorPermissions():readPermissionUI();return {...base,production_role:inviteProductionRole()}}
 function blankShot(no=1){return {id:uid(),shotNo:no,duration:"",shotSize:"CU · Close Up",angle:"Eye Level",lens:"50mm",focus:"Shallow Focus",movement:"Static",startEnd:"",composition:"Centered / Symmetrical",summary:"",subject:"",description:"",performance:"",subjectMovement:"",costume:"",timeOfDay:"Night",location:"",lightSource:"Candle",lightDirection:"Camera Left",lightQuality:"Low Key",lighting:"",props:"",dialogue:"",voiceOver:"",sfx:"",music:"",transitionIn:"Cut",transitionOut:"Cut",notes:"",aiCharacterIds:[],aiLocationId:"",aiGeneration:null,image:null,imagePath:null,originalImage:null,originalImagePath:null,position:no}}
 function blankScene(no=1){return {id:uid(),number:no,title:`Scene ${no}`,description:"",storyLocation:"",storyTime:"Unspecified",shootTime:"Unspecified",timeStrategy:"natural",aiLocationId:"",aiCharacterIds:[],scriptSceneKey:null,position:no,collapsed:false,shots:[blankShot(1)]}}
 function blankShotForScene(no,scene){const shot=blankShot(no);if(!scene)return shot;shot.aiLocationId=scene.aiLocationId||"";shot.aiCharacterIds=[...(scene.aiCharacterIds||[])];if(scene.storyTime&&scene.storyTime!=="Unspecified")shot.timeOfDay=scene.storyTime;if(scene.storyLocation)shot.location=scene.storyLocation;return shot}
@@ -466,7 +503,7 @@ function saveLocal(){
   localStorage.setItem("storyboard-v3-projects",JSON.stringify(app.projects));
   localStorage.setItem("storyboard-v46-folders",JSON.stringify(app.projectFolders||[]));
 }
-function resetScriptState(){app.script={ready:false,loading:false,saving:false,analyzing:false,applying:false,record:null,links:[],analysis:null,editorHydrated:false,pendingFileName:"",pendingFileType:"",selectedStart:0,selectedEnd:0,selectionCache:null,savedRange:null,fontSizeLevel:3,fontSizeApplying:false,migrationMessage:"Run the saved v4.5 Bible Script SQL and v4.6 Project Folders & Rich Script SQL queries, then reload this project."}}
+function resetScriptState(){app.script={ready:false,loading:false,saving:false,analyzing:false,applying:false,record:null,links:[],analysis:null,editorHydrated:false,pendingFileName:"",pendingFileType:"",selectedStart:0,selectedEnd:0,selectionCache:null,savedRange:null,fontSizePx:SCRIPT_FONT_DEFAULT_PX,fontSizeApplying:false,migrationMessage:"Run the saved v4.5 Bible Script SQL and v4.6 Project Folders & Rich Script SQL queries, then reload this project."}}
 function resetAiState(){app.ai.requestController?.abort();app.ai.ready=false;app.ai.sourceReady=false;app.ai.loading=false;app.ai.generating=false;app.ai.generatingAssetId=null;app.ai.generationMode=null;app.ai.requestController=null;app.ai.cancelRequested=false;app.ai.previousFocus=null;app.ai.characters=[];app.ai.locations=[];app.ai.usage={loaded:false,loading:false,error:"",used:0,remaining:20,dailyLimit:20,personalRemaining:20,globalRemaining:70,unlimited:false,usageDate:""};resetScriptState();syncAiGenerationLock();renderAiUsage()}
 function selectFirst(){
   const sc=app.current?.scenes?.[0]; app.activeSceneId=sc?.id||null; app.activeShotId=sc?.shots?.[0]?.id||null
@@ -1913,6 +1950,7 @@ function cleanScriptText(value,max=1200,fallback=""){return String(value||fallba
 function normalizeScriptAnalysis(value){
   const input=value&&typeof value==="object"?value:{},characters=Array.isArray(input.characters)?input.characters:[],locations=Array.isArray(input.locations)?input.locations:[],scenes=Array.isArray(input.scenes)?input.scenes:[];
   const uniqueItems=(items,descriptionFallback)=>[...new Map(items.map(item=>{const row=typeof item==="string"?{name:item}:item||{},name=cleanScriptName(row.name,"");return [name.toLocaleLowerCase(),{name,description:cleanScriptText(row.description,1400,descriptionFallback)}]}).filter(([key])=>key)).values()];
+  const cleanList=(items,max=80)=>[...new Set((Array.isArray(items)?items:[]).map(item=>cleanScriptText(item,240,"")).filter(Boolean))].slice(0,max);
   const validTime=value=>SCENE_TIME_OPTIONS.includes(value)?value:"Unspecified";
   const sceneKeys=new Set();
   return {
@@ -1920,7 +1958,28 @@ function normalizeScriptAnalysis(value){
     title:cleanScriptName(input.title,"Imported Script"),
     characters:uniqueItems(characters,"Recurring character detected in the script; add stable appearance and costume details before generation."),
     locations:uniqueItems(locations,"Recurring location detected in the script; add stable architecture, layout and palette details before generation."),
-    scenes:scenes.slice(0,500).map((scene,index)=>{const row=scene&&typeof scene==="object"?scene:{},fallback=`scene-${String(index+1).padStart(3,"0")}`,baseKey=cleanScriptName(row.key,fallback).toLowerCase().replace(/[^a-z0-9_-]+/g,"-").slice(0,80)||fallback;let key=baseKey,suffix=2;while(sceneKeys.has(key)){key=`${baseKey.slice(0,Math.max(1,76-String(suffix).length))}-${suffix}`;suffix++}sceneKeys.add(key);return {key,title:cleanScriptName(row.title,`Scene ${index+1}`),description:cleanScriptText(row.description,1200,"Script scene"),location:cleanScriptName(row.location,""),story_time:validTime(cleanScriptName(row.story_time,"Unspecified")),shoot_time:validTime(cleanScriptName(row.shoot_time,row.story_time||"Unspecified")),time_strategy:["natural","day_for_night","night_for_day"].includes(row.time_strategy)?row.time_strategy:"natural",characters:[...new Set((Array.isArray(row.characters)?row.characters:[]).map(name=>cleanScriptName(name,"")).filter(Boolean))].slice(0,40),start_line:Math.max(1,Number(row.start_line)||1),end_line:Math.max(1,Number(row.end_line)||Number(row.start_line)||1)}})
+    scenes:scenes.slice(0,500).map((scene,index)=>{
+      const row=scene&&typeof scene==="object"?scene:{},fallback=`scene-${String(index+1).padStart(3,"0")}`,baseKey=cleanScriptName(row.key,fallback).toLowerCase().replace(/[^a-z0-9_-]+/g,"-").slice(0,80)||fallback;
+      let key=baseKey,suffix=2;while(sceneKeys.has(key)){key=`${baseKey.slice(0,Math.max(1,76-String(suffix).length))}-${suffix}`;suffix++}sceneKeys.add(key);
+      const normalized={
+        key,
+        title:cleanScriptName(row.title,`Scene ${index+1}`),
+        description:cleanScriptText(row.description,1200,"Script scene"),
+        location:cleanScriptName(row.location,""),
+        interior_exterior:["INT","EXT","INT/EXT","Unspecified"].includes(row.interior_exterior)?row.interior_exterior:"Unspecified",
+        story_time:validTime(cleanScriptName(row.story_time,"Unspecified")),
+        shoot_time:validTime(cleanScriptName(row.shoot_time,row.story_time||"Unspecified")),
+        time_strategy:["natural","day_for_night","night_for_day"].includes(row.time_strategy)?row.time_strategy:"natural",
+        script_day:cleanScriptName(row.script_day,"Unspecified"),
+        unit:cleanScriptName(row.unit,"Unspecified"),
+        special_location:!!row.special_location,
+        characters:[...new Set((Array.isArray(row.characters)?row.characters:[]).map(name=>cleanScriptName(name,"")).filter(Boolean))].slice(0,40),
+        start_line:Math.max(1,Number(row.start_line)||1),
+        end_line:Math.max(1,Number(row.end_line)||Number(row.start_line)||1)
+      };
+      for(const [field] of PRODUCTION_ELEMENT_FIELDS)normalized[field]=cleanList(row[field]);
+      return normalized
+    })
   }
 }
 async function loadProjectScript(projectId=app.current?.id){
@@ -1937,15 +1996,15 @@ function scriptTextFromNode(root){
 }
 function scriptEditorText(){return scriptTextFromNode($("scriptTextEditor"))}
 function setScriptEditorText(value){
-  const editor=$("scriptTextEditor"),text=String(value||"").replace(/\r\n?/g,"\n"),fragment=document.createDocumentFragment(),lines=text.split("\n");editor.replaceChildren();lines.forEach((line,index)=>{if(line)fragment.appendChild(document.createTextNode(line));if(index<lines.length-1)fragment.appendChild(document.createElement("br"))});editor.appendChild(fragment);app.script.selectionCache=null;app.script.savedRange=null
+  const editor=$("scriptTextEditor"),text=String(value||"").replace(/\r\n?/g,"\n"),fragment=document.createDocumentFragment(),lines=text.split("\n");editor.replaceChildren();lines.forEach((line,index)=>{if(line)fragment.appendChild(document.createTextNode(line));if(index<lines.length-1)fragment.appendChild(document.createElement("br"))});editor.appendChild(fragment);app.script.selectionCache=null;app.script.savedRange=null;app.script.fontSizePx=SCRIPT_FONT_DEFAULT_PX
 }
 function setScriptEditorHtml(value,fallback=""){
   if(!value){setScriptEditorText(fallback);return}const editor=$("scriptTextEditor"),doc=new DOMParser().parseFromString(`<div>${String(value)}</div>`,"text/html"),source=doc.body.firstElementChild,fragment=document.createDocumentFragment();
-  const append=(node,parent)=>{if(node.nodeType===Node.TEXT_NODE){parent.appendChild(document.createTextNode(node.nodeValue||""));return}if(node.nodeType!==Node.ELEMENT_NODE)return;const tag=node.tagName;if(tag==="BR"){parent.appendChild(document.createElement("br"));return}if(tag==="B"||tag==="STRONG"||tag==="U"||tag==="FONT"){let safe;if(tag==="B"||tag==="STRONG")safe=document.createElement("strong");else if(tag==="U")safe=document.createElement("u");else{const size=String(node.getAttribute("size")||"");if(!/^[1-7]$/.test(size)){[...node.childNodes].forEach(child=>append(child,parent));return}safe=document.createElement("font");safe.setAttribute("size",size)}[...node.childNodes].forEach(child=>append(child,safe));parent.appendChild(safe);return}const block=["DIV","P","LI","H1","H2","H3","BLOCKQUOTE"].includes(tag);if(block&&parent.childNodes.length&&parent.lastChild?.nodeName!=="BR")parent.appendChild(document.createElement("br"));[...node.childNodes].forEach(child=>append(child,parent));if(block&&node!==source&&parent.lastChild?.nodeName!=="BR")parent.appendChild(document.createElement("br"))};
+  const append=(node,parent)=>{if(node.nodeType===Node.TEXT_NODE){parent.appendChild(document.createTextNode(node.nodeValue||""));return}if(node.nodeType!==Node.ELEMENT_NODE)return;const tag=node.tagName;if(tag==="BR"){parent.appendChild(document.createElement("br"));return}if(tag==="B"||tag==="STRONG"||tag==="U"||tag==="FONT"||tag==="SPAN"){let safe;if(tag==="B"||tag==="STRONG")safe=document.createElement("strong");else if(tag==="U")safe=document.createElement("u");else{const legacy=tag==="FONT"?SCRIPT_LEGACY_FONT_LEVEL_PX[Number(node.getAttribute("size"))]:null,declared=tag==="SPAN"?Number(node.getAttribute("data-script-font-size")||String(node.getAttribute("style")||"").match(/font-size\s*:\s*(\d+(?:\.\d+)?)px/i)?.[1]):legacy;if(!Number.isFinite(declared)){[...node.childNodes].forEach(child=>append(child,parent));return}const px=clampScriptFontPx(declared);safe=document.createElement("span");safe.dataset.scriptFontSize=String(px);safe.style.fontSize=`${px}px`}[...node.childNodes].forEach(child=>append(child,safe));parent.appendChild(safe);return}const block=["DIV","P","LI","H1","H2","H3","BLOCKQUOTE"].includes(tag);if(block&&parent.childNodes.length&&parent.lastChild?.nodeName!=="BR")parent.appendChild(document.createElement("br"));[...node.childNodes].forEach(child=>append(child,parent));if(block&&node!==source&&parent.lastChild?.nodeName!=="BR")parent.appendChild(document.createElement("br"))};
   [...(source?.childNodes||[])].forEach(child=>append(child,fragment));while(fragment.lastChild?.nodeName==="BR")fragment.removeChild(fragment.lastChild);editor.replaceChildren(fragment);if(scriptEditorText()!==String(fallback||"").replace(/\r\n?/g,"\n"))setScriptEditorText(fallback);app.script.selectionCache=null;app.script.savedRange=null
 }
 function scriptEditorHtml(){
-  const encode=node=>{if(node.nodeType===Node.TEXT_NODE)return escapeHtml(node.nodeValue||"").replace(/\n/g,"<br>");if(node.nodeType!==Node.ELEMENT_NODE)return "";if(node.tagName==="BR")return "<br>";const content=[...node.childNodes].map(encode).join("");if(node.tagName==="B"||node.tagName==="STRONG")return `<strong>${content}</strong>`;if(node.tagName==="U")return `<u>${content}</u>`;if(node.tagName==="FONT"){const size=String(node.getAttribute("size")||"");return /^[1-7]$/.test(size)?`<font size="${size}">${content}</font>`:content}return content};return [...$("scriptTextEditor").childNodes].map(encode).join("")
+  const encode=node=>{if(node.nodeType===Node.TEXT_NODE)return escapeHtml(node.nodeValue||"").replace(/\n/g,"<br>");if(node.nodeType!==Node.ELEMENT_NODE)return "";if(node.tagName==="BR")return "<br>";const content=[...node.childNodes].map(encode).join("");if(node.tagName==="B"||node.tagName==="STRONG")return `<strong>${content}</strong>`;if(node.tagName==="U")return `<u>${content}</u>`;if(node.tagName==="SPAN"&&node.hasAttribute("data-script-font-size")){const px=clampScriptFontPx(node.getAttribute("data-script-font-size"));return `<span data-script-font-size="${px}" style="font-size:${px}px">${content}</span>`}if(node.tagName==="FONT"){const px=SCRIPT_LEGACY_FONT_LEVEL_PX[Number(node.getAttribute("size"))];return px?`<span data-script-font-size="${px}" style="font-size:${px}px">${content}</span>`:content}return content};return [...$("scriptTextEditor").childNodes].map(encode).join("")
 }
 function scriptSelectionRange(){const editor=$("scriptTextEditor"),selection=window.getSelection();if(!selection?.rangeCount)return null;const range=selection.getRangeAt(0);return editor.contains(range.commonAncestorContainer)?range:null}
 function currentScriptSelection(){
@@ -1959,20 +2018,30 @@ function applyScriptFormat(command,value=null){
 }
 function toggleScriptBold(){applyScriptFormat("bold")}
 function toggleScriptUnderline(){applyScriptFormat("underline")}
-function clampScriptFontLevel(value){return Math.max(1,Math.min(7,Number(value)||3))}
-function scriptSelectionFontLevel(){return clampScriptFontLevel(document.queryCommandValue?.("fontSize")||app.script.fontSizeLevel||3)}
-function syncScriptFontSizeValue(){const output=$("scriptFontSizeValue"),level=clampScriptFontLevel(app.script.fontSizeLevel);if(output){output.value=String(SCRIPT_FONT_LEVEL_PX[level]);output.textContent=String(SCRIPT_FONT_LEVEL_PX[level]);output.title=`${SCRIPT_FONT_LEVEL_PX[level]} px`}}
+function clampScriptFontPx(value){return Math.max(SCRIPT_FONT_MIN_PX,Math.min(SCRIPT_FONT_MAX_PX,Math.round(Number(value)||SCRIPT_FONT_DEFAULT_PX)))}
+function scriptSelectionFontPx(){
+  const editor=$("scriptTextEditor"),range=scriptSelectionRange()||app.script.savedRange;let node=range?.startContainer;if(node?.nodeType===Node.TEXT_NODE)node=node.parentElement;
+  while(node&&node!==editor){const declared=Number(node.dataset?.scriptFontSize);if(Number.isFinite(declared)&&declared>0)return clampScriptFontPx(declared);if(node.tagName==="FONT"&&SCRIPT_LEGACY_FONT_LEVEL_PX[Number(node.getAttribute("size"))])return SCRIPT_LEGACY_FONT_LEVEL_PX[Number(node.getAttribute("size"))];node=node.parentElement}
+  return clampScriptFontPx(app.script.fontSizePx||SCRIPT_FONT_DEFAULT_PX)
+}
+function syncScriptFontSizeValue(){const output=$("scriptFontSizeValue"),px=clampScriptFontPx(app.script.fontSizePx);if(output){output.value=String(px);output.textContent=String(px);output.title=`${px} px`}}
 function changeScriptFontSize(delta){
-  if(!scriptSelectionRange()&&!restoreScriptSelection())return;
-  const current=clampScriptFontLevel(app.script.fontSizeLevel||scriptSelectionFontLevel()),next=clampScriptFontLevel(current+Number(delta||0));
+  if(!scriptSelectionRange()&&!restoreScriptSelection())return;const range=scriptSelectionRange();if(!range||range.collapsed)return;
+  const current=scriptSelectionFontPx(),next=clampScriptFontPx(current+Number(delta||0));
   if(next===current){syncScriptFontSizeValue();return}
-  app.script.fontSizeLevel=next;app.script.fontSizeApplying=true;syncScriptFontSizeValue();
-  try{applyScriptFormat("fontSize",String(next))}finally{app.script.fontSizeApplying=false;app.script.fontSizeLevel=next;syncScriptFontSizeValue()}
+  app.script.fontSizePx=next;app.script.fontSizeApplying=true;syncScriptFontSizeValue();
+  try{
+    const fragment=range.extractContents();
+    [...fragment.querySelectorAll('span[data-script-font-size],font[size]')].reverse().forEach(element=>element.replaceWith(...element.childNodes));
+    const span=document.createElement("span");span.dataset.scriptFontSize=String(next);span.style.fontSize=`${next}px`;span.appendChild(fragment);range.insertNode(span);
+    const selected=document.createRange();selected.selectNodeContents(span);const selection=window.getSelection();selection.removeAllRanges();selection.addRange(selected);app.script.savedRange=selected.cloneRange();
+    $("scriptTextEditor").dispatchEvent(new Event("input",{bubbles:true}))
+  }finally{app.script.fontSizeApplying=false;app.script.fontSizePx=next;syncScriptFontSizeValue()}
 }
 function updateScriptFormatState(){
   const range=scriptSelectionRange();
   for(const [id,command] of [["scriptBoldBtn","bold"],["scriptUnderlineBtn","underline"]]){const button=$(id),active=!!range&&!!document.queryCommandState?.(command);button.classList.toggle("active",active);button.setAttribute("aria-pressed",String(active))}
-  if(range&&!app.script.fontSizeApplying)app.script.fontSizeLevel=scriptSelectionFontLevel();
+  if(range&&!app.script.fontSizeApplying)app.script.fontSizePx=scriptSelectionFontPx();
   syncScriptFontSizeValue()
 }
 function scriptShotLabel(shotId){const item=allShots().find(entry=>entry.shot.id===shotId);return item?`Scene ${item.scene.number} · Shot ${item.shot.shotNo}`:"Deleted shot"}
@@ -1986,10 +2055,43 @@ function updateScriptSelection(){
   if(hasText){const content=scriptEditorText(),from=scriptLineNumberAt(content,selection.start),to=scriptLineNumberAt(content,selection.end);$("scriptSelectionTitle").textContent=`Selected ${selection.end-selection.start} characters · line ${from}${to===from?"":` to ${to}`}`;$("scriptSelectionMeta").textContent=selection.text.replace(/\s+/g," ").trim().slice(0,180)}else{$("scriptSelectionTitle").textContent="Select text to connect it to a shot";$("scriptSelectionMeta").textContent="A selection may begin or end in the middle of any line."}
   $("linkScriptSelectionBtn").disabled=!hasText||!editable||!$("scriptLinkShotSelect").value;$("createShotFromScriptBtn").disabled=!hasText||!editable||!$("scriptLinkSceneSelect").value
 }
+function productionTimeBucket(value){return value==="Night"?"night":value&&value!=="Unspecified"?"day":"unspecified"}
+function productionElementOccurrences(scenes,field){
+  const entries=new Map();
+  scenes.forEach((scene,index)=>{for(const value of Array.isArray(scene[field])?scene[field]:[]){const name=cleanScriptText(value,240,"");if(!name)continue;const key=name.toLocaleLowerCase(),entry=entries.get(key)||{name,count:0,scenes:[]};entry.count++;entry.scenes.push(index+1);entries.set(key,entry)}});
+  return [...entries.values()].sort((a,b)=>b.count-a.count||a.name.localeCompare(b.name))
+}
+function productionSummary(analysis){
+  const scenes=analysis?.scenes||[],count=predicate=>scenes.filter(predicate).length,unique=field=>productionElementOccurrences(scenes,field).length,shotCount=scene=>app.current?.scenes?.find(projectScene=>projectScene.scriptSceneKey===scene.key)?.shots?.length||0,sumShots=predicate=>scenes.filter(predicate).reduce((sum,scene)=>sum+shotCount(scene),0);
+  return {
+    scenes:scenes.length,
+    plannedShots:scenes.reduce((sum,scene)=>sum+shotCount(scene),0),
+    interiors:count(scene=>scene.interior_exterior==="INT"||scene.interior_exterior==="INT/EXT"),
+    exteriors:count(scene=>scene.interior_exterior==="EXT"||scene.interior_exterior==="INT/EXT"),
+    interiorShots:sumShots(scene=>scene.interior_exterior==="INT"||scene.interior_exterior==="INT/EXT"),
+    exteriorShots:sumShots(scene=>scene.interior_exterior==="EXT"||scene.interior_exterior==="INT/EXT"),
+    storyDay:count(scene=>productionTimeBucket(scene.story_time)==="day"),
+    storyNight:count(scene=>productionTimeBucket(scene.story_time)==="night"),
+    storyDayShots:sumShots(scene=>productionTimeBucket(scene.story_time)==="day"),
+    storyNightShots:sumShots(scene=>productionTimeBucket(scene.story_time)==="night"),
+    shootDay:count(scene=>productionTimeBucket(scene.shoot_time)==="day"),
+    shootNight:count(scene=>productionTimeBucket(scene.shoot_time)==="night"),
+    shootDayShots:sumShots(scene=>productionTimeBucket(scene.shoot_time)==="day"),
+    shootNightShots:sumShots(scene=>productionTimeBucket(scene.shoot_time)==="night"),
+    dayForNight:count(scene=>scene.time_strategy==="day_for_night"),
+    nightForDay:count(scene=>scene.time_strategy==="night_for_day"),
+    specialScenes:count(scene=>scene.special_location||scene.risk_flags?.length||scene.stunts?.length||scene.special_effects?.length||scene.visual_effects?.length||scene.animals?.length),
+    props:unique("props"),
+    equipment:unique("special_equipment"),
+    hasProductionDetails:scenes.some(scene=>scene.interior_exterior!=="Unspecified"||scene.special_location||PRODUCTION_ELEMENT_FIELDS.some(([field])=>scene[field]?.length))
+  }
+}
 function renderScriptAnalysis(){
   const wrap=$("scriptAnalysisResults"),analysis=app.script.analysis;if(!analysis){wrap.hidden=true;wrap.innerHTML="";return}wrap.hidden=false;
-  const sceneItems=analysis.scenes.slice(0,60).map(scene=>`<div class="script-analysis-item"><strong>${escapeHtml(scene.title)}</strong><small>${escapeHtml(scene.location||"Location not identified")} · Story ${escapeHtml(scene.story_time)} · Shoot ${escapeHtml(scene.shoot_time||scene.story_time)}${scene.time_strategy!=="natural"?` · ${escapeHtml(scene.time_strategy==="day_for_night"?"Day for Night":"Night for Day")}`:""} · lines ${scene.start_line}–${scene.end_line}</small><small>${escapeHtml(scene.characters.join(", ")||"No recurring characters identified")}</small></div>`).join("");
-  wrap.innerHTML=`<div class="script-analysis-summary"><div class="script-analysis-stat"><strong>${analysis.scenes.length}</strong><small>Scenes</small></div><div class="script-analysis-stat"><strong>${analysis.characters.length}</strong><small>Characters</small></div><div class="script-analysis-stat"><strong>${analysis.locations.length}</strong><small>Locations</small></div></div><div class="script-analysis-list">${sceneItems||'<div class="ai-picker-empty">No scenes were detected. Review the script formatting and analyze again.</div>'}</div>`
+  const totals=productionSummary(analysis),sceneItems=analysis.scenes.slice(0,60).map(scene=>`<div class="script-analysis-item"><strong>${escapeHtml(scene.title)}</strong><small>${escapeHtml(scene.interior_exterior||"Unspecified")} · ${escapeHtml(scene.location||"Location not identified")} · Story ${escapeHtml(scene.story_time)} · Shoot ${escapeHtml(scene.shoot_time||scene.story_time)}${scene.time_strategy!=="natural"?` · ${escapeHtml(scene.time_strategy==="day_for_night"?"Day for Night":"Night for Day")}`:""} · lines ${scene.start_line}–${scene.end_line}</small><small>${escapeHtml(scene.characters.join(", ")||"No recurring characters identified")}</small></div>`).join("");
+  const productionNotice=totals.hasProductionDetails?"The complete department breakdown is ready in Collaboration.":"This analysis predates the production chart. Analyze the saved script again to fill department details.";
+  wrap.innerHTML=`<div class="script-analysis-summary"><div class="script-analysis-stat"><strong>${analysis.scenes.length}</strong><small>Scenes</small></div><div class="script-analysis-stat"><strong>${analysis.characters.length}</strong><small>Characters</small></div><div class="script-analysis-stat"><strong>${analysis.locations.length}</strong><small>Locations</small></div></div><section class="script-production-summary"><div class="script-production-summary-head"><div><strong>Production Chart Summary</strong><small>${escapeHtml(productionNotice)}</small></div><button type="button" class="btn ghost open-production-dashboard">Open Production Dashboard</button></div><div class="script-production-mini-grid"><span><strong>${totals.plannedShots}</strong><small>Planned shots</small></span><span><strong>${totals.interiors}</strong><small>INT scenes</small></span><span><strong>${totals.exteriors}</strong><small>EXT scenes</small></span><span><strong>${totals.storyNight}</strong><small>Story night</small></span><span><strong>${totals.dayForNight+totals.nightForDay}</strong><small>Time conversions</small></span><span><strong>${totals.props}</strong><small>Unique props</small></span><span><strong>${totals.specialScenes}</strong><small>Special-production scenes</small></span></div></section><div class="script-analysis-list">${sceneItems||'<div class="ai-picker-empty">No scenes were detected. Review the script formatting and analyze again.</div>'}</div>`;
+  wrap.querySelector(".open-production-dashboard")?.addEventListener("click",()=>{if($("aiBibleModal")?.open)$("aiBibleModal").close();openCollab("production")})
 }
 function goToScriptShot(shotId){const item=allShots().find(entry=>entry.shot.id===shotId);if(!item)return;app.activeSceneId=item.scene.id;app.activeShotId=item.shot.id;app.mobileScreen="shot";app.sheetOpen=false;if($("aiBibleModal").open)$("aiBibleModal").close();renderEditor();rememberWorkspace()}
 function renderScriptLinks(){
@@ -2030,9 +2132,9 @@ async function saveProjectScript({silent=false}={}){
 }
 async function analyzeProjectScript(){
   if(!app.script.ready||!scriptCanEdit()||app.script.analyzing)return;const text=scriptEditorText();if(text.trim().length<20)return setMsg("scriptNotice","Add more screenplay text before analysis.","warning");if(text.length>SCRIPT_MAX_ANALYSIS_CHARS)return setMsg("scriptNotice",`This script has ${text.length.toLocaleString()} characters. AI analysis currently accepts up to ${SCRIPT_MAX_ANALYSIS_CHARS.toLocaleString()} characters at once.`,"warning");
-  const record=await saveProjectScript({silent:true});if(!record)return;app.script.analyzing=true;setMsg("scriptNotice","AI is identifying scenes, recurring characters, locations and story time…");renderScriptBible();
+  const record=await saveProjectScript({silent:true});if(!record)return;app.script.analyzing=true;setMsg("scriptNotice","AI is identifying scenes, cast, locations, schedule conditions and production elements…");renderScriptBible();
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),240000);
-  try{const {data:{session}}=await sb.auth.getSession();if(!session?.access_token)throw new Error("Your session expired. Sign in again.");const response=await fetch("/api/script/analyze",{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${session.access_token}`},body:JSON.stringify({project_id:app.current.id,script_id:record.id,script_text:text}),signal:controller.signal});const body=await response.json().catch(()=>({}));if(!response.ok)throw new Error(body.error||`Script analysis failed (${response.status}).`);const analysis=normalizeScriptAnalysis(body.analysis);if(!analysis.scenes.length)throw new Error("AI could not identify any scenes. Check screenplay headings and try again.");app.ignoreRealtimeUntil=Date.now()+1800;const analyzedAt=new Date().toISOString(),{data,error}=await sb.from("project_scripts").update({analysis,analysis_model:body.model||"glm-4.7-flash",analyzed_at:analyzedAt,applied_at:null}).eq("id",record.id).select().single();if(error)throw error;app.script.record=data;app.script.analysis=analysis;setMsg("scriptNotice",`Analysis ready: ${analysis.scenes.length} scenes, ${analysis.characters.length} characters and ${analysis.locations.length} locations. Review it, then apply the breakdown.`)}
+  try{const {data:{session}}=await sb.auth.getSession();if(!session?.access_token)throw new Error("Your session expired. Sign in again.");const response=await fetch("/api/script/analyze",{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${session.access_token}`},body:JSON.stringify({project_id:app.current.id,script_id:record.id,script_text:text}),signal:controller.signal});const body=await response.json().catch(()=>({}));if(!response.ok)throw new Error(body.error||`Script analysis failed (${response.status}).`);const analysis=normalizeScriptAnalysis(body.analysis);if(!analysis.scenes.length)throw new Error("AI could not identify any scenes. Check screenplay headings and try again.");app.ignoreRealtimeUntil=Date.now()+1800;const analyzedAt=new Date().toISOString(),{data,error}=await sb.from("project_scripts").update({analysis,analysis_model:body.model||"glm-4.7-flash",analyzed_at:analyzedAt,applied_at:null}).eq("id",record.id).select().single();if(error)throw error;app.script.record=data;app.script.analysis=analysis;setMsg("scriptNotice",`Analysis ready: ${analysis.scenes.length} scenes, ${analysis.characters.length} characters, ${analysis.locations.length} locations and a department production chart. Review it, then apply the breakdown.`)}
   catch(error){setMsg("scriptNotice",error?.name==="AbortError"?"Script analysis took too long. Try again.":error.message||"Could not analyze the script.","warning")}
   finally{clearTimeout(timeout);app.script.analyzing=false;renderScriptBible()}
 }
@@ -2056,7 +2158,7 @@ async function applyScriptBreakdown(){
       if(!(shotRows||[]).length){const seed=blankShot(1);seed.aiLocationId=locationId||"";seed.aiCharacterIds=characterIds;seed.timeOfDay=item.story_time||"Unspecified";seed.location=item.location||"";seed.summary=item.description||item.title;const {error}=await sb.from("shots").insert({project_id:app.current.id,scene_id:sceneRow.id,shot_number:1,position:1,data:shotDbData(seed)});if(error)throw error}
       else for(const row of shotRows){const data={...blankShot(row.shot_number),...(row.data||{}),aiLocationId:locationId||"",aiCharacterIds:characterIds};if(item.story_time&&item.story_time!=="Unspecified")data.timeOfDay=item.story_time;if(item.location&&!data.location)data.location=item.location;const {error}=await sb.from("shots").update({data:shotDbData(data)}).eq("id",row.id).eq("project_id",app.current.id);if(error)throw error}
     }
-    const appliedAt=new Date().toISOString(),{error}=await sb.from("project_scripts").update({applied_at:appliedAt}).eq("id",record.id);if(error)throw error;await openCloudProject(app.current.id,{sceneId:firstSceneId,preserveSelection:true});setMsg("aiBibleNotice","Script breakdown applied. Generate or upload each new Bible reference, review it, then lock it. Scene references are already assigned to their shots.");setMsg("scriptNotice","Breakdown applied to the project.");renderAiVisualBible()
+    const appliedAt=new Date().toISOString(),{error}=await sb.from("project_scripts").update({applied_at:appliedAt}).eq("id",record.id);if(error)throw error;await openCloudProject(app.current.id,{sceneId:firstSceneId,preserveSelection:true});setMsg("aiBibleNotice","Script breakdown applied. Add Source Images where needed, then generate, review and lock each new Bible reference. Scene references are already assigned to their shots.");setMsg("scriptNotice","Breakdown applied to the project.");renderAiVisualBible()
   }catch(error){setMsg("scriptNotice",error.message||"Could not apply the script breakdown.","warning")}
   finally{app.suppressRealtime=Math.max(0,app.suppressRealtime-1);app.script.applying=false;renderScriptBible();renderAiVisualBible()}
 }
@@ -2100,7 +2202,6 @@ function aiAssetCard(asset,type){
       <textarea class="ai-asset-description" maxlength="1400" aria-label="Stable visual description" ${!editable||locked?"disabled":""}>${escapeHtml(asset.description||"")}</textarea>
       <div class="ai-asset-actions">
         <button type="button" class="generate${generatingThis?" is-generating":""}" ${!editable||locked||app.ai.generating?"disabled":""}>${generateLabel}</button>
-        <label class="ai-upload-label ${!editable||locked||app.ai.generating?"disabled":""}" title="Upload a finished reference directly">Upload Final<input class="ai-reference-input" type="file" accept="image/jpeg,image/png,image/webp" hidden ${!editable||locked||app.ai.generating?"disabled":""}></label>
         <button type="button" class="lock" ${!editable||(!hasReference&&!locked)?"disabled":""}>${locked?"Unlock":"Lock"}</button>
         <button type="button" class="delete" ${!editable?"disabled":""}>Delete</button>
       </div>
@@ -2108,7 +2209,7 @@ function aiAssetCard(asset,type){
         ${hasSource&&asset.sourceUrl?`<button type="button" class="ai-source-preview has-image" aria-label="Open ${escapeHtml(asset.name)} source image"><img src="${escapeHtml(asset.sourceUrl)}" alt="${escapeHtml(asset.name)} source" loading="lazy"></button>`:`<span class="ai-source-preview" aria-hidden="true">＋</span>`}
         <div class="ai-source-copy">
           <strong>Source Image</strong>
-          <small>${app.ai.sourceReady?"Optional identity or location image used to guide Generate. Upload Final above replaces the finished reference directly.":"Run the v4.4 SQL once to enable Source Image."}</small>
+          <small>${app.ai.sourceReady?"Optional identity or location image used to guide Generate. The generated result remains the final Bible reference.":"Run the v4.4 SQL once to enable Source Image."}</small>
           <div class="ai-source-actions">
             <label class="ai-upload-label ${!editable||!app.ai.sourceReady||app.ai.generating?"disabled":""}">${hasSource?"Replace Source":"Add Source"}<input class="ai-source-input" type="file" accept="image/jpeg,image/png,image/webp" hidden ${!editable||!app.ai.sourceReady||app.ai.generating?"disabled":""}></label>
             ${hasSource?`<button type="button" class="remove-source" ${!editable||app.ai.generating?"disabled":""}>Remove Source</button>`:""}
@@ -2120,7 +2221,6 @@ function aiAssetCard(asset,type){
   const name=card.querySelector(".ai-asset-name"),description=card.querySelector(".ai-asset-description");
   [name,description].forEach(el=>el.addEventListener("change",()=>updateAiAssetText(type,asset.id,name.value,description.value)));
   card.querySelector(".generate").onclick=()=>generateAiReference(type,asset.id);
-  card.querySelector(".ai-reference-input").onchange=e=>uploadAiReference(type,asset.id,e);
   card.querySelector(".ai-source-input").onchange=e=>uploadAiSource(type,asset.id,e);
   card.querySelector(".ai-asset-image-open")?.addEventListener("click",()=>openImageViewer(aiAssetImageTarget(asset,type,"reference")));
   card.querySelector(".ai-source-preview.has-image")?.addEventListener("click",()=>openImageViewer(aiAssetImageTarget(asset,type,"source")));
@@ -2153,7 +2253,7 @@ async function addAiAsset(type){
   if(!name||!description)return setMsg("aiBibleNotice","Add both a name and a stable visual description.","warning");
   const {data,error}=await sb.from(aiTable(type)).insert({project_id:app.current.id,name,description,locked:false,created_by:app.session.user.id}).select().single();
   if(error)return setMsg("aiBibleNotice",error.message,"warning");
-  aiCollection(type).push(normalizeAiAsset(data,type));nameEl.value="";descriptionEl.value="";setMsg("aiBibleNotice",`${name} added. Generate or upload a reference, approve it, then lock it.`);renderAiVisualBible();renderShot()
+  aiCollection(type).push(normalizeAiAsset(data,type));nameEl.value="";descriptionEl.value="";setMsg("aiBibleNotice",`${name} added. Add a Source Image if needed, generate the reference, review it, then lock it.`);renderAiVisualBible();renderShot()
 }
 async function updateAiAssetText(type,id,name,description){
   const asset=aiCollection(type).find(x=>x.id===id);if(!asset||asset.locked||!can("media"))return;
@@ -2163,7 +2263,7 @@ async function updateAiAssetText(type,id,name,description){
 }
 async function toggleAiAssetLock(type,id){
   const asset=aiCollection(type).find(x=>x.id===id);if(!asset||!can("media"))return;
-  if(!asset.locked&&!asset.reference_path)return setMsg("aiBibleNotice","Generate or upload a reference before locking this item.","warning");
+  if(!asset.locked&&!asset.reference_path)return setMsg("aiBibleNotice","Generate a reference before locking this item.","warning");
   const locked=!asset.locked,style_snapshot=locked?app.current.style:asset.style_snapshot;
   const {error}=await sb.from(aiTable(type)).update({locked,style_snapshot,updated_at:new Date().toISOString()}).eq("id",id).eq("project_id",app.current.id);
   if(error)return setMsg("aiBibleNotice",error.message,"warning");asset.locked=locked;asset.style_snapshot=style_snapshot;setMsg("aiBibleNotice",`${asset.name} ${locked?`locked for ${app.current.style}`:"unlocked for editing"}.`);renderAiVisualBible();renderShot();applyPermissionLocks()
@@ -2210,11 +2310,6 @@ async function storeAiReference(type,asset,sourceBlob,origin="ai"){
   const {error:updateError}=await sb.from(aiTable(type)).update({reference_path:path,style_snapshot:null,locked:false,updated_at:new Date().toISOString()}).eq("id",asset.id).eq("project_id",app.current.id);
   if(updateError){await removeMediaPaths([path]);throw updateError}
   asset.reference_path=path;asset.style_snapshot=null;asset.locked=false;asset.referenceUrl=null;await signAiAsset(asset);if(!asset.referenceUrl)asset.referenceUrl=URL.createObjectURL(optimized);if(String(oldUrl||"").startsWith("blob:"))URL.revokeObjectURL(oldUrl);await removeMediaPaths([oldPath]);return asset
-}
-async function uploadAiReference(type,id,event){
-  const file=event.target.files?.[0],asset=aiCollection(type).find(x=>x.id===id);event.target.value="";if(!file||!asset||asset.locked||!can("media"))return;
-  if(!/^image\/(jpeg|png|webp)$/.test(file.type)||file.size>12*1024*1024)return setMsg("aiBibleNotice","Use a JPEG, PNG or WebP image up to 12 MB.","warning");
-  try{setMsg("aiBibleNotice",`Optimizing and saving ${asset.name}…`);await storeAiReference(type,asset,file,"manual");setMsg("aiBibleNotice",`${asset.name} reference saved. Review it, then lock it.`);renderAiVisualBible();renderShot()}catch(err){setMsg("aiBibleNotice",err.message||"Could not save reference.","warning")}
 }
 async function uploadAiSource(type,id,event){
   const file=event.target.files?.[0],asset=aiCollection(type).find(x=>x.id===id);event.target.value="";if(!file||!asset||!app.ai.sourceReady||!can("media")||app.ai.generating)return;
@@ -2332,11 +2427,11 @@ function aiShotReady(){
   if(!app.ai.ready)return {ready:false,message:app.ai.migrationMessage};if(!can("media"))return {ready:false,message:"You need the project media permission to generate images."};if(!shot)return {ready:false,message:"Choose a shot first."};
   if(!String(shot.summary||shot.description||shot.subject||"").trim())return {ready:false,message:"Add a shot summary, subject or visual description first."};
   const location=app.ai.locations.find(x=>x.id===shot.aiLocationId);if(!location)return {ready:false,message:"Choose a project location for this shot."};
-  if(!location.reference_path)return {ready:false,message:`${location.name} needs a generated or uploaded reference before this shot can be generated.`};
+  if(!location.reference_path)return {ready:false,message:`${location.name} needs a generated reference before this shot can be generated.`};
   if(!location.locked)return {ready:false,message:`Lock the ${location.name} reference before generating this shot.`};
   if(location.style_snapshot!==app.current.style)return {ready:false,message:`${location.name} was locked for a different style. Review and lock it again for ${app.current.style}.`};
   if((shot.aiCharacterIds||[]).length>3)return {ready:false,message:"Choose no more than 3 recurring characters for one generated shot."};
-  const invalid=(shot.aiCharacterIds||[]).map(id=>app.ai.characters.find(c=>c.id===id)).find(x=>!x||!x.reference_path||!x.locked||x.style_snapshot!==app.current.style);if(invalid){const name=invalid?.name||"A selected character";if(!invalid?.reference_path)return {ready:false,message:`${name} needs a generated or uploaded reference before this shot can be generated.`};if(!invalid.locked)return {ready:false,message:`Lock the ${name} reference before generating this shot.`};return {ready:false,message:`${name} was locked for a different style. Review and lock it again for ${app.current.style}.`}}
+  const invalid=(shot.aiCharacterIds||[]).map(id=>app.ai.characters.find(c=>c.id===id)).find(x=>!x||!x.reference_path||!x.locked||x.style_snapshot!==app.current.style);if(invalid){const name=invalid?.name||"A selected character";if(!invalid?.reference_path)return {ready:false,message:`${name} needs a generated reference before this shot can be generated.`};if(!invalid.locked)return {ready:false,message:`Lock the ${name} reference before generating this shot.`};return {ready:false,message:`${name} was locked for a different style. Review and lock it again for ${app.current.style}.`}}
   return {ready:true,message:`Ready · ${location.name} · ${shot.aiCharacterIds.length||"no"} character reference${shot.aiCharacterIds.length===1?"":"s"} · ${app.current.style}`}
 }
 function captureShotEditorDraft(){
@@ -2406,21 +2501,67 @@ function renderSheet(){
 }
 
 /* ---------- COLLABORATION ---------- */
-function readPermissionUI(){return {project_settings:$("permProject").checked,scenes:$("permScenes").checked,shots:$("permShots").checked,media:$("permMedia").checked,members:$("permMembers").checked}}
+function readPermissionUI(){return {project_settings:$("permProject").checked,scenes:$("permScenes").checked,shots:$("permShots").checked,media:$("permMedia").checked,members:$("permMembers").checked,production_role:inviteProductionRole()}}
 function writePermissionUI(p){$("permProject").checked=!!p.project_settings;$("permScenes").checked=!!p.scenes;$("permShots").checked=!!p.shots;$("permMedia").checked=!!p.media;$("permMembers").checked=!!p.members}
 function setPermissionPreset(name){if(name==="viewer")writePermissionUI(blankPermissions());else if(name==="editor")writePermissionUI(editorPermissions())}
 
+function productionRoleOptions(selected="general"){
+  return Object.entries(PRODUCTION_ROLE_LABELS).map(([value,label])=>`<option value="${value}" ${value===normalizeProductionRole(selected)?"selected":""}>${escapeHtml(label)}</option>`).join("")
+}
+function productionDashboardViewForRole(role){
+  return ({assistant_director:"assistant_director",production_manager:"production_manager",art_props:"art_props",costume_makeup:"costume_makeup",locations:"locations",sfx_vfx:"sfx_vfx"})[normalizeProductionRole(role)]||"all"
+}
+function productionMetric(label,value,detail=""){
+  return `<div class="production-metric"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span>${detail?`<small>${escapeHtml(detail)}</small>`:""}</div>`
+}
+function productionBarChart(rows,empty="No breakdown data identified"){
+  const safeRows=rows.filter(row=>Number(row.value)>0),max=Math.max(1,...safeRows.map(row=>Number(row.value)||0));
+  if(!safeRows.length)return `<div class="production-empty-inline">${escapeHtml(empty)}</div>`;
+  return `<div class="production-bars">${safeRows.map(row=>`<div class="production-bar-row"><span>${escapeHtml(row.label)}</span><div><i style="width:${Math.max(4,Math.round(Number(row.value)/max*100))}%"></i></div><strong>${Number(row.value)||0}</strong></div>`).join("")}</div>`
+}
+function productionElementCard(analysis,field,label){
+  const items=productionElementOccurrences(analysis.scenes,field),preview=items.slice(0,18);
+  return `<section class="production-element-card"><header><strong>${escapeHtml(label)}</strong><span>${items.length} unique</span></header>${preview.length?`<div class="production-element-list">${preview.map(item=>`<div><span>${escapeHtml(item.name)}</span><small>${item.count} scene${item.count===1?"":"s"} · ${item.scenes.map(number=>`S${number}`).join(", ")}</small></div>`).join("")}</div>`:'<div class="production-empty-inline">None identified</div>'}</section>`
+}
+function productionSceneFlags(scene){
+  const flags=[];
+  if(scene.special_location)flags.push("Special location");
+  if(scene.extras?.length)flags.push("Background");
+  if(scene.stunts?.length)flags.push("Stunts");
+  if(scene.animals?.length)flags.push("Animals");
+  if(scene.vehicles?.length)flags.push("Vehicles");
+  if(scene.special_effects?.length)flags.push("SFX");
+  if(scene.visual_effects?.length)flags.push("VFX");
+  flags.push(...(scene.risk_flags||[]));
+  return [...new Set(flags)].slice(0,8)
+}
+function productionSceneTable(analysis){
+  const rows=analysis.scenes.map((scene,index)=>{const conversion=scene.time_strategy==="day_for_night"?"Day for Night":scene.time_strategy==="night_for_day"?"Night for Day":"Natural",flags=productionSceneFlags(scene),shots=app.current?.scenes?.find(projectScene=>projectScene.scriptSceneKey===scene.key)?.shots?.length||0;return `<tr><td><strong>S${index+1}</strong><small>${escapeHtml(scene.title)}</small></td><td>${shots}</td><td>${escapeHtml(scene.interior_exterior||"Unspecified")}</td><td>${escapeHtml(scene.location||"—")}</td><td><span>${escapeHtml(scene.story_time)}</span><small>Shoot: ${escapeHtml(scene.shoot_time)}</small></td><td>${escapeHtml(conversion)}</td><td>${escapeHtml(scene.characters.join(", ")||"—")}</td><td>${escapeHtml(flags.join(", ")||"—")}</td></tr>`}).join("");
+  return `<div class="production-scene-table-wrap"><table class="production-scene-table"><thead><tr><th>Scene</th><th>Shots</th><th>INT / EXT</th><th>Location</th><th>Story / Shoot</th><th>Conversion</th><th>Cast</th><th>Production Flags</th></tr></thead><tbody>${rows}</tbody></table></div>`
+}
+function renderProductionDashboard(){
+  const wrap=$("productionDashboard"),select=$("productionDashboardRole");if(!wrap||!select||!app.current)return;
+  if(app.productionDashboardProjectId!==app.current.id){select.value=productionDashboardViewForRole(app.permissions?.production_role);app.productionDashboardProjectId=app.current.id}
+  const analysis=app.script.analysis,view=select.value||"all";
+  if(!analysis){wrap.innerHTML='<div class="production-dashboard-empty"><strong>No analyzed script yet</strong><p>Open Bible → Script, save the screenplay and run Analyze with AI. The production chart will appear here automatically.</p><button type="button" class="btn open-script-analysis">Open Bible · Script</button></div>';wrap.querySelector(".open-script-analysis")?.addEventListener("click",()=>{$("collabModal").close();unsubscribeChatRealtime();openAiVisualBible({section:"script"})});return}
+  const totals=productionSummary(analysis),cast=productionElementOccurrences(analysis.scenes,"characters"),scheduleRows=[{label:"Story · Day scenes",value:totals.storyDay},{label:"Story · Night scenes",value:totals.storyNight},{label:"Shoot · Day scenes",value:totals.shootDay},{label:"Shoot · Night scenes",value:totals.shootNight},{label:"Day for Night",value:totals.dayForNight},{label:"Night for Day",value:totals.nightForDay}],shotScheduleRows=[{label:"Story · Day shots",value:totals.storyDayShots},{label:"Story · Night shots",value:totals.storyNightShots},{label:"Shoot · Day shots",value:totals.shootDayShots},{label:"Shoot · Night shots",value:totals.shootNightShots}],spaceRows=[{label:"Interior scenes",value:totals.interiors},{label:"Exterior scenes",value:totals.exteriors},{label:"Special production",value:totals.specialScenes}],shotSpaceRows=[{label:"Interior shots",value:totals.interiorShots},{label:"Exterior shots",value:totals.exteriorShots},{label:"All planned shots",value:totals.plannedShots}],assignmentRows=[{label:"Cast occurrences",value:analysis.scenes.reduce((sum,scene)=>sum+scene.characters.length,0)},{label:"Background scenes",value:analysis.scenes.filter(scene=>scene.extras?.length).length},{label:"Stunt scenes",value:analysis.scenes.filter(scene=>scene.stunts?.length).length},{label:"Vehicle scenes",value:analysis.scenes.filter(scene=>scene.vehicles?.length).length},{label:"Animal scenes",value:analysis.scenes.filter(scene=>scene.animals?.length).length}];
+  const allFields=PRODUCTION_ELEMENT_FIELDS.filter(([field])=>field!=="production_notes"),roleFields={art_props:["props","set_dressing","special_equipment","production_notes"],costume_makeup:["wardrobe","makeup_hair","production_notes"],locations:["location_requirements","safety_security","production_notes","risk_flags"],sfx_vfx:["stunts","special_effects","visual_effects","special_equipment","risk_flags"]},selectedFields=roleFields[view]?PRODUCTION_ELEMENT_FIELDS.filter(([field])=>roleFields[view].includes(field)):allFields;
+  const showAd=view==="all"||view==="assistant_director",showManager=view==="all"||view==="production_manager",showElements=!showAd||showManager||view==="all";
+  const legacyNote=!totals.hasProductionDetails?'<div class="notice warning production-analysis-warning">This saved analysis does not contain the new department fields. Re-analyze the script in Bible to complete this dashboard.</div>':"";
+  wrap.innerHTML=`${legacyNote}<div class="production-metric-grid">${productionMetric("Scenes",totals.scenes)}${productionMetric("Planned Shots",totals.plannedShots)}${productionMetric("INT",totals.interiors,`${totals.interiorShots} shots`)}${productionMetric("EXT",totals.exteriors,`${totals.exteriorShots} shots`)}${productionMetric("Story Night",totals.storyNight,`${totals.storyNightShots} shots`)}${productionMetric("Time Conversions",totals.dayForNight+totals.nightForDay)}${productionMetric("Unique Props",totals.props)}${productionMetric("Special Scenes",totals.specialScenes)}${productionMetric("Locations",analysis.locations.length)}</div>${showAd?`<section class="production-dashboard-section"><div class="production-section-head"><div><strong>Assistant Director · Schedule & Continuity</strong><small>Scene and planned-shot totals for environment, story/shoot time, conversions and performers.</small></div></div><div class="production-chart-grid"><div><h4>Day / Night · Scenes</h4>${productionBarChart(scheduleRows)}</div><div><h4>Day / Night · Planned Shots</h4>${productionBarChart(shotScheduleRows,"Apply the breakdown and create shots to populate this chart")}</div><div><h4>INT / EXT · Scenes</h4>${productionBarChart(spaceRows)}</div><div><h4>INT / EXT · Planned Shots</h4>${productionBarChart(shotSpaceRows,"Apply the breakdown and create shots to populate this chart")}</div><div><h4>Scene Requirements</h4>${productionBarChart(assignmentRows)}</div><div><h4>Cast by Scene Occurrence</h4>${productionBarChart(cast.slice(0,12).map(item=>({label:item.name,value:item.count})),"No recurring cast identified")}</div></div></section>`:""}${showManager?`<section class="production-dashboard-section"><div class="production-section-head"><div><strong>Production Manager · Resources & Logistics</strong><small>Unique elements to source, coordinate, permit, schedule or protect.</small></div></div><div class="production-elements-grid">${allFields.map(([field,label])=>productionElementCard(analysis,field,label)).join("")}</div></section>`:""}${showElements&&!showManager?`<section class="production-dashboard-section"><div class="production-section-head"><div><strong>${escapeHtml($("productionDashboardRole").options[$("productionDashboardRole").selectedIndex]?.textContent||"Department")} · Department Elements</strong><small>Items and scene occurrences relevant to this department.</small></div></div><div class="production-elements-grid">${selectedFields.map(([field,label])=>productionElementCard(analysis,field,label)).join("")}</div></section>`:""}<section class="production-dashboard-section"><div class="production-section-head"><div><strong>Scene Breakdown Chart</strong><small>Use scene rows to coordinate schedule, shot plans, cast, locations and department flags.</small></div></div>${productionSceneTable(analysis)}</section>`
+}
+
 function setCollabTab(tab){
-  app.collabTab=tab;
-  const chat=tab==="chat";
-  $("collabChatTab").classList.toggle("active",chat);$("collabMembersTab").classList.toggle("active",!chat);
-  $("collabChatPane").hidden=!chat;$("collabMembersPane").hidden=chat;
+  app.collabTab=["chat","members","production"].includes(tab)?tab:"chat";
+  const chat=app.collabTab==="chat",members=app.collabTab==="members",production=app.collabTab==="production";
+  $("collabChatTab").classList.toggle("active",chat);$("collabMembersTab").classList.toggle("active",members);$("collabProductionTab").classList.toggle("active",production);
+  $("collabChatPane").hidden=!chat;$("collabMembersPane").hidden=!members;$("collabProductionPane").hidden=!production;
   if(chat){
     renderChatReferenceOptions();
     renderChatMentionOptions();
     renderChatMessages();
     setTimeout(()=>{const box=$("chatMessages");if(box)box.scrollTop=box.scrollHeight},30)
-  }else renderMembers();
+  }else if(members)renderMembers();else renderProductionDashboard();
 }
 function renderChatReferenceOptions(){
   const el=$("chatReferenceSelect");if(!el||!app.current)return;
@@ -2491,24 +2632,25 @@ function subscribeChatRealtime(){
     .subscribe()
 }
 function unsubscribeChatRealtime(){if(sb&&app.chatChannel){sb.removeChannel(app.chatChannel);app.chatChannel=null}}
-async function openCollab(){
+async function openCollab(initialTab="chat"){
   if(app.mode!=="cloud"){uiAlert("Collaboration becomes available after Supabase cloud accounts are connected.");return}
   $("collabModal").showModal();setMsg("collabMessage","");$("shareLinkBox").hidden=true;
   $("collabOwnerTools").hidden=!(app.isOwner||can("members"));
-  setCollabTab("chat");subscribeChatRealtime()
+  setCollabTab(initialTab);subscribeChatRealtime()
 }
 async function renderMembers(){
   const wrap=$("membersList");wrap.innerHTML="";const pid=app.current.id;
   const {data:members,error}=await sb.from("project_members").select("user_id,role,permissions,joined_at").eq("project_id",pid);if(error){setMsg("collabMessage",error.message,"warning");return}
   const ids=(members||[]).map(x=>x.user_id);let profiles=[];
   if(ids.length){const {data}=await sb.from("profiles").select("id,username,display_name").in("id",ids);profiles=data||[]}
-  const owner=document.createElement("div");owner.className="member-row";owner.innerHTML=`<span><strong>Project owner</strong><small>Full access</small></span><span>Owner</span>`;wrap.appendChild(owner);
+  const owner=document.createElement("div");owner.className="member-row";owner.innerHTML=`<span><strong>Project owner</strong><small>Full access</small></span><span class="member-specialty-badge">Owner · All Departments</span>`;wrap.appendChild(owner);
   (members||[]).forEach(m=>{
     const pr=profiles.find(p=>p.id===m.user_id)||{};const row=document.createElement("div");row.className="member-row";
-    const manage=app.isOwner||can("members");
-    row.innerHTML=`<span><strong>${escapeHtml(pr.display_name||pr.username||"Member")}</strong><small>${pr.username?"@"+escapeHtml(pr.username):""}</small></span>${manage?'<span class="member-actions"><button type="button" class="btn ghost edit-member">Access</button><button type="button" class="btn ghost remove-member">Remove</button></span>':`<span class="member-role-label">${escapeHtml(m.role||"member")}</span>`}`;
+    const manage=app.isOwner||can("members"),specialty=normalizeProductionRole(m.permissions?.production_role);
+    row.innerHTML=`<span class="member-identity"><strong>${escapeHtml(pr.display_name||pr.username||"Member")}</strong><small>${pr.username?"@"+escapeHtml(pr.username):""}</small><em>${escapeHtml(m.role||"member")}</em></span>${manage?`<span class="member-management"><label>Production Specialty<select class="member-specialty-select">${productionRoleOptions(specialty)}</select></label><span class="member-actions"><button type="button" class="btn ghost edit-member">Access</button><button type="button" class="btn ghost remove-member">Remove</button></span></span>`:`<span class="member-specialty-badge">${escapeHtml(PRODUCTION_ROLE_LABELS[specialty])}</span>`}`;
     if(manage){
-      row.querySelector(".edit-member").onclick=async()=>{const preset=uiPrompt("Set role: viewer, editor or custom","editor");if(!preset)return;let perms=preset==="viewer"?blankPermissions():preset==="editor"?editorPermissions():m.permissions||editorPermissions();const rpc=adminSupporting()?"storyboard_admin_update_project_member":"update_project_member_access";const {error}=await sb.rpc(rpc,{p_project_id:pid,p_user_id:m.user_id,p_role:preset,p_permissions:perms});if(error)setMsg("collabMessage",error.message,"warning");else renderMembers()};
+      row.querySelector(".member-specialty-select").onchange=async event=>{const select=event.currentTarget,next=normalizeProductionRole(select.value),previous=specialty;select.disabled=true;const permissions={...(m.permissions||blankPermissions()),production_role:next},rpc=adminSupporting()?"storyboard_admin_update_project_member":"update_project_member_access",{error}=await sb.rpc(rpc,{p_project_id:pid,p_user_id:m.user_id,p_role:m.role||"member",p_permissions:permissions});select.disabled=false;if(error){select.value=previous;setMsg("collabMessage",error.message,"warning")}else{m.permissions=permissions;setMsg("collabMessage",`${pr.display_name||pr.username||"Member"} now opens the ${PRODUCTION_ROLE_LABELS[next]} dashboard.`)}};
+      row.querySelector(".edit-member").onclick=async()=>{const preset=uiPrompt("Set role: viewer, editor or custom","editor");if(!preset)return;const specialtyNow=normalizeProductionRole(m.permissions?.production_role),base=preset==="viewer"?blankPermissions():preset==="editor"?editorPermissions():m.permissions||editorPermissions(),perms={...base,production_role:specialtyNow};const rpc=adminSupporting()?"storyboard_admin_update_project_member":"update_project_member_access";const {error}=await sb.rpc(rpc,{p_project_id:pid,p_user_id:m.user_id,p_role:preset,p_permissions:perms});if(error)setMsg("collabMessage",error.message,"warning");else renderMembers()};
       row.querySelector(".remove-member").onclick=async()=>{if(!uiConfirm("Remove this collaborator?"))return;const rpc=adminSupporting()?"storyboard_admin_remove_project_member":"remove_project_member";const {error}=await sb.rpc(rpc,{p_project_id:pid,p_user_id:m.user_id});if(error)setMsg("collabMessage",error.message,"warning");else renderMembers()};
     }
     wrap.appendChild(row)
@@ -4154,7 +4296,7 @@ function bind(){
   document.querySelectorAll("[data-focus]").forEach(button=>button.onclick=()=>openPrimarySetting(button.dataset.focus));
   $("collaborateBtn").onclick=()=>{closeEditorActions();openCollab()};$("addMemberBtn").onclick=addMemberByUsername;$("createShareLinkBtn").onclick=createShareLink;$("copyShareLinkBtn").onclick=async()=>{await navigator.clipboard.writeText($("shareLinkOutput").value);setMsg("collabMessage","Invite link copied.")};
   $("permissionPreset").onchange=e=>{if(e.target.value!=="custom")setPermissionPreset(e.target.value)};
-  $("collabMembersTab").onclick=()=>setCollabTab("members");$("collabChatTab").onclick=()=>setCollabTab("chat");$("sendChatMessageBtn").onclick=sendChatMessage;
+  $("collabMembersTab").onclick=()=>setCollabTab("members");$("collabChatTab").onclick=()=>setCollabTab("chat");$("collabProductionTab").onclick=()=>setCollabTab("production");$("productionDashboardRole").onchange=renderProductionDashboard;$("sendChatMessageBtn").onclick=sendChatMessage;
   $("chatMentionSelect").onchange=e=>{if(e.target.value)insertChatMention(e.target.value);e.target.value=""};
   $("chatMessageInput").addEventListener("keydown",e=>{if(e.key==="Enter"&&(e.ctrlKey||e.metaKey)){e.preventDefault();sendChatMessage()}});
   $("closeCollabBtn").onclick=()=>{$("collabModal").close();unsubscribeChatRealtime()};$("collabModal").addEventListener("close",unsubscribeChatRealtime);
