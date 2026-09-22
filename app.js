@@ -1,4 +1,4 @@
-// Storyboard Shot Builder v4.5.0 — Bible scripts, AI breakdown and precise scene continuity
+// Storyboard Shot Builder v4.6.0 — folders, unified image crop and bilingual rich Script editing
 const OPTIONS = {
   shotSize:["ECU · Extreme Close Up","CU · Close Up","MCU · Medium Close Up","MS · Medium Shot","MLS · Medium Long Shot","WS · Wide Shot","EWS · Extreme Wide Shot","OTS · Over The Shoulder","POV · Point of View","Insert","Top Shot"],
   angle:["Eye Level","High Angle","Low Angle","Top / Bird's Eye","Dutch Angle","Ground Level","Overhead","Custom"],
@@ -45,6 +45,10 @@ let app = {
     profileSaving: false
   },
   projects: [],
+  projectFolders: [],
+  foldersReady: false,
+  folderMigrationMessage: "Run the saved v4.6 Project Folders SQL query, then reload Projects.",
+  moveProjectId: null,
   current: null,
   activeSceneId: null,
   activeShotId: null,
@@ -145,7 +149,7 @@ let presenceTrackTimer = null;
 let lastPresenceSignature = "";
 const LAYOUT_STORAGE_KEY = "storyboard-layout-mode";
 let imageViewerTarget=null;
-let cropState={target:null,drawable:null,cleanup:null,width:0,height:0,zoom:1,offsetX:0,offsetY:0,dragging:false,pointerId:null,startX:0,startY:0,startOffsetX:0,startOffsetY:0,saving:false};
+let cropState={active:false,target:null,drawable:null,cleanup:null,width:0,height:0,zoom:1,offsetX:0,offsetY:0,dragging:false,pointerId:null,startX:0,startY:0,startOffsetX:0,startOffsetY:0,saving:false};
 
 function uid(){return (crypto.randomUUID ? crypto.randomUUID() : "id-"+Date.now()+"-"+Math.random().toString(16).slice(2))}
 function fullPermissions(){return {project_settings:true,scenes:true,shots:true,media:true,members:true}}
@@ -155,7 +159,7 @@ function permissionPreset(name){return name==="viewer"?blankPermissions():name==
 function blankShot(no=1){return {id:uid(),shotNo:no,duration:"",shotSize:"CU · Close Up",angle:"Eye Level",lens:"50mm",focus:"Shallow Focus",movement:"Static",startEnd:"",composition:"Centered / Symmetrical",summary:"",subject:"",description:"",performance:"",subjectMovement:"",costume:"",timeOfDay:"Night",location:"",lightSource:"Candle",lightDirection:"Camera Left",lightQuality:"Low Key",lighting:"",props:"",dialogue:"",voiceOver:"",sfx:"",music:"",transitionIn:"Cut",transitionOut:"Cut",notes:"",aiCharacterIds:[],aiLocationId:"",aiGeneration:null,image:null,imagePath:null,position:no}}
 function blankScene(no=1){return {id:uid(),number:no,title:`Scene ${no}`,description:"",storyLocation:"",storyTime:"Unspecified",shootTime:"Unspecified",timeStrategy:"natural",aiLocationId:"",aiCharacterIds:[],scriptSceneKey:null,position:no,collapsed:false,shots:[blankShot(1)]}}
 function blankShotForScene(no,scene){const shot=blankShot(no);if(!scene)return shot;shot.aiLocationId=scene.aiLocationId||"";shot.aiCharacterIds=[...(scene.aiCharacterIds||[])];if(scene.storyTime&&scene.storyTime!=="Unspecified")shot.timeOfDay=scene.storyTime;if(scene.storyLocation)shot.location=scene.storyLocation;return shot}
-function blankProject(name="Untitled Storyboard"){return {id:uid(),name,aspect:"3:4 Portrait",aspectWidth:3,aspectHeight:4,style:"Storyboard B&W",owner_id:null,role:"owner",position:0,isFavorite:false,folder:"General",tags:[],metadata:{director:"",cinematographer:"",writer:"",production:"",status:"Planning",notes:""},scenes:[blankScene(1)],updated_at:new Date().toISOString()}}
+function blankProject(name="Untitled Storyboard"){return {id:uid(),name,aspect:"3:4 Portrait",aspectWidth:3,aspectHeight:4,style:"Storyboard B&W",owner_id:null,role:"owner",position:0,isFavorite:false,folderId:null,folder:"General",tags:[],metadata:{director:"",cinematographer:"",writer:"",production:"",status:"Planning",notes:""},scenes:[blankScene(1)],updated_at:new Date().toISOString()}}
 function deepClone(x){return JSON.parse(JSON.stringify(x))}
 function normalizeTags(v){
   if(Array.isArray(v))return v.map(x=>String(x).trim()).filter(Boolean);
@@ -455,8 +459,9 @@ function saveLocal(){
   const idx=app.projects.findIndex(p=>p.id===app.current.id);
   if(idx>=0)app.projects[idx]=app.current; else app.projects.push(app.current);
   localStorage.setItem("storyboard-v3-projects",JSON.stringify(app.projects));
+  localStorage.setItem("storyboard-v46-folders",JSON.stringify(app.projectFolders||[]));
 }
-function resetScriptState(){app.script={ready:false,loading:false,saving:false,analyzing:false,applying:false,record:null,links:[],analysis:null,editorHydrated:false,pendingFileName:"",pendingFileType:"",selectedStart:0,selectedEnd:0,migrationMessage:"Run the saved v4.5 Bible Script SQL query, then reload this project."}}
+function resetScriptState(){app.script={ready:false,loading:false,saving:false,analyzing:false,applying:false,record:null,links:[],analysis:null,editorHydrated:false,pendingFileName:"",pendingFileType:"",selectedStart:0,selectedEnd:0,selectionCache:null,savedRange:null,migrationMessage:"Run the saved v4.5 Bible Script SQL and v4.6 Project Folders & Rich Script SQL queries, then reload this project."}}
 function resetAiState(){app.ai.requestController?.abort();app.ai.ready=false;app.ai.sourceReady=false;app.ai.loading=false;app.ai.generating=false;app.ai.generatingAssetId=null;app.ai.generationMode=null;app.ai.requestController=null;app.ai.cancelRequested=false;app.ai.previousFocus=null;app.ai.characters=[];app.ai.locations=[];app.ai.usage={loaded:false,loading:false,error:"",used:0,remaining:20,dailyLimit:20,personalRemaining:20,globalRemaining:70,unlimited:false,usageDate:""};resetScriptState();syncAiGenerationLock();renderAiUsage()}
 function selectFirst(){
   const sc=app.current?.scenes?.[0]; app.activeSceneId=sc?.id||null; app.activeShotId=sc?.shots?.[0]?.id||null
@@ -564,6 +569,11 @@ function setMobileEditorScreen(screen){
     const target=screen==="scenes"?document.querySelector(".sidebar"):screen==="shot"?document.querySelector(".workspace"):$("sheetPanel");
     if(target)target.scrollTop=0
   })
+}
+async function returnToProjects(){
+  closeEditorActions();if(adminSupporting()){await closeAdminSupport(true);return}
+  unsubscribeRealtime();unsubscribePresence();stopSignedImageRefresh();unsubscribeChatRealtime();unsubscribeChatNoticeRealtime();unsubscribeLightingRealtime();updateChatBadges(0,false);
+  if(app.mode==="cloud"){rememberProjectsView();await loadCloudProjects();showProjects()}else showAuth()
 }
 async function afterLogin(){
   app.mode="cloud";
@@ -794,7 +804,7 @@ async function cancelPasswordRecovery(){
   if(sb&&app.session)await sb.auth.signOut({scope:"local"});toggleAuthTab("login");showAuth();setMsg("authMessage","Password reset canceled.")
 }
 function continueOffline(){
-  app.mode="local";resetAdminState();resetAiState();app.projects=getLocalProjects();app.current=app.projects[0];selectFirst();app.permissions=fullPermissions();app.isOwner=true;showEditor()
+  app.mode="local";resetAdminState();resetAiState();app.projects=getLocalProjects();try{app.projectFolders=JSON.parse(localStorage.getItem("storyboard-v46-folders")||"[]")||[]}catch{app.projectFolders=[]}app.foldersReady=true;app.projects.forEach(project=>{project.folderId=project.folderId||null;project.folder=project.folderId?(app.projectFolders.find(folder=>folder.id===project.folderId)?.name||"General"):"General"});app.current=app.projects[0];selectFirst();app.permissions=fullPermissions();app.isOwner=true;showEditor()
 }
 async function logout(){unsubscribePresence();stopSignedImageRefresh();resetAdminState();if(sb&&app.mode==="cloud")await sb.auth.signOut();else showAuth()}
 
@@ -805,10 +815,29 @@ function normalizeProjectRecord(p){
     aspectHeight:Number(p.aspect_height||p.aspectHeight||4),
     position:Number(p.position||0),
     isFavorite:!!(p.is_favorite??p.isFavorite),
+    folderId:p.folderId||null,
     folder:p.folder||"General",
     tags:normalizeTags(p.tags),
     metadata:projectMeta(p)
   }
+}
+async function loadCloudFolderData(projects){
+  const userId=app.session?.user?.id;if(!userId)return;
+  const foldersResult=await sb.from("project_folders").select("id,owner_id,name,created_at,updated_at").eq("owner_id",userId).order("name");
+  if(foldersResult.error){
+    app.foldersReady=false;app.projectFolders=[];
+    projects.forEach(project=>{project.folderId=null;project.folder=project.folder||"General"});
+    console.warn("Project folders are unavailable",foldersResult.error);return
+  }
+  const assignmentsResult=await sb.from("project_folder_assignments").select("project_id,folder_id").eq("user_id",userId);
+  if(assignmentsResult.error){
+    app.foldersReady=false;app.projectFolders=foldersResult.data||[];
+    projects.forEach(project=>{project.folderId=null;project.folder=project.folder||"General"});
+    console.warn("Project folder assignments are unavailable",assignmentsResult.error);return
+  }
+  app.foldersReady=true;app.projectFolders=foldersResult.data||[];
+  const folderById=new Map(app.projectFolders.map(folder=>[folder.id,folder])),assignmentByProject=new Map((assignmentsResult.data||[]).map(row=>[row.project_id,row.folder_id]));
+  projects.forEach(project=>{const folderId=assignmentByProject.get(project.id)||null,folder=folderById.get(folderId);project.folderId=folder?.id||null;project.folder=folder?.name||"General"})
 }
 async function loadCloudProjects(){
   let memberships=[];
@@ -830,6 +859,7 @@ async function loadCloudProjects(){
     p.dashboardPermissions=member?.permissions||blankPermissions();
     return p
   });
+  await loadCloudFolderData(mapped);
   const mine=mapped.filter(p=>p.owner_id===app.session.user.id).sort((a,b)=>(Number(a.position||0)-Number(b.position||0)) || new Date(b.updated_at||0)-new Date(a.updated_at||0));
   const shared=mapped.filter(p=>p.owner_id!==app.session.user.id).sort((a,b)=>new Date(b.updated_at||0)-new Date(a.updated_at||0));
   app.projects=[...mine,...shared];
@@ -845,7 +875,8 @@ function filteredProjects(){
   const now=Date.now(),recentMs=30*24*60*60*1000;
   return (app.projects||[]).filter(p=>{
     if(!projectMatchesSearch(p))return false;
-    if(app.projectFolder!=="all" && (p.folder||"General")!==app.projectFolder)return false;
+    if(app.projectFolder==="general" && p.folderId)return false;
+    if(app.projectFolder!=="all"&&app.projectFolder!=="general"&&p.folderId!==app.projectFolder)return false;
     if(app.projectFilter==="favorites" && !p.isFavorite)return false;
     if(app.projectFilter==="recent" && now-new Date(p.updated_at||0).getTime()>recentMs)return false;
     if(app.projectFilter==="shared" && p.owner_id===app.session?.user?.id)return false;
@@ -854,13 +885,14 @@ function filteredProjects(){
 }
 function refreshFolderFilter(){
   const el=$("projectFolderFilter"); if(!el)return;
-  const folders=[...new Set((app.projects||[]).map(p=>p.folder||"General"))].sort((a,b)=>a.localeCompare(b));
   const keep=app.projectFolder;
-  el.innerHTML='<option value="all">All folders</option>'+folders.map(f=>`<option value="${escapeHtml(f)}">${escapeHtml(f)}</option>`).join("");
-  el.value=folders.includes(keep)?keep:"all"; app.projectFolder=el.value;
+  const folders=[...(app.projectFolders||[])].sort((a,b)=>a.name.localeCompare(b.name));
+  el.innerHTML='<option value="all">All folders</option><option value="general">General</option>'+folders.map(folder=>`<option value="${escapeHtml(folder.id)}">${escapeHtml(folder.name)}</option>`).join("");
+  const values=[...el.options].map(option=>option.value);el.value=values.includes(keep)?keep:"all";app.projectFolder=el.value;
 }
 function renderProjects(){
   refreshFolderFilter();
+  if($("manageProjectFoldersBtn"))$("manageProjectFoldersBtn").disabled=app.mode==="cloud"&&!app.foldersReady;
   const grid=$("projectsGrid");grid.innerHTML="";
   const list=filteredProjects();
   const empty=$("projectsEmpty");empty.hidden=list.length>0;
@@ -888,12 +920,14 @@ function renderProjects(){
       <div class="project-card-actions">
         <button type="button" class="mini-btn details">Details</button>
         <button type="button" class="mini-btn duplicate">Duplicate</button>
+        <button type="button" class="mini-btn move-folder" ${app.mode==="cloud"&&!app.foldersReady?"disabled":""}>Move</button>
         ${editable?'<button type="button" class="mini-btn rename">Rename</button>':''}
         ${owner?'<button type="button" class="mini-btn danger-lite delete">Delete</button>':''}
       </div>`;
     card.querySelector(".project-open-area").onclick=()=>openCloudProject(p.id);
     card.querySelector(".details").onclick=()=>openProjectDetails(p.id);
     card.querySelector(".duplicate").onclick=()=>duplicateProject(p.id);
+    card.querySelector(".move-folder").onclick=()=>openMoveProjectFolder(p.id);
     if(editable){
       card.querySelector(".favorite-btn").onclick=()=>toggleFavorite(p.id);
       card.querySelector(".rename").onclick=()=>renameProject(p.id);
@@ -1081,8 +1115,8 @@ async function openCloudProject(id,options={}){
     scene.position=i+1;scene.number=i+1;
     scene.shots.sort((a,b)=>a.position-b.position).forEach((shot,j)=>{shot.position=j+1;shot.shotNo=j+1})
   });
-  const pp=normalizeProjectRecord(p);
-  app.current={id:p.id,owner_id:p.owner_id,name:p.name,aspect:p.aspect||"3:4 Portrait",aspectWidth:pp.aspectWidth,aspectHeight:pp.aspectHeight,style:p.style||"Storyboard B&W",position:pp.position,isFavorite:pp.isFavorite,folder:pp.folder,tags:pp.tags,metadata:pp.metadata,updated_at:p.updated_at,scenes:sceneObjects};
+  const pp=normalizeProjectRecord(p),dashboardProject=app.projects.find(project=>project.id===p.id);
+  app.current={id:p.id,owner_id:p.owner_id,name:p.name,aspect:p.aspect||"3:4 Portrait",aspectWidth:pp.aspectWidth,aspectHeight:pp.aspectHeight,style:p.style||"Storyboard B&W",position:pp.position,isFavorite:pp.isFavorite,folderId:dashboardProject?.folderId||null,folder:dashboardProject?.folder||"General",tags:pp.tags,metadata:pp.metadata,updated_at:p.updated_at,scenes:sceneObjects};
   app.isOwner=p.owner_id===app.session.user.id||adminSupporting(p.id);
   if(app.isOwner){app.permissions=fullPermissions()}else{
     const {data:m}=await sb.from("project_members").select("permissions").eq("project_id",id).eq("user_id",app.session.user.id).maybeSingle();app.permissions=m?.permissions||blankPermissions()
@@ -1293,7 +1327,7 @@ function renderShot(){
   $("frameMeta").textContent=`${projectAspectText(app.current)} · ${shortValue(s.shotSize)} · ${s.angle}`;
   const f=$("storyFrame");f.style.aspectRatio=`${aspectNumbers(app.current).w}/${aspectNumbers(app.current).h}`;
   const img=$("frameImage"),ph=document.querySelector(".frame-placeholder");
-  if(s.image){img.src=s.image;img.hidden=false;ph.hidden=true;$("removeImageBtn").hidden=false;$("cropShotImageBtn").hidden=false}else{img.hidden=true;img.removeAttribute("src");ph.hidden=false;$("removeImageBtn").hidden=true;$("cropShotImageBtn").hidden=true}
+  if(s.image){img.src=s.image;img.hidden=false;ph.hidden=true;$("removeImageBtn").hidden=false}else{img.hidden=true;img.removeAttribute("src");ph.hidden=false;$("removeImageBtn").hidden=true}
   renderAiShotControls()
 }
 function projectAspectText(p){
@@ -1320,7 +1354,7 @@ function applyPermissionLocks(){
   $("copyShotBtn").disabled=!currentShot();
   SHOT_FIELDS.forEach(id=>{if($(id))$(id).disabled=shotLocked});
   $("shotNo").readOnly=true;$("shotNo").disabled=false;
-  $("frameImageInput").disabled=mediaLocked;$("chooseImageLabel").classList.toggle("permission-locked",mediaLocked);$("removeImageBtn").disabled=mediaLocked;$("cropShotImageBtn").disabled=mediaLocked||!currentShot()?.image||app.ai.generating;
+  $("frameImageInput").disabled=mediaLocked;$("chooseImageLabel").classList.toggle("permission-locked",mediaLocked);$("removeImageBtn").disabled=mediaLocked;
   $("aiBibleBtn").disabled=app.mode!=="cloud";
   const generateButton=$("generateShotImageBtn"),generationReady=aiShotReady();
   const generationBlocked=mediaLocked||app.mode!=="cloud"||app.ai.generating;
@@ -1659,14 +1693,14 @@ function aiAssetImageTarget(asset,type,role="reference"){
 }
 function canCropImageTarget(target){return !!(target?.url&&can("media")&&!app.ai.generating&&(target.kind==="shot"||target.kind==="asset-reference"||target.kind==="asset-source"))}
 function openImageViewer(target){
-  if(!target?.url)return;imageViewerTarget=target;$("imageViewerTitle").textContent=target.title||"Image Preview";$("imageViewerCaption").dataset.baseCaption=target.caption||"";$("imageViewerCaption").textContent=target.caption||"";const stage=$("imageViewerStage"),fallback=target.aspect||aspectNumbers(app.current);stage.style.setProperty("--viewer-aspect",`${fallback.w}/${fallback.h}`);$("imageViewerImage").src=target.url;
+  if(!target?.url)return;exitCropMode();imageViewerTarget=target;$("imageViewerTitle").textContent=target.title||"Image Preview";$("imageViewerCaption").dataset.baseCaption=target.caption||"";$("imageViewerCaption").textContent=target.caption||"";const stage=$("imageViewerStage"),fallback=target.aspect||aspectNumbers(app.current);stage.style.setProperty("--viewer-aspect",`${fallback.w}/${fallback.h}`);$("imageViewerImage").src=target.url;
   $("openCropFromViewerBtn").hidden=!canCropImageTarget(target);const dialog=$("imageViewerModal");if(!dialog.open)dialog.showModal()
 }
-function updateImageViewerAspect(){const image=$("imageViewerImage"),width=Number(image.naturalWidth),height=Number(image.naturalHeight);if(!width||!height)return;const stage=$("imageViewerStage"),card=document.querySelector(".image-viewer-card"),ratio=width/height,ratioLabel=String(Number(ratio.toFixed(3)));stage.style.setProperty("--viewer-aspect",`${width}/${height}`);card.style.setProperty("--viewer-ratio",String(Math.max(.18,Math.min(5,ratio))));const base=$("imageViewerCaption").dataset.baseCaption||"";$("imageViewerCaption").textContent=[base,`${width} × ${height} · ${ratioLabel}:1`].filter(Boolean).join(" · ")}
-function closeImageViewer(){const dialog=$("imageViewerModal");if(dialog.open)dialog.close();$("imageViewerImage").removeAttribute("src");document.querySelector(".image-viewer-card")?.style.removeProperty("--viewer-ratio");imageViewerTarget=null}
+function updateImageViewerAspect(){const image=$("imageViewerImage"),width=Number(image.naturalWidth),height=Number(image.naturalHeight);if(!width||!height)return;const stage=$("imageViewerStage"),card=document.querySelector(".image-viewer-card"),ratio=width/height,ratioLabel=String(Number(ratio.toFixed(3)));if(!cropState.active){stage.style.setProperty("--viewer-aspect",`${width}/${height}`);card.style.setProperty("--viewer-ratio",String(Math.max(.18,Math.min(5,ratio))))}const base=$("imageViewerCaption").dataset.baseCaption||"";$("imageViewerCaption").textContent=[base,`${width} × ${height} · ${ratioLabel}:1`].filter(Boolean).join(" · ")}
+function closeImageViewer(){if(cropState.saving)return;exitCropMode();const dialog=$("imageViewerModal");if(dialog.open)dialog.close();$("imageViewerImage").removeAttribute("src");document.querySelector(".image-viewer-card")?.style.removeProperty("--viewer-ratio");imageViewerTarget=null}
 function openCurrentShotImage(){const target=shotImageTarget(currentShot());if(target)openImageViewer(target)}
 function cropOutputSize(target){
-  const aspect=target?.aspect||aspectNumbers(app.current),ratio=Math.max(.02,Math.min(50,aspect.w/aspect.h)),max=Math.max(128,Number(target?.maxDimension)||1024);
+  const aspect=aspectNumbers(app.current),ratio=Math.max(.02,Math.min(50,aspect.w/aspect.h)),max=Math.max(128,Number(target?.maxDimension)||1024);
   return ratio>=1?{width:max,height:Math.max(1,Math.round(max/ratio))}:{width:Math.max(1,Math.round(max*ratio)),height:max}
 }
 function clearCropDrawable(){try{cropState.cleanup?.()}catch{}cropState.drawable=null;cropState.cleanup=null;cropState.width=0;cropState.height=0;cropState.dragging=false;cropState.pointerId=null}
@@ -1690,14 +1724,17 @@ function drawCropCanvas(){
 function resetCrop(){cropState.zoom=1;cropState.offsetX=0;cropState.offsetY=0;$("cropZoom").value="100";$("cropZoomValue").value="100%";drawCropCanvas()}
 function updateCropZoom(){cropState.zoom=Math.max(1,Number($("cropZoom").value||100)/100);$("cropZoomValue").value=`${Math.round(cropState.zoom*100)}%`;drawCropCanvas()}
 async function openCropEditor(target){
-  if(!canCropImageTarget(target))return;imageViewerTarget=null;if($("imageViewerModal").open)$("imageViewerModal").close();clearCropDrawable();cropState.target=target;cropState.saving=false;
-  $("imageCropTitle").textContent=`Crop · ${target.title||"Image"}`;$("cropLoading").hidden=false;$("cropCanvas").hidden=true;$("saveCropBtn").disabled=true;setMsg("cropNotice","");resetCrop();const dialog=$("imageCropModal");if(!dialog.open)dialog.showModal();
+  if(!canCropImageTarget(target))return;if(!$("imageViewerModal").open)openImageViewer(target);clearCropDrawable();cropState.active=true;cropState.target=target;cropState.saving=false;
+  const aspect=aspectNumbers(app.current),ratio=aspect.w/aspect.h,card=document.querySelector(".image-viewer-card"),stage=$("imageViewerStage");card.classList.add("is-cropping");card.style.setProperty("--viewer-ratio",String(Math.max(.18,Math.min(5,ratio))));stage.style.setProperty("--viewer-aspect",`${aspect.w}/${aspect.h}`);$("imageViewerEyebrow").textContent="CROP IMAGE";$("imageViewerTitle").textContent=`Crop · ${target.title||"Image"}`;$("imageViewerImage").hidden=true;$("imageViewerActions").hidden=true;$("cropInstructions").hidden=false;$("cropControls").hidden=false;$("cropActions").hidden=false;$("cropLoading").hidden=false;$("cropCanvas").hidden=true;$("saveCropBtn").disabled=true;setMsg("cropNotice","");resetCrop();
   try{
     const response=await fetch(target.url,{cache:"no-store"});if(!response.ok)throw new Error("Could not load the image for cropping.");const decoded=await decodeCropDrawable(await response.blob());
     cropState.drawable=decoded.drawable;cropState.cleanup=decoded.cleanup;cropState.width=decoded.width;cropState.height=decoded.height;const size=cropOutputSize(target),canvas=$("cropCanvas");canvas.width=size.width;canvas.height=size.height;resetCrop();canvas.hidden=false;$("cropLoading").hidden=true;$("saveCropBtn").disabled=false
   }catch(error){$("cropLoading").hidden=true;setMsg("cropNotice",error.message||"Could not open the crop editor.","warning")}
 }
-function closeCropEditor(){if(cropState.saving)return;const dialog=$("imageCropModal");if(dialog.open)dialog.close()}
+function exitCropMode(){
+  if(cropState.saving)return;clearCropDrawable();cropState.active=false;cropState.target=null;document.querySelector(".image-viewer-card")?.classList.remove("is-cropping");$("imageViewerEyebrow").textContent="IMAGE PREVIEW";$("imageViewerImage").hidden=false;$("imageViewerActions").hidden=false;$("cropInstructions").hidden=true;$("cropControls").hidden=true;$("cropActions").hidden=true;$("cropCanvas").hidden=true;$("cropLoading").hidden=true;setMsg("cropNotice","");if(imageViewerTarget){$("imageViewerTitle").textContent=imageViewerTarget.title||"Image Preview";updateImageViewerAspect()}
+}
+function closeCropEditor(){if(cropState.saving)return;exitCropMode()}
 function cropPointerDown(event){
   if(!cropState.drawable||cropState.saving)return;const canvas=$("cropCanvas");cropState.dragging=true;cropState.pointerId=event.pointerId;cropState.startX=event.clientX;cropState.startY=event.clientY;cropState.startOffsetX=cropState.offsetX;cropState.startOffsetY=cropState.offsetY;canvas.classList.add("dragging");canvas.setPointerCapture?.(event.pointerId)
 }
@@ -1723,10 +1760,10 @@ async function saveCroppedAiAsset(target,blob){
   await signAiAsset(asset);if(source&&!asset.sourceUrl)asset.sourceUrl=URL.createObjectURL(blob);if(!source&&!asset.referenceUrl)asset.referenceUrl=URL.createObjectURL(blob);if(String(oldUrl||"").startsWith("blob:"))URL.revokeObjectURL(oldUrl);await removeMediaPaths([oldPath]);renderAiVisualBible();renderShot();applyPermissionLocks()
 }
 async function saveCrop(){
-  if(cropState.saving||!cropState.drawable||!cropState.target)return;cropState.saving=true;$("saveCropBtn").disabled=true;$("cancelCropBtn").disabled=true;$("closeImageCropBtn").disabled=true;setMsg("cropNotice","Saving crop…");
-  try{const blob=await cropCanvasBlob(),target=cropState.target;if(target.kind==="shot")await saveCroppedShot(target,blob);else await saveCroppedAiAsset(target,blob);setMsg("editorNotice","Image cropped and saved.");$("imageCropModal").close()}
+  if(cropState.saving||!cropState.drawable||!cropState.target)return;cropState.saving=true;$("saveCropBtn").disabled=true;$("cancelCropBtn").disabled=true;$("closeImageViewerBtn").disabled=true;setMsg("cropNotice","Saving crop…");
+  try{const blob=await cropCanvasBlob(),target=cropState.target;if(target.kind==="shot")await saveCroppedShot(target,blob);else await saveCroppedAiAsset(target,blob);const refreshed=target.kind==="shot"?shotImageTarget(shotById(target.id)):aiAssetImageTarget(aiCollection(target.type).find(item=>item.id===target.id),target.type,target.kind==="asset-source"?"source":"reference");cropState.saving=false;exitCropMode();if(refreshed){imageViewerTarget=refreshed;$("imageViewerTitle").textContent=refreshed.title||"Image Preview";$("imageViewerCaption").dataset.baseCaption=refreshed.caption||"";$("imageViewerImage").src=refreshed.url;$("openCropFromViewerBtn").hidden=!canCropImageTarget(refreshed)}setMsg("editorNotice","Image cropped and saved.")}
   catch(error){setMsg("cropNotice",error.message||"Could not save the cropped image.","warning")}
-  finally{cropState.saving=false;$("saveCropBtn").disabled=!cropState.drawable;$("cancelCropBtn").disabled=false;$("closeImageCropBtn").disabled=false}
+  finally{cropState.saving=false;$("saveCropBtn").disabled=!cropState.drawable;$("cancelCropBtn").disabled=false;$("closeImageViewerBtn").disabled=false}
 }
 
 /* ---------- AI VISUAL BIBLE + STORYBOARD GENERATION ---------- */
@@ -1841,7 +1878,33 @@ async function loadProjectScript(projectId=app.current?.id){
   if(app.script.record){const linksResult=await sb.from("script_shot_links").select("*").eq("script_id",app.script.record.id).order("start_offset");if(!linksResult.error)app.script.links=linksResult.data||[]}
 }
 function scriptLineNumberAt(text,offset){return text.slice(0,Math.max(0,offset)).split("\n").length}
-function currentScriptSelection(){const editor=$("scriptTextEditor"),start=Math.min(editor.selectionStart||0,editor.selectionEnd||0),end=Math.max(editor.selectionStart||0,editor.selectionEnd||0),text=editor.value.slice(start,end),dbStart=[...editor.value.slice(0,start)].length,dbEnd=dbStart+[...text].length;return {start,end,dbStart,dbEnd,text}}
+function scriptTextFromNode(root){
+  let output="";const blocks=new Set(["DIV","P","LI","H1","H2","H3","BLOCKQUOTE"]),newline=()=>{if(output&&!output.endsWith("\n"))output+="\n"};
+  const walk=(node,isRoot=false)=>{if(node.nodeType===Node.TEXT_NODE){output+=(node.nodeValue||"").replace(/\r\n?/g,"\n");return}if(node.nodeType!==Node.ELEMENT_NODE&&node.nodeType!==Node.DOCUMENT_FRAGMENT_NODE)return;if(node.nodeName==="BR"){output+="\n";return}const block=!isRoot&&blocks.has(node.nodeName);if(block)newline();for(const child of node.childNodes)walk(child);if(block&&node.nextSibling)newline()};walk(root,true);return output
+}
+function scriptEditorText(){return scriptTextFromNode($("scriptTextEditor"))}
+function setScriptEditorText(value){
+  const editor=$("scriptTextEditor"),text=String(value||"").replace(/\r\n?/g,"\n"),fragment=document.createDocumentFragment(),lines=text.split("\n");editor.replaceChildren();lines.forEach((line,index)=>{if(line)fragment.appendChild(document.createTextNode(line));if(index<lines.length-1)fragment.appendChild(document.createElement("br"))});editor.appendChild(fragment);app.script.selectionCache=null;app.script.savedRange=null
+}
+function setScriptEditorHtml(value,fallback=""){
+  if(!value){setScriptEditorText(fallback);return}const editor=$("scriptTextEditor"),doc=new DOMParser().parseFromString(`<div>${String(value)}</div>`,"text/html"),source=doc.body.firstElementChild,fragment=document.createDocumentFragment();
+  const append=(node,parent)=>{if(node.nodeType===Node.TEXT_NODE){parent.appendChild(document.createTextNode(node.nodeValue||""));return}if(node.nodeType!==Node.ELEMENT_NODE)return;const tag=node.tagName;if(tag==="BR"){parent.appendChild(document.createElement("br"));return}if(tag==="B"||tag==="STRONG"){const strong=document.createElement("strong");[...node.childNodes].forEach(child=>append(child,strong));parent.appendChild(strong);return}const block=["DIV","P","LI","H1","H2","H3","BLOCKQUOTE"].includes(tag);if(block&&parent.childNodes.length&&parent.lastChild?.nodeName!=="BR")parent.appendChild(document.createElement("br"));[...node.childNodes].forEach(child=>append(child,parent));if(block&&node!==source&&parent.lastChild?.nodeName!=="BR")parent.appendChild(document.createElement("br"))};
+  [...(source?.childNodes||[])].forEach(child=>append(child,fragment));while(fragment.lastChild?.nodeName==="BR")fragment.removeChild(fragment.lastChild);editor.replaceChildren(fragment);if(scriptEditorText()!==String(fallback||"").replace(/\r\n?/g,"\n"))setScriptEditorText(fallback);app.script.selectionCache=null;app.script.savedRange=null
+}
+function scriptEditorHtml(){
+  const encode=node=>{if(node.nodeType===Node.TEXT_NODE)return escapeHtml(node.nodeValue||"").replace(/\n/g,"<br>");if(node.nodeType!==Node.ELEMENT_NODE)return "";if(node.tagName==="BR")return "<br>";const content=[...node.childNodes].map(encode).join("");return node.tagName==="B"||node.tagName==="STRONG"?`<strong>${content}</strong>`:content};return [...$("scriptTextEditor").childNodes].map(encode).join("")
+}
+function scriptSelectionRange(){const editor=$("scriptTextEditor"),selection=window.getSelection();if(!selection?.rangeCount)return null;const range=selection.getRangeAt(0);return editor.contains(range.commonAncestorContainer)?range:null}
+function currentScriptSelection(){
+  const editor=$("scriptTextEditor"),range=scriptSelectionRange();if(!range)return app.script.selectionCache||{start:0,end:0,dbStart:0,dbEnd:0,text:""};
+  const before=document.createRange();before.selectNodeContents(editor);before.setEnd(range.startContainer,range.startOffset);const through=document.createRange();through.selectNodeContents(editor);through.setEnd(range.endContainer,range.endOffset),start=scriptTextFromNode(before.cloneContents()).length,end=scriptTextFromNode(through.cloneContents()).length,text=scriptEditorText().slice(start,end),result={start,end,dbStart:[...scriptEditorText().slice(0,start)].length,dbEnd:[...scriptEditorText().slice(0,end)].length,text};app.script.selectionCache=result;app.script.savedRange=range.cloneRange();return result
+}
+function restoreScriptSelection(){const range=app.script.savedRange,editor=$("scriptTextEditor");if(!range||!editor.contains(range.commonAncestorContainer))return false;const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);return true}
+function setScriptDirection(value){const direction=value==="rtl"?"rtl":"ltr",editor=$("scriptTextEditor");editor.dir=direction;$("scriptDirectionSelect").value=direction}
+function toggleScriptBold(){
+  const editor=$("scriptTextEditor");if(editor.getAttribute("contenteditable")!=="true")return;editor.focus();restoreScriptSelection();document.execCommand("bold",false);app.script.savedRange=scriptSelectionRange()?.cloneRange()||null;editor.dispatchEvent(new Event("input",{bubbles:true}));updateScriptBoldState()
+}
+function updateScriptBoldState(){const active=!!scriptSelectionRange()&&document.queryCommandState?.("bold");$("scriptBoldBtn").classList.toggle("active",active);$("scriptBoldBtn").setAttribute("aria-pressed",String(active))}
 function scriptShotLabel(shotId){const item=allShots().find(entry=>entry.shot.id===shotId);return item?`Scene ${item.scene.number} · Shot ${item.shot.shotNo}`:"Deleted shot"}
 function renderScriptLinkSelectors(){
   const sceneSelect=$("scriptLinkSceneSelect"),shotSelect=$("scriptLinkShotSelect");if(!sceneSelect||!shotSelect||!app.current)return;
@@ -1850,7 +1913,7 @@ function renderScriptLinkSelectors(){
 }
 function updateScriptSelection(){
   const selection=currentScriptSelection(),hasText=selection.end>selection.start&&!!selection.text.trim(),editable=app.script.ready&&scriptCanEdit()&&can("shots")&&!app.script.analyzing&&!app.script.applying;app.script.selectedStart=selection.start;app.script.selectedEnd=selection.end;
-  if(hasText){const from=scriptLineNumberAt($("scriptTextEditor").value,selection.start),to=scriptLineNumberAt($("scriptTextEditor").value,selection.end);$("scriptSelectionTitle").textContent=`Selected ${selection.end-selection.start} characters · line ${from}${to===from?"":` to ${to}`}`;$("scriptSelectionMeta").textContent=selection.text.replace(/\s+/g," ").trim().slice(0,180)}else{$("scriptSelectionTitle").textContent="Select text to connect it to a shot";$("scriptSelectionMeta").textContent="A selection may begin or end in the middle of any line."}
+  if(hasText){const content=scriptEditorText(),from=scriptLineNumberAt(content,selection.start),to=scriptLineNumberAt(content,selection.end);$("scriptSelectionTitle").textContent=`Selected ${selection.end-selection.start} characters · line ${from}${to===from?"":` to ${to}`}`;$("scriptSelectionMeta").textContent=selection.text.replace(/\s+/g," ").trim().slice(0,180)}else{$("scriptSelectionTitle").textContent="Select text to connect it to a shot";$("scriptSelectionMeta").textContent="A selection may begin or end in the middle of any line."}
   $("linkScriptSelectionBtn").disabled=!hasText||!editable||!$("scriptLinkShotSelect").value;$("createShotFromScriptBtn").disabled=!hasText||!editable||!$("scriptLinkSceneSelect").value
 }
 function renderScriptAnalysis(){
@@ -1863,14 +1926,15 @@ function renderScriptLinks(){
   const wrap=$("scriptLinkList");wrap.innerHTML="";for(const link of app.script.links){const row=document.createElement("div");row.className="script-link-row";row.innerHTML=`<blockquote title="${escapeHtml(link.selected_text||"")}">${escapeHtml(String(link.selected_text||"").replace(/\s+/g," ").slice(0,170))}</blockquote><strong>${escapeHtml(scriptShotLabel(link.shot_id))}</strong><button type="button" class="btn ghost danger-text">Remove</button>`;row.querySelector("strong").onclick=()=>goToScriptShot(link.shot_id);row.querySelector("button").onclick=()=>deleteScriptLink(link.id);wrap.appendChild(row)}
 }
 function renderScriptLineMap(){
-  const wrap=$("scriptLineMap"),text=$("scriptTextEditor").value||"",lines=text.split("\n");wrap.innerHTML="";let offset=0,linkedCount=0,meaningfulCount=0;
+  const wrap=$("scriptLineMap"),text=scriptEditorText(),lines=text.split("\n");wrap.innerHTML="";let offset=0,linkedCount=0,meaningfulCount=0;
   lines.forEach((line,index)=>{const start=offset,end=start+[...line].length,newlineEnd=end+(index<lines.length-1?1:0),links=app.script.links.filter(link=>Number(link.start_offset)<newlineEnd&&Number(link.end_offset)>start);if(line.trim())meaningfulCount++;if(line.trim()&&links.length)linkedCount++;const row=document.createElement("div");row.className="script-line-row";const number=document.createElement("span");number.className="script-line-number";number.textContent=String(index+1);const copy=document.createElement("span");copy.className="script-line-text";copy.textContent=line||" ";const refs=document.createElement("span");refs.className="script-line-shots";if(!links.length){const empty=document.createElement("span");empty.className="script-line-unlinked";empty.textContent="—";refs.appendChild(empty)}else for(const link of links){const button=document.createElement("button");button.type="button";button.className="script-shot-ref";button.textContent=scriptShotLabel(link.shot_id);button.onclick=()=>goToScriptShot(link.shot_id);refs.appendChild(button)}row.append(number,copy,refs);wrap.appendChild(row);offset=newlineEnd});
   const percent=meaningfulCount?Math.round(linkedCount/meaningfulCount*100):0;$("scriptCoverageBadge").textContent=`${percent}% linked`
 }
 function renderScriptBible(){
   const ready=app.script.ready,editable=ready&&scriptCanEdit(),editor=$("scriptTextEditor"),projectId=app.current?.id||"";
-  if(!app.script.editorHydrated||editor.dataset.projectId!==projectId){editor.value=app.script.record?.content||"";editor.dataset.projectId=projectId;app.script.editorHydrated=true}
-  const fileName=app.script.pendingFileName||app.script.record?.file_name||"No script",analysisMatches=!!app.script.record&&editor.value===app.script.record.content;$("scriptFileBadge").textContent=fileName;$("scriptFileInput").disabled=!editable||app.script.analyzing||app.script.applying;editor.disabled=!editable||app.script.analyzing||app.script.applying;$("saveScriptBtn").disabled=!editable||app.script.saving||app.script.analyzing||app.script.applying;$("analyzeScriptBtn").disabled=!editable||app.script.analyzing||app.script.applying||!editor.value.trim();$("analyzeScriptBtn").textContent=app.script.analyzing?"Analyzing Script…":"✦ Analyze with AI";$("analyzeScriptBtn").classList.toggle("script-analysis-btn-busy",app.script.analyzing);$("applyScriptBreakdownBtn").disabled=!scriptCanApply()||!app.script.analysis||!analysisMatches||app.script.analyzing||app.script.applying;$("applyScriptBreakdownBtn").textContent=app.script.applying?"Applying Breakdown…":"Apply Breakdown to Project";
+  editor.dataset.placeholder=uiText("Choose a script file or paste screenplay text here…");
+  if(!app.script.editorHydrated||editor.dataset.projectId!==projectId){setScriptEditorHtml(app.script.record?.content_html||"",app.script.record?.content||"");setScriptDirection(app.script.record?.text_direction||"ltr");editor.dataset.projectId=projectId;app.script.editorHydrated=true}
+  const content=scriptEditorText(),busy=app.script.analyzing||app.script.applying,fileName=app.script.pendingFileName||app.script.record?.file_name||"No script",analysisMatches=!!app.script.record&&content===app.script.record.content;$("scriptFileBadge").textContent=fileName;$("scriptFileInput").disabled=!editable||busy;editor.setAttribute("contenteditable",String(editable&&!busy));$("scriptDirectionSelect").disabled=!editable||busy;$("scriptBoldBtn").disabled=!editable||busy;$("saveScriptBtn").disabled=!editable||app.script.saving||busy;$("analyzeScriptBtn").disabled=!editable||busy||!content.trim();$("analyzeScriptBtn").textContent=app.script.analyzing?"Analyzing Script…":"✦ Analyze with AI";$("analyzeScriptBtn").classList.toggle("script-analysis-btn-busy",app.script.analyzing);$("applyScriptBreakdownBtn").disabled=!scriptCanApply()||!app.script.analysis||!analysisMatches||busy;$("applyScriptBreakdownBtn").textContent=app.script.applying?"Applying Breakdown…":"Apply Breakdown to Project";
   if(!ready)setMsg("scriptNotice",app.script.migrationMessage,"warning");renderScriptLinkSelectors();renderScriptAnalysis();renderScriptLinks();renderScriptLineMap();updateScriptSelection()
 }
 function rtfToPlainText(value){return String(value||"").replace(/\\u(-?\d+)\??/g,(_,code)=>String.fromCharCode(Number(code)<0?Number(code)+65536:Number(code))).replace(/\\'([0-9a-f]{2})/gi,(_,hex)=>String.fromCharCode(parseInt(hex,16))).replace(/\\(?:par|line)\b\s?/g,"\n").replace(/\\tab\b\s?/g,"\t").replace(/\\[a-z]+-?\d*\s?/gi,"").replace(/\\([{}\\])/g,"$1").replace(/[{}]/g,"").replace(/\n{3,}/g,"\n\n").trim()}
@@ -1882,20 +1946,20 @@ function screenplayMarkupToText(raw,type,name){
 }
 async function loadScriptFile(event){
   const file=event.target.files?.[0];event.target.value="";if(!file||!scriptCanEdit())return;
-  try{if(file.size>900000)throw new Error("Script files must be smaller than 900 KB.");const content=screenplayMarkupToText(await file.text(),file.type||"",file.name);if(!content.trim())throw new Error("This script file contains no readable text.");$("scriptTextEditor").value=content;app.script.pendingFileName=file.name.slice(0,240);app.script.pendingFileType=file.type||"text/plain";app.script.analysis=null;setMsg("scriptNotice",`${file.name} loaded. Review the text, then save or analyze it.`);renderScriptBible();$("scriptTextEditor").focus()}
+  try{if(file.size>900000)throw new Error("Script files must be smaller than 900 KB.");const content=screenplayMarkupToText(await file.text(),file.type||"",file.name);if(!content.trim())throw new Error("This script file contains no readable text.");setScriptEditorText(content);app.script.pendingFileName=file.name.slice(0,240);app.script.pendingFileType=file.type||"text/plain";app.script.analysis=null;setMsg("scriptNotice",`${file.name} loaded. Review the text, then save or analyze it.`);renderScriptBible();$("scriptTextEditor").focus()}
   catch(error){setMsg("scriptNotice",error.message||"Could not read this script file.","warning")}
 }
 async function saveProjectScript({silent=false}={}){
-  if(!app.script.ready||!scriptCanEdit())return null;const content=$("scriptTextEditor").value,existing=app.script.record,changed=content!==(existing?.content||"");if(!content.trim()){setMsg("scriptNotice","Add or import script text first.","warning");return null}
+  if(!app.script.ready||!scriptCanEdit())return null;const content=scriptEditorText(),contentHtml=scriptEditorHtml(),textDirection=$("scriptDirectionSelect").value==="rtl"?"rtl":"ltr",existing=app.script.record,changed=content!==(existing?.content||"");if(!content.trim()){setMsg("scriptNotice","Add or import script text first.","warning");return null}
   if(changed&&app.script.links.length&&!uiConfirm("Saving changed script text will remove existing shot links because their exact text offsets would no longer be reliable. Continue?"))return null;
-  app.script.saving=true;app.ignoreRealtimeUntil=Date.now()+1800;renderScriptBible();const payload={project_id:app.current.id,file_name:app.script.pendingFileName||existing?.file_name||"script.txt",file_type:app.script.pendingFileType||existing?.file_type||"text/plain",content,analysis:changed?null:(app.script.analysis||null),analysis_model:changed?null:(existing?.analysis_model||null),analyzed_at:changed?null:(existing?.analyzed_at||null),applied_at:changed?null:(existing?.applied_at||null)};
+  app.script.saving=true;app.ignoreRealtimeUntil=Date.now()+1800;renderScriptBible();const payload={project_id:app.current.id,file_name:app.script.pendingFileName||existing?.file_name||"script.txt",file_type:app.script.pendingFileType||existing?.file_type||"text/plain",content,content_html:contentHtml,text_direction:textDirection,analysis:changed?null:(app.script.analysis||null),analysis_model:changed?null:(existing?.analysis_model||null),analyzed_at:changed?null:(existing?.analyzed_at||null),applied_at:changed?null:(existing?.applied_at||null)};
   let result;if(existing)result=await sb.from("project_scripts").update(payload).eq("id",existing.id).eq("project_id",app.current.id).select().single();else result=await sb.from("project_scripts").insert({...payload,created_by:app.session.user.id}).select().single();
   app.script.saving=false;if(result.error){setMsg("scriptNotice",result.error.message||"Could not save the script.","warning");renderScriptBible();return null}
   if(changed&&app.script.links.length){const {error}=await sb.from("script_shot_links").delete().eq("script_id",result.data.id);if(!error)app.script.links=[]}
   app.script.record=result.data;app.script.analysis=result.data.analysis?normalizeScriptAnalysis(result.data.analysis):null;app.script.pendingFileName="";app.script.pendingFileType="";if(!silent)setMsg("scriptNotice","Script saved.");renderScriptBible();return result.data
 }
 async function analyzeProjectScript(){
-  if(!app.script.ready||!scriptCanEdit()||app.script.analyzing)return;const text=$("scriptTextEditor").value;if(text.trim().length<20)return setMsg("scriptNotice","Add more screenplay text before analysis.","warning");if(text.length>SCRIPT_MAX_ANALYSIS_CHARS)return setMsg("scriptNotice",`This script has ${text.length.toLocaleString()} characters. AI analysis currently accepts up to ${SCRIPT_MAX_ANALYSIS_CHARS.toLocaleString()} characters at once.`,"warning");
+  if(!app.script.ready||!scriptCanEdit()||app.script.analyzing)return;const text=scriptEditorText();if(text.trim().length<20)return setMsg("scriptNotice","Add more screenplay text before analysis.","warning");if(text.length>SCRIPT_MAX_ANALYSIS_CHARS)return setMsg("scriptNotice",`This script has ${text.length.toLocaleString()} characters. AI analysis currently accepts up to ${SCRIPT_MAX_ANALYSIS_CHARS.toLocaleString()} characters at once.`,"warning");
   const record=await saveProjectScript({silent:true});if(!record)return;app.script.analyzing=true;setMsg("scriptNotice","AI is identifying scenes, recurring characters, locations and story time…");renderScriptBible();
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),240000);
   try{const {data:{session}}=await sb.auth.getSession();if(!session?.access_token)throw new Error("Your session expired. Sign in again.");const response=await fetch("/api/script/analyze",{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${session.access_token}`},body:JSON.stringify({project_id:app.current.id,script_id:record.id,script_text:text}),signal:controller.signal});const body=await response.json().catch(()=>({}));if(!response.ok)throw new Error(body.error||`Script analysis failed (${response.status}).`);const analysis=normalizeScriptAnalysis(body.analysis);if(!analysis.scenes.length)throw new Error("AI could not identify any scenes. Check screenplay headings and try again.");app.ignoreRealtimeUntil=Date.now()+1800;const analyzedAt=new Date().toISOString(),{data,error}=await sb.from("project_scripts").update({analysis,analysis_model:body.model||"glm-4.7-flash",analyzed_at:analyzedAt,applied_at:null}).eq("id",record.id).select().single();if(error)throw error;app.script.record=data;app.script.analysis=analysis;setMsg("scriptNotice",`Analysis ready: ${analysis.scenes.length} scenes, ${analysis.characters.length} characters and ${analysis.locations.length} locations. Review it, then apply the breakdown.`)}
@@ -1908,7 +1972,7 @@ async function ensureBreakdownAsset(type,item){
 }
 function defaultSceneCanBecomeScriptScene(scene){const shot=scene?.shots?.[0];return app.current.scenes.length===1&&scene?.shots?.length===1&&!scene.scriptSceneKey&&!scene.description?.trim()&&!scene.storyLocation?.trim()&&!shot?.image&&!String(shot?.summary||shot?.description||shot?.subject||"").trim()}
 async function applyScriptBreakdown(){
-  const analysis=app.script.analysis,record=app.script.record;if(!analysis||!record||!scriptCanApply()||app.script.applying)return;if($("scriptTextEditor").value!==record.content)return setMsg("scriptNotice","The script text changed after analysis. Save and analyze it again before applying.","warning");if(!uiConfirm(`Add or update ${analysis.scenes.length} script scenes and place ${analysis.characters.length} characters and ${analysis.locations.length} locations in the Bible? Existing locked references will not be replaced.`))return;
+  const analysis=app.script.analysis,record=app.script.record;if(!analysis||!record||!scriptCanApply()||app.script.applying)return;if(scriptEditorText()!==record.content)return setMsg("scriptNotice","The script text changed after analysis. Save and analyze it again before applying.","warning");if(!uiConfirm(`Add or update ${analysis.scenes.length} script scenes and place ${analysis.characters.length} characters and ${analysis.locations.length} locations in the Bible? Existing locked references will not be replaced.`))return;
   app.script.applying=true;app.suppressRealtime++;setMsg("scriptNotice","Applying the AI breakdown to the Bible and project scenes…");renderScriptBible();
   try{
     const characterMap=new Map(),locationMap=new Map();for(const item of analysis.characters){const asset=await ensureBreakdownAsset("character",item);characterMap.set(item.name.toLocaleLowerCase(),asset.id)}for(const item of analysis.locations){const asset=await ensureBreakdownAsset("location",item);locationMap.set(item.name.toLocaleLowerCase(),asset.id)}
@@ -1926,7 +1990,7 @@ async function applyScriptBreakdown(){
   }catch(error){setMsg("scriptNotice",error.message||"Could not apply the script breakdown.","warning")}
   finally{app.suppressRealtime=Math.max(0,app.suppressRealtime-1);app.script.applying=false;renderScriptBible();renderAiVisualBible()}
 }
-async function ensureScriptSavedForLink(){if(!app.script.record||$("scriptTextEditor").value!==app.script.record.content)return await saveProjectScript({silent:true});return app.script.record}
+async function ensureScriptSavedForLink(){if(!app.script.record||scriptEditorText()!==app.script.record.content)return await saveProjectScript({silent:true});return app.script.record}
 async function linkScriptSelectionToShot(){
   const selection=currentScriptSelection(),sceneId=$("scriptLinkSceneSelect").value,shotId=$("scriptLinkShotSelect").value;if(!selection.text.trim()||!sceneId||!shotId||!can("shots"))return;const record=await ensureScriptSavedForLink();if(!record)return;
   app.ignoreRealtimeUntil=Date.now()+1800;const {data,error}=await sb.from("script_shot_links").insert({project_id:app.current.id,script_id:record.id,scene_id:sceneId,shot_id:shotId,start_offset:selection.dbStart,end_offset:selection.dbEnd,selected_text:selection.text,created_by:app.session.user.id}).select().single();if(error){setMsg("scriptNotice",/duplicate key/i.test(error.message||"")?"This exact text range is already linked to that shot.":error.message,"warning");return}app.script.links.push(data);app.script.links.sort((a,b)=>a.start_offset-b.start_offset);setMsg("scriptNotice",`Selected text linked to ${scriptShotLabel(shotId)}.`);renderScriptBible()
@@ -1960,7 +2024,6 @@ function aiAssetCard(asset,type){
       <div class="ai-asset-actions">
         <button type="button" class="generate${generatingThis?" is-generating":""}" ${!editable||locked||app.ai.generating?"disabled":""}>${generateLabel}</button>
         <label class="ai-upload-label ${!editable||locked||app.ai.generating?"disabled":""}" title="Upload a finished reference directly">Upload Final<input class="ai-reference-input" type="file" accept="image/jpeg,image/png,image/webp" hidden ${!editable||locked||app.ai.generating?"disabled":""}></label>
-        ${hasReference?`<button type="button" class="crop-reference" ${!editable||app.ai.generating?"disabled":""}>Crop</button>`:""}
         <button type="button" class="lock" ${!editable||(!hasReference&&!locked)?"disabled":""}>${locked?"Unlock":"Lock"}</button>
         <button type="button" class="delete" ${!editable?"disabled":""}>Delete</button>
       </div>
@@ -1971,7 +2034,7 @@ function aiAssetCard(asset,type){
           <small>${app.ai.sourceReady?"Optional identity or location image used to guide Generate. Upload Final above replaces the finished reference directly.":"Run the v4.4 SQL once to enable Source Image."}</small>
           <div class="ai-source-actions">
             <label class="ai-upload-label ${!editable||!app.ai.sourceReady||app.ai.generating?"disabled":""}">${hasSource?"Replace Source":"Add Source"}<input class="ai-source-input" type="file" accept="image/jpeg,image/png,image/webp" hidden ${!editable||!app.ai.sourceReady||app.ai.generating?"disabled":""}></label>
-            ${hasSource?`<button type="button" class="crop-source" ${!editable||app.ai.generating?"disabled":""}>Crop</button><button type="button" class="remove-source" ${!editable||app.ai.generating?"disabled":""}>Remove Source</button>`:""}
+            ${hasSource?`<button type="button" class="remove-source" ${!editable||app.ai.generating?"disabled":""}>Remove Source</button>`:""}
           </div>
         </div>
       </div>
@@ -1984,8 +2047,6 @@ function aiAssetCard(asset,type){
   card.querySelector(".ai-source-input").onchange=e=>uploadAiSource(type,asset.id,e);
   card.querySelector(".ai-asset-image-open")?.addEventListener("click",()=>openImageViewer(aiAssetImageTarget(asset,type,"reference")));
   card.querySelector(".ai-source-preview.has-image")?.addEventListener("click",()=>openImageViewer(aiAssetImageTarget(asset,type,"source")));
-  card.querySelector(".crop-reference")?.addEventListener("click",()=>openCropEditor(aiAssetImageTarget(asset,type,"reference")));
-  card.querySelector(".crop-source")?.addEventListener("click",()=>openCropEditor(aiAssetImageTarget(asset,type,"source")));
   card.querySelector(".remove-source")?.addEventListener("click",()=>removeAiSource(type,asset.id));
   card.querySelector(".lock").onclick=()=>toggleAiAssetLock(type,asset.id);
   card.querySelector(".delete").onclick=()=>deleteAiAsset(type,asset.id);
@@ -3739,6 +3800,63 @@ async function openPendingLightingLink(){
 
 
 /* ---------- PROJECT MANAGEMENT ---------- */
+function cleanFolderName(value){return String(value||"").trim().replace(/\s+/g," ").slice(0,60)}
+function folderOptionMarkup(selectedId=null){
+  const folders=[...(app.projectFolders||[])].sort((a,b)=>a.name.localeCompare(b.name));
+  return `<option value=""${selectedId?"":" selected"}>General</option>`+folders.map(folder=>`<option value="${escapeHtml(folder.id)}"${folder.id===selectedId?" selected":""}>${escapeHtml(folder.name)}</option>`).join("")
+}
+function renderProjectFolderList(){
+  const wrap=$("projectFolderList");if(!wrap)return;wrap.innerHTML="";
+  const folders=[...(app.projectFolders||[])].sort((a,b)=>a.name.localeCompare(b.name));
+  if(!folders.length){wrap.innerHTML='<div class="admin-empty">No folders yet. Projects without a folder stay in General.</div>';return}
+  for(const folder of folders){
+    const count=(app.projects||[]).filter(project=>project.folderId===folder.id).length,row=document.createElement("div");row.className="folder-row";
+    row.innerHTML=`<div><strong>${escapeHtml(folder.name)}</strong><small>${count} project${count===1?"":"s"}</small></div><span class="folder-row-actions"><button type="button" class="btn ghost rename-folder">Rename</button><button type="button" class="btn ghost danger-text delete-folder">Delete</button></span>`;
+    row.querySelector(".rename-folder").onclick=()=>renameProjectFolder(folder.id);row.querySelector(".delete-folder").onclick=()=>deleteProjectFolder(folder.id);wrap.appendChild(row)
+  }
+}
+function openProjectFolders(){
+  setMsg("projectFolderNotice",app.mode==="cloud"&&!app.foldersReady?app.folderMigrationMessage:"");
+  $("newProjectFolderName").disabled=app.mode==="cloud"&&!app.foldersReady;$("createProjectFolderForm").querySelector("button").disabled=app.mode==="cloud"&&!app.foldersReady;renderProjectFolderList();$("projectFoldersModal").showModal()
+}
+async function createProjectFolder(event){
+  event.preventDefault();const name=cleanFolderName($("newProjectFolderName").value);if(!name)return setMsg("projectFolderNotice","Enter a folder name.","warning");
+  if((app.projectFolders||[]).some(folder=>folder.name.toLocaleLowerCase()===name.toLocaleLowerCase()))return setMsg("projectFolderNotice","A folder with this name already exists.","warning");
+  if(app.mode==="local")app.projectFolders.push({id:uid(),owner_id:null,name,created_at:new Date().toISOString()});
+  else{const {data,error}=await sb.from("project_folders").insert({owner_id:app.session.user.id,name}).select().single();if(error)return setMsg("projectFolderNotice",error.message||"Could not create folder.","warning");app.projectFolders.push(data)}
+  $("newProjectFolderName").value="";if(app.mode==="local")saveLocal();setMsg("projectFolderNotice",`Folder “${name}” created.`);renderProjectFolderList();renderProjects()
+}
+async function renameProjectFolder(id){
+  const folder=app.projectFolders.find(item=>item.id===id);if(!folder)return;const next=cleanFolderName(uiPrompt("Folder name:",folder.name));if(!next||next===folder.name)return;
+  if((app.projectFolders||[]).some(item=>item.id!==id&&item.name.toLocaleLowerCase()===next.toLocaleLowerCase()))return setMsg("projectFolderNotice","A folder with this name already exists.","warning");
+  if(app.mode==="cloud"){const {error}=await sb.from("project_folders").update({name:next,updated_at:new Date().toISOString()}).eq("id",id).eq("owner_id",app.session.user.id);if(error)return setMsg("projectFolderNotice",error.message||"Could not rename folder.","warning")}
+  folder.name=next;(app.projects||[]).filter(project=>project.folderId===id).forEach(project=>project.folder=next);if(app.current?.folderId===id)app.current.folder=next;if(app.mode==="local")saveLocal();renderProjectFolderList();renderProjects();renderEditor()
+}
+async function deleteProjectFolder(id){
+  const folder=app.projectFolders.find(item=>item.id===id);if(!folder||!uiConfirm(`Delete folder “${folder.name}”? Projects will move to General.`))return;
+  if(app.mode==="cloud"){const {error}=await sb.from("project_folders").delete().eq("id",id).eq("owner_id",app.session.user.id);if(error)return setMsg("projectFolderNotice",error.message||"Could not delete folder.","warning")}
+  app.projectFolders=app.projectFolders.filter(item=>item.id!==id);(app.projects||[]).filter(project=>project.folderId===id).forEach(project=>{project.folderId=null;project.folder="General"});if(app.current?.folderId===id){app.current.folderId=null;app.current.folder="General"}if(app.projectFolder===id)app.projectFolder="all";if(app.mode==="local")saveLocal();renderProjectFolderList();renderProjects();renderEditor()
+}
+function openMoveProjectFolder(projectId){
+  const project=app.projects.find(item=>item.id===projectId);if(!project)return;if(app.mode==="cloud"&&!app.foldersReady)return uiAlert(app.folderMigrationMessage);
+  app.moveProjectId=projectId;$("moveProjectFolderTitle").textContent=`Move “${project.name}”`;$("moveProjectFolderSelect").innerHTML=folderOptionMarkup(project.folderId||null);setMsg("moveProjectFolderNotice","");$("moveProjectFolderModal").showModal()
+}
+async function assignProjectFolder(project,folderId){
+  const folder=app.projectFolders.find(item=>item.id===folderId)||null;
+  if(app.mode==="cloud"){
+    if(folderId){const {error}=await sb.from("project_folder_assignments").upsert({user_id:app.session.user.id,project_id:project.id,folder_id:folderId,updated_at:new Date().toISOString()},{onConflict:"user_id,project_id"});if(error)throw error}
+    else{const {error}=await sb.from("project_folder_assignments").delete().eq("user_id",app.session.user.id).eq("project_id",project.id);if(error)throw error}
+  }
+  project.folderId=folder?.id||null;project.folder=folder?.name||"General";if(app.current?.id===project.id){app.current.folderId=project.folderId;app.current.folder=project.folder}if(app.mode==="local")saveLocal()
+}
+async function moveProjectToSelectedFolder(){
+  const project=app.projects.find(item=>item.id===app.moveProjectId);if(!project)return;const folderId=$("moveProjectFolderSelect").value||null;
+  $("saveMoveProjectFolderBtn").disabled=true;setMsg("moveProjectFolderNotice","Moving project…");
+  try{
+    await assignProjectFolder(project,folderId);$("moveProjectFolderModal").close();app.moveProjectId=null;renderProjects();renderEditor()
+  }catch(error){setMsg("moveProjectFolderNotice",error.message||"Could not move project.","warning")}
+  finally{$("saveMoveProjectFolderBtn").disabled=false}
+}
 function projectDragEnabled(){return app.projectFilter==="all" && !app.projectSearch.trim() && app.projectFolder==="all"}
 async function persistProjectPositions(){
   const mine=app.projects.filter(p=>projectIsOwner(p));
@@ -3811,6 +3929,7 @@ async function duplicateProject(id){
     const locationResult=await sb.from("project_ai_locations").select("*").eq("project_id",id).order("created_at");if(locationResult.error&&!String(locationResult.error.message||"").includes("project_ai_locations"))throw locationResult.error;const locations=locationResult.data||[];
     const position=Math.max(0,...app.projects.filter(x=>projectIsOwner(x)).map(x=>Number(x.position||0)))+1;
     const {data:newP,error:pe}=await sb.from("projects").insert({owner_id:app.session.user.id,name:`${p.name} Copy`,aspect:p.aspect,aspect_width:p.aspect_width,aspect_height:p.aspect_height,style:p.style,position,is_favorite:false,folder:p.folder||"General",tags:normalizeTags(p.tags),metadata:p.metadata||{}}).select().single();if(pe)throw pe;
+    if(source.folderId&&app.foldersReady){const {error:folderError}=await sb.from("project_folder_assignments").upsert({user_id:app.session.user.id,project_id:newP.id,folder_id:source.folderId,updated_at:new Date().toISOString()},{onConflict:"user_id,project_id"});if(folderError)throw folderError}
     const characterMap=new Map(),locationMap=new Map();
     for(const sourceAsset of characters||[]){
       const {data:newAsset,error:assetError}=await sb.from("project_ai_characters").insert({project_id:newP.id,name:sourceAsset.name,description:sourceAsset.description||"",locked:false,created_by:app.session.user.id}).select().single();if(assetError)throw assetError;
@@ -3836,7 +3955,7 @@ async function duplicateProject(id){
 }
 function openProjectDetails(id){
   const p=(app.current?.id===id?app.current:app.projects.find(x=>x.id===id));if(!p)return;app.detailsProjectId=id;const m=projectMeta(p);
-  $("detailProjectName").value=p.name||"";$("detailProjectFolder").value=p.folder||"General";$("detailProjectTags").value=(p.tags||[]).join(", ");
+  $("detailProjectName").value=p.name||"";$("detailProjectFolder").innerHTML=folderOptionMarkup(p.folderId||null);$("detailProjectTags").value=(p.tags||[]).join(", ");
   $("detailDirector").value=m.director||"";$("detailCinematographer").value=m.cinematographer||"";$("detailWriter").value=m.writer||"";$("detailProduction").value=m.production||"";$("detailStatus").value=m.status||"Planning";$("detailNotes").value=m.notes||"";$("detailFavorite").checked=!!p.isFavorite;
   const editable=projectCanEdit(p)||(app.current?.id===id&&can("project_settings"));
   ["detailProjectName","detailProjectFolder","detailProjectTags","detailDirector","detailCinematographer","detailWriter","detailProduction","detailStatus","detailNotes","detailFavorite"].forEach(x=>$(x).disabled=!editable);
@@ -3844,11 +3963,12 @@ function openProjectDetails(id){
 }
 async function saveProjectDetails(){
   const id=app.detailsProjectId,p=(app.current?.id===id?app.current:app.projects.find(x=>x.id===id));if(!p)return;
-  p.name=$("detailProjectName").value.trim()||p.name;p.folder=$("detailProjectFolder").value.trim()||"General";p.tags=normalizeTags($("detailProjectTags").value);p.isFavorite=$("detailFavorite").checked;
+  const folderId=$("detailProjectFolder").value||null;p.name=$("detailProjectName").value.trim()||p.name;p.tags=normalizeTags($("detailProjectTags").value);p.isFavorite=$("detailFavorite").checked;
   p.metadata={director:$("detailDirector").value.trim(),cinematographer:$("detailCinematographer").value.trim(),writer:$("detailWriter").value.trim(),production:$("detailProduction").value.trim(),status:$("detailStatus").value,notes:$("detailNotes").value.trim()};
   if(app.mode==="cloud"){
-    const {error}=await sb.from("projects").update({name:p.name,folder:p.folder,tags:p.tags,is_favorite:p.isFavorite,metadata:p.metadata,updated_at:new Date().toISOString()}).eq("id",id);if(error)return uiAlert(error.message)
+    const {error}=await sb.from("projects").update({name:p.name,tags:p.tags,is_favorite:p.isFavorite,metadata:p.metadata,updated_at:new Date().toISOString()}).eq("id",id);if(error)return uiAlert(error.message)
   }else saveLocal();
+  try{await assignProjectFolder(p,folderId)}catch(error){return uiAlert(error.message||"Could not move project.")}
   if(app.current?.id===id){app.current={...app.current,...p};$("projectName").value=p.name;if($("projectFolderBadge"))$("projectFolderBadge").textContent=p.folder}
   p.updated_at=new Date().toISOString();const listP=app.projects.find(x=>x.id===id);if(listP)Object.assign(listP,p);$("projectDetailsModal").close();renderProjects()
 }
@@ -3864,11 +3984,12 @@ function bind(){
   $("loginForm").onsubmit=doLogin;$("signupForm").onsubmit=doSignup;$("passwordRecoveryForm").onsubmit=updateRecoveredPassword;$("cancelPasswordRecoveryBtn").onclick=cancelPasswordRecovery;$("forgotPasswordBtn").onclick=forgotPassword;$("continueOfflineBtn").onclick=continueOffline;
   ["signupPassword","recoveryPassword","recoveryPasswordConfirm"].forEach(id=>{const field=$(id);field.addEventListener("input",()=>updatePasswordFieldValidity(field));field.addEventListener("invalid",()=>updatePasswordFieldValidity(field,true))});
   $("logoutBtn").onclick=logout;$("newCloudProjectBtn").onclick=createCloudProject;$("emptyNewProjectBtn").onclick=createCloudProject;
+  $("manageProjectFoldersBtn").onclick=openProjectFolders;$("closeProjectFoldersBtn").onclick=()=>$("projectFoldersModal").close();$("createProjectFolderForm").onsubmit=createProjectFolder;$("closeMoveProjectFolderBtn").onclick=()=>$("moveProjectFolderModal").close();$("cancelMoveProjectFolderBtn").onclick=()=>$("moveProjectFolderModal").close();$("saveMoveProjectFolderBtn").onclick=moveProjectToSelectedFolder;
   $("accountBtn").onclick=openAccount;$("closeAccountBtn").onclick=()=>$("accountModal").close();$("accountProfileForm").onsubmit=saveAccountProfile;$("accountLanguageSelect").onchange=e=>window.storyboardI18n?.setLanguage(e.target.value);$("accountLayoutSelect").onchange=e=>applyLayoutPreference(e.target.value);
   $("adminCenterBtn").onclick=openAdminCenter;$("backFromAdminBtn").onclick=async()=>{rememberProjectsView();await loadCloudProjects();showProjects()};
   $("adminAccountBtn").onclick=openAccount;$("adminLogoutBtn").onclick=logout;
   $("adminUserSearchForm").onsubmit=searchAdminUsers;$("adminShowAllUsersBtn").onclick=showAllAdminUsers;$("adminLoadMoreUsersBtn").onclick=()=>loadAdminUsers(false);$("clearAdminUserBtn").onclick=clearAdminUser;$("adminAddForm").onsubmit=addAdmin;$("exitAdminSupportBtn").onclick=()=>closeAdminSupport(true);
-  $("backProjectsBtn").onclick=async()=>{if(adminSupporting()){await closeAdminSupport(true);return}unsubscribeRealtime();unsubscribePresence();stopSignedImageRefresh();unsubscribeChatRealtime();unsubscribeChatNoticeRealtime();unsubscribeLightingRealtime();updateChatBadges(0,false);if(app.mode==="cloud"){rememberProjectsView();await loadCloudProjects();showProjects()}else showAuth()};
+  $("backProjectsBtn").onclick=returnToProjects;$("editorProjectsBtn").onclick=returnToProjects;$("editorAccountBtn").onclick=()=>{closeEditorActions();openAccount()};$("editorLogoutBtn").onclick=()=>{closeEditorActions();logout()};$("headerBibleBtn").onclick=()=>{closeEditorActions();openAiVisualBible()};$("headerProjectSettingsBtn").onclick=()=>{closeEditorActions();openProjectDetails(app.current.id)};
   $("projectSearch").oninput=e=>{app.projectSearch=e.target.value;renderProjects()};
   $("projectFilter").onchange=e=>{app.projectFilter=e.target.value;renderProjects()};
   $("projectFolderFilter").onchange=e=>{app.projectFolder=e.target.value;renderProjects()};
@@ -3876,7 +3997,7 @@ function bind(){
   $("aiBibleBtn").onclick=openAiVisualBible;$("manageAiCharactersBtn").onclick=openAiVisualBible;$("closeAiBibleBtn").onclick=()=>$("aiBibleModal").close();$("doneAiBibleBtn").onclick=()=>$("aiBibleModal").close();
   $("addAiCharacterBtn").onclick=()=>addAiAsset("character");$("addAiLocationBtn").onclick=()=>addAiAsset("location");$("aiLocationId").onchange=onAiShotLinksChange;$("generateShotImageBtn").onclick=generateShotImage;
   $("scriptFileInput").onchange=loadScriptFile;$("saveScriptBtn").onclick=()=>saveProjectScript();$("analyzeScriptBtn").onclick=analyzeProjectScript;$("applyScriptBreakdownBtn").onclick=applyScriptBreakdown;$("linkScriptSelectionBtn").onclick=linkScriptSelectionToShot;$("createShotFromScriptBtn").onclick=createShotFromScriptSelection;
-  ["select","click","keyup"].forEach(eventName=>$("scriptTextEditor").addEventListener(eventName,updateScriptSelection));$("scriptTextEditor").addEventListener("input",()=>{updateScriptSelection();$("applyScriptBreakdownBtn").disabled=true;clearTimeout(scriptRenderTimer);scriptRenderTimer=setTimeout(renderScriptLineMap,220)});$("scriptLinkSceneSelect").onchange=()=>{renderScriptLinkSelectors();updateScriptSelection()};$("scriptLinkShotSelect").onchange=updateScriptSelection;
+  ["click","keyup","mouseup","focus"].forEach(eventName=>$("scriptTextEditor").addEventListener(eventName,()=>{updateScriptSelection();updateScriptBoldState()}));$("scriptTextEditor").addEventListener("input",()=>{updateScriptSelection();updateScriptBoldState();$("applyScriptBreakdownBtn").disabled=true;clearTimeout(scriptRenderTimer);scriptRenderTimer=setTimeout(renderScriptLineMap,220)});$("scriptTextEditor").addEventListener("beforeinput",event=>{if(event.inputType==="insertParagraph"){event.preventDefault();document.execCommand("insertLineBreak",false)}});$("scriptTextEditor").addEventListener("paste",event=>{event.preventDefault();document.execCommand("insertText",false,event.clipboardData?.getData("text/plain")||"")});$("scriptDirectionSelect").onchange=event=>setScriptDirection(event.target.value);$("scriptBoldBtn").addEventListener("pointerdown",event=>event.preventDefault());$("scriptBoldBtn").onclick=toggleScriptBold;document.addEventListener("selectionchange",()=>{if(scriptSelectionRange()){updateScriptSelection();updateScriptBoldState()}});$("scriptLinkSceneSelect").onchange=()=>{renderScriptLinkSelectors();updateScriptSelection()};$("scriptLinkShotSelect").onchange=updateScriptSelection;
   ["projectName","projectAspect","projectStyle","aspectWidth","aspectHeight"].forEach(id=>{["input","change"].forEach(ev=>$(id).addEventListener(ev,onProjectChange))});
   ["sceneTitle","sceneDescription","sceneStoryLocation","sceneStoryTime","sceneShootTime","sceneTimeStrategy","sceneAiLocationId"].forEach(id=>{["input","change"].forEach(ev=>$(id).addEventListener(ev,onSceneChange))});$("syncSceneBibleBtn").onclick=syncSceneBibleToShots;
   SHOT_FIELDS.filter(id=>id!=="shotNo").forEach(id=>{if($(id))["input","change"].forEach(ev=>$(id).addEventListener(ev,()=>onShotChange(id)))});
@@ -3885,14 +4006,13 @@ function bind(){
   $("prevShotBtn").onclick=()=>adjacentShot(-1);$("nextShotBtn").onclick=()=>adjacentShot(1);
   $("frameImageInput").onchange=loadImage;$("removeImageBtn").onclick=removeImage;
   $("frameImage").onclick=openCurrentShotImage;$("frameImage").onkeydown=event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();openCurrentShotImage()}};
-  $("cropShotImageBtn").onclick=()=>{const target=shotImageTarget(currentShot());if(target)openCropEditor(target)};
-  $("closeImageViewerBtn").onclick=closeImageViewer;$("doneImageViewerBtn").onclick=closeImageViewer;$("imageViewerModal").addEventListener("cancel",event=>{event.preventDefault();closeImageViewer()});
+  $("closeImageViewerBtn").onclick=closeImageViewer;$("doneImageViewerBtn").onclick=closeImageViewer;$("imageViewerModal").addEventListener("cancel",event=>{event.preventDefault();if(cropState.active)closeCropEditor();else closeImageViewer()});
   $("imageViewerImage").onload=updateImageViewerAspect;
   $("openCropFromViewerBtn").onclick=()=>{const target=imageViewerTarget;if(target)openCropEditor(target)};
-  $("closeImageCropBtn").onclick=closeCropEditor;$("cancelCropBtn").onclick=closeCropEditor;$("resetCropBtn").onclick=resetCrop;$("saveCropBtn").onclick=saveCrop;$("cropZoom").oninput=updateCropZoom;
+  $("cancelCropBtn").onclick=closeCropEditor;$("resetCropBtn").onclick=resetCrop;$("saveCropBtn").onclick=saveCrop;$("cropZoom").oninput=updateCropZoom;
   $("cropCanvas").addEventListener("pointerdown",cropPointerDown);$("cropCanvas").addEventListener("pointermove",cropPointerMove);$("cropCanvas").addEventListener("pointerup",cropPointerEnd);$("cropCanvas").addEventListener("pointercancel",cropPointerEnd);
   $("cropCanvas").addEventListener("wheel",event=>{if(!cropState.drawable||cropState.saving)return;event.preventDefault();const zoom=$("cropZoom"),next=Math.max(Number(zoom.min),Math.min(Number(zoom.max),Number(zoom.value)+(event.deltaY<0?5:-5)));zoom.value=String(next);updateCropZoom()},{passive:false});
-  $("imageCropModal").addEventListener("cancel",event=>{event.preventDefault();closeCropEditor()});$("imageCropModal").addEventListener("close",()=>{clearCropDrawable();cropState.target=null;cropState.saving=false;$("cropCanvas").hidden=true;$("cropLoading").hidden=true;setMsg("cropNotice","")});
+  $("imageViewerModal").addEventListener("close",()=>{clearCropDrawable();cropState.active=false;cropState.target=null;cropState.saving=false;$("cropCanvas").hidden=true;$("cropLoading").hidden=true;setMsg("cropNotice","")});
 
   // Lighting Studio v3.8
   $("openLightingDiagramBtn").onclick=()=>openLightingWorkspace();
@@ -3949,10 +4069,10 @@ function bind(){
   $("exportLightingJsonBtn").onclick=exportLightingJson;
   $("shareLightingDiagramBtn").onclick=copyLightingShareLink;
 
-  $("sheetToggleBtn").onclick=()=>isMobileEditor()?setMobileEditorScreen("sheet"):toggleSheet();$("mobileSheetBtn").onclick=()=>setMobileEditorScreen("sheet");$("closeSheetBtn").onclick=()=>isMobileEditor()?setMobileEditorScreen("shot"):toggleSheet(false);$("shotsPerPage").onchange=renderSheet;$("printSheetBtn").onclick=()=>window.print();
+  $("sheetToggleBtn").onclick=()=>{if(isMobileEditor())setMobileEditorScreen("sheet");else{toggleSheet();closeEditorActions()}};$("mobileSheetBtn").onclick=()=>setMobileEditorScreen("sheet");$("closeSheetBtn").onclick=()=>isMobileEditor()?setMobileEditorScreen("shot"):toggleSheet(false);$("shotsPerPage").onchange=renderSheet;$("printSheetBtn").onclick=()=>window.print();
   $("exportBtn").onclick=exportJSON;$("importInput").onchange=e=>{const f=e.target.files[0];if(f)importJSONOnline(f).catch(err=>uiAlert(err.message||"Import failed."));e.target.value="";};
   document.querySelectorAll("[data-focus]").forEach(button=>button.onclick=()=>openPrimarySetting(button.dataset.focus));
-  $("collaborateBtn").onclick=openCollab;$("addMemberBtn").onclick=addMemberByUsername;$("createShareLinkBtn").onclick=createShareLink;$("copyShareLinkBtn").onclick=async()=>{await navigator.clipboard.writeText($("shareLinkOutput").value);setMsg("collabMessage","Invite link copied.")};
+  $("collaborateBtn").onclick=()=>{closeEditorActions();openCollab()};$("addMemberBtn").onclick=addMemberByUsername;$("createShareLinkBtn").onclick=createShareLink;$("copyShareLinkBtn").onclick=async()=>{await navigator.clipboard.writeText($("shareLinkOutput").value);setMsg("collabMessage","Invite link copied.")};
   $("permissionPreset").onchange=e=>{if(e.target.value!=="custom")setPermissionPreset(e.target.value)};
   $("collabMembersTab").onclick=()=>setCollabTab("members");$("collabChatTab").onclick=()=>setCollabTab("chat");$("sendChatMessageBtn").onclick=sendChatMessage;
   $("chatMentionSelect").onchange=e=>{if(e.target.value)insertChatMention(e.target.value);e.target.value=""};
@@ -3974,6 +4094,7 @@ function bind(){
   window.addEventListener("resize",()=>{if(!isMobileEditor())closeEditorActions();syncMobileEditorUi()});
   window.addEventListener("storyboard:languagechange",()=>{
     if(app.current)renderEditor();
+    if($("aiBibleModal")?.open)renderAiVisualBible();
     if(!$("projectsView").hidden)renderProjects();
     if(!$("adminView").hidden&&app.admin.isAdmin){renderAdminUserResults(app.admin.users);loadAdminTeam();loadAdminActivity()}
     if(app.profile)renderAccountProfile();if($("accountModal")?.open)renderCreatorScore();renderAiUsage();window.storyboardI18n?.translateTree(document.body)

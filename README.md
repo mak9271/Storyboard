@@ -1,34 +1,31 @@
-# Storyboard Shot Builder v4.5.0
+# Storyboard Shot Builder v4.6.0
 
-This build continues only from the user-approved `storyboard-v3.9.1-github(1).zip` lineage. It includes every accepted change through v4.4 and adds the Bible Script and Scene Breakdown workflow.
+This build continues only from the user-approved `storyboard-v3.9.1-github(1).zip` lineage. It includes every accepted change through v4.5 and adds account folders, unified image crop and bilingual rich Script editing.
 
-## v4.5.0 changes
+## v4.6.0 changes
 
-- Renames the visible Visual Bible experience to **Bible** and gives its launch buttons, modal and Scene assignment area a consistent book icon.
-- Restores an obvious **Manage Bible** button below One-line Shot Summary inside the blue AI-reference panel.
-- Adds Scene Settings for Scene Location, Story Time, Shooting Time and Natural / Day for Night / Night for Day conversion.
-- Lets a Scene hold one Bible location and multiple Bible characters. New shots inherit them; **Apply Scene Bible to All Shots** updates existing shots.
-- Adds a Script workspace inside Bible. It accepts TXT, Markdown, Fountain, Final Draft FDX/XML, HTML and RTF text files up to 900 KB; one AI analysis accepts up to 180,000 characters.
-- Uses Cloudflare Workers AI `@cf/zai-org/glm-4.7-flash` to identify scenes, recurring characters, locations, finished-film time and explicit Day for Night / Night for Day production notes.
-- Applies a reviewed breakdown to the project without replacing existing locked references: missing characters/locations are added unlocked to Bible, script scenes are created or updated, and their Bible assignments are propagated to shots.
-- Supports exact arbitrary text selections, including ranges beginning or ending in the middle of a line. A range can be linked to an existing shot or used to create a new shot. The Script Reference Map shows every line's overlapping shot links.
-- Replaces the scene Copy/Paste letters with copy and clipboard icons. Selecting a shot from the Scene list now stays in the Scene screen.
-- Strengthens FLUX framing compliance with explicit subject-occupancy rules, prohibited crops and a final framing check. Close shots send character references before the wide location plate; wide shots keep the location first.
-- Adds Scene story/shooting conditions to the image prompt and raises FLUX guidance to `5.5`.
-- Makes the image viewer derive its desktop shape from the image's natural pixel ratio. The mobile viewer and crop editor are full-height, viewport-contained layouts.
+- Keeps the desktop Bible, Storyboard Style and AI usage controls inside the sidebar width.
+- Restores the Storyboard Generate button as a full-width horizontal control.
+- Removes every separate Crop button and the separate Crop modal. Crop is available only inside the enlarged image viewer and is applied there.
+- Uses the Project Aspect Ratio for every crop output while the normal viewer still follows the source image's natural ratio.
+- Adds Script writing direction controls for English LTR and Persian RTL plus persistent selected-text Bold formatting.
+- Removes the arrow beside the sidebar Bible button.
+- Replaces the desktop header and mobile three-dot menu with Storyboard Sheet, Chat & Collaborate, Bible and Project Settings; a divider separates Projects, Account and Log Out.
+- Keeps All Projects and All Folders side by side on phone screens.
+- Adds real per-account folders, including create, rename and delete, plus moving any accessible project between a folder and General. A shared project's folder is private to the organizing user.
 
 ## Existing installation: required deployment order
 
-Do not delete earlier saved SQL queries. v4.5 is an additive migration.
+Do not delete earlier saved SQL queries. v4.6 is an additive migration.
 
 1. Open the correct project at [Supabase Dashboard](https://supabase.com/dashboard).
 2. Open **SQL Editor** and click **New query**.
 3. Name it exactly:
 
-   `Storyboard v4.5 - Bible Script & Scene Breakdown`
+   `Storyboard v4.6 - Project Folders & Rich Script`
 
 4. Keep **Save query: YES**.
-5. Paste the complete contents of `supabase-v4.5-bible-script-breakdown.sql` and press **Run** once.
+5. Paste the complete contents of `supabase-v4.6-project-folders-rich-script.sql` and press **Run** once.
 6. Wait for **Success. No rows returned**. The query is safe to run again and does not delete existing project data or media.
 7. Deploy the repository-root files. Do not upload `node_modules`.
 8. Use this Cloudflare build/deploy command:
@@ -37,9 +34,9 @@ Do not delete earlier saved SQL queries. v4.5 is an additive migration.
    npx wrangler deploy
    ```
 
-9. No `username-login` Edge Function redeploy is required for v4.5; that function is unchanged.
-10. Hard-refresh the app. Page source should show `styles.css?v=450`, `config.js?v=450`, `i18n.js?v=450`, `app.js?v=450` and build `v4.5.0-bible-script-breakdown`.
-11. Sign out and back in, open a project, test Scene Settings, then open Bible → Script.
+9. No `username-login` Edge Function redeploy is required for v4.6; that function is unchanged.
+10. Hard-refresh the app. Page source should show `styles.css?v=460`, `config.js?v=460`, `i18n.js?v=460`, `app.js?v=460` and build `v4.6.0-folders-inline-crop-rich-script`.
+11. Sign out and back in. Test Projects → New Folder, then open a project and test the image viewer Crop and Bible → Script direction/Bold controls.
 
 ## Fresh Supabase installation
 
@@ -53,6 +50,7 @@ Run and save the packaged queries in this order:
 6. `supabase-v4.3-account-score.sql`
 7. `supabase-v4.4-image-tools-project-rls-login.sql`
 8. `supabase-v4.5-bible-script-breakdown.sql`
+9. `supabase-v4.6-project-folders-rich-script.sql`
 
 Only for the first superadmin, replace the placeholder with the real Storyboard username and run:
 
@@ -65,14 +63,14 @@ For a fresh installation, deploy `supabase/functions/username-login/index.ts` fr
 ## Script workflow
 
 1. Open **Bible → Script**.
-2. Choose one of the listed text formats or paste the screenplay into the editor.
+2. Choose LTR for English or RTL for Persian, then choose one of the listed text formats or paste the screenplay into the editor. Select text and press **Bold** when needed.
 3. Save, then select **Analyze with AI**.
 4. Review the detected scene count, characters, locations, story/shoot times and line ranges.
 5. Select **Apply Breakdown to Project**. Existing locked Bible references remain untouched. New entries are unlocked and ready for Generate/Upload, review and Lock.
 6. Select any exact text range. Choose a Scene and Shot and press **Link to Shot**, or press **Create Shot from Selection**.
 7. Use the line-by-line Script Reference Map to find linked or unlinked screenplay lines.
 
-Script text, AI analysis and shot-link offsets are stored in Postgres. The uploaded source file itself is not stored as a second binary object; supported files are converted to editable text in the browser and that text is saved.
+Plain Script text, safe Bold markup, writing direction, AI analysis and shot-link offsets are stored in Postgres. The uploaded source file itself is not stored as a second binary object; supported files are converted to editable text in the browser and that text is saved.
 
 ## Scene time semantics
 
@@ -106,7 +104,7 @@ FLUX receives `prompt`, exact `width`, exact `height`, `guidance=5.5` and `input
 - A shot keeps only its current image path; Storyboard Sheet uses that same image.
 - Generated/manual shot images are optimized to at most 1024 px before storage.
 - Bible source and final references are optimized to at most 496 px.
-- Replacement/crop uploads the new object and updates the row before removing the previous object.
+- Crop is opened only from the enlarged image viewer, uses the Project Aspect Ratio, uploads the new object and updates the row before removing the previous object.
 - Source Image and Upload Final are independent.
 - Signed URLs are refreshed; immutable storage caching keeps repeat loading fast.
 
@@ -118,7 +116,7 @@ npm run check
 npx wrangler deploy --dry-run
 ```
 
-Automated checks cover HTML identity, Admin access, Bible media persistence, exact Script range links, Script model/tool schema, v4.5 RLS and Scene RPC, mobile Scene behavior, natural image ratio, crop layout, strict framing prompts, reference ordering, JWT guards and authenticated multipart generation.
+Automated checks cover HTML identity, Admin access, Bible media persistence, exact Script range links, rich Script direction/Bold controls, per-user folder RLS, mobile project filters, the unified aspect-locked crop viewer, strict framing prompts, reference ordering, JWT guards and authenticated multipart generation.
 
 ## Current limits
 
