@@ -12,10 +12,10 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="styles.css?v=460" />
+  <link rel="stylesheet" href="styles.css?v=470" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0"></script>
-  <script src="config.js?v=460"></script>
-  <meta name="storyboard-build" content="v4.6.0-folders-inline-crop-rich-script" />
+  <script src="config.js?v=470"></script>
+  <meta name="storyboard-build" content="v4.7.0-lighting-restore-script-tools-directories" />
 </head>
 <body>
 
@@ -132,6 +132,23 @@
         <select id="projectFolderFilter" aria-label="Folder filter"><option value="all">All folders</option></select>
         <button id="manageProjectFoldersBtn" class="btn ghost folder-manager-btn" type="button">＋ New Folder</button>
       </div>
+      <section id="projectDirectory" class="project-directory" aria-labelledby="projectDirectoryTitle">
+        <div class="project-directory-head">
+          <div class="project-directory-copy">
+            <button id="projectDirectoryBackBtn" class="btn ghost project-directory-back" type="button" hidden>← All Folders</button>
+            <div>
+              <div class="eyebrow">PROJECT DIRECTORY</div>
+              <h2 id="projectDirectoryTitle">All Folders</h2>
+              <p id="projectDirectoryMeta">Open a folder to see only the projects inside it.</p>
+            </div>
+          </div>
+          <div id="projectDirectoryActions" class="project-directory-actions" hidden>
+            <button id="renameCurrentFolderBtn" class="btn ghost" type="button">Rename Folder</button>
+            <button id="deleteCurrentFolderBtn" class="btn ghost danger-text" type="button">Delete Folder</button>
+          </div>
+        </div>
+        <div id="projectDirectoryGrid" class="project-directory-grid"></div>
+      </section>
       <div class="dashboard-hint">Drag your own project cards to reorder them. Order is saved automatically.</div>
       <div id="projectsGrid" class="projects-grid"></div>
       <div id="projectsEmpty" class="empty-state" hidden>
@@ -585,7 +602,7 @@
       <p class="ai-bible-intro">Create and approve one reference for every recurring character and location. Lock approved references before generating shots.</p>
       <div id="aiBibleNotice" class="notice" hidden></div>
 
-      <details id="scriptBibleSection" class="ai-bible-section script-bible-section" open>
+      <details id="scriptBibleSection" class="ai-bible-section script-bible-section">
         <summary class="script-section-summary">
           <span><strong>Script</strong><small>Import, analyze and connect exact text ranges to shots.</small></span>
           <span id="scriptFileBadge" class="script-file-badge">No script</span>
@@ -605,7 +622,12 @@
             <option value="ltr">Left to Right · English</option>
             <option value="rtl">Right to Left · فارسی</option>
           </select>
-          <button id="scriptBoldBtn" class="btn ghost script-format-btn" type="button" aria-pressed="false"><strong>B</strong> Bold</button>
+          <div class="script-format-actions" aria-label="Selected text formatting">
+            <button id="scriptBoldBtn" class="btn ghost script-format-btn" type="button" aria-label="Bold selected text" title="Bold" aria-pressed="false"><strong>B</strong></button>
+            <button id="scriptUnderlineBtn" class="btn ghost script-format-btn" type="button" aria-label="Underline selected text" title="Underline" aria-pressed="false"><u>U</u></button>
+            <button id="scriptFontDecreaseBtn" class="btn ghost script-format-btn" type="button" aria-label="Decrease selected text size" title="Decrease text size">−</button>
+            <button id="scriptFontIncreaseBtn" class="btn ghost script-format-btn" type="button" aria-label="Increase selected text size" title="Increase text size">＋</button>
+          </div>
         </div>
         <div id="scriptTextEditor" class="script-editor script-rich-editor" contenteditable="true" dir="ltr" role="textbox" aria-multiline="true" data-i18n="off" data-placeholder="Choose a script file or paste screenplay text here…" spellcheck="false"></div>
         <div class="script-selection-panel">
@@ -958,6 +980,7 @@
       </div>
       <div id="cropNotice" class="notice" hidden></div>
       <div id="imageViewerActions" class="image-viewer-actions">
+        <button id="restoreOriginalImageBtn" class="btn ghost" type="button" hidden>Restore Original</button>
         <button id="openCropFromViewerBtn" class="btn" type="button">Crop Image</button>
         <button id="doneImageViewerBtn" class="btn ghost" type="button">Close</button>
       </div>
@@ -1068,7 +1091,7 @@
     </div>
   </dialog>
 
-  <script src="i18n.js?v=460"></script>
-  <script src="app.js?v=460"></script>
+  <script src="i18n.js?v=470"></script>
+  <script src="app.js?v=470"></script>
 </body>
 </html>

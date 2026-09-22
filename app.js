@@ -1,4 +1,4 @@
-// Storyboard Shot Builder v4.6.0 — folders, unified image crop and bilingual rich Script editing
+// Storyboard Shot Builder v4.7.0 — Lighting restore, reversible crops, Script tools and folder directories
 const OPTIONS = {
   shotSize:["ECU · Extreme Close Up","CU · Close Up","MCU · Medium Close Up","MS · Medium Shot","MLS · Medium Long Shot","WS · Wide Shot","EWS · Extreme Wide Shot","OTS · Over The Shoulder","POV · Point of View","Insert","Top Shot"],
   angle:["Eye Level","High Angle","Low Angle","Top / Bird's Eye","Dutch Angle","Ground Level","Overhead","Custom"],
@@ -156,7 +156,7 @@ function fullPermissions(){return {project_settings:true,scenes:true,shots:true,
 function blankPermissions(){return {project_settings:false,scenes:false,shots:false,media:false,members:false}}
 function editorPermissions(){return {project_settings:false,scenes:true,shots:true,media:true,members:false}}
 function permissionPreset(name){return name==="viewer"?blankPermissions():name==="editor"?editorPermissions():readPermissionUI()}
-function blankShot(no=1){return {id:uid(),shotNo:no,duration:"",shotSize:"CU · Close Up",angle:"Eye Level",lens:"50mm",focus:"Shallow Focus",movement:"Static",startEnd:"",composition:"Centered / Symmetrical",summary:"",subject:"",description:"",performance:"",subjectMovement:"",costume:"",timeOfDay:"Night",location:"",lightSource:"Candle",lightDirection:"Camera Left",lightQuality:"Low Key",lighting:"",props:"",dialogue:"",voiceOver:"",sfx:"",music:"",transitionIn:"Cut",transitionOut:"Cut",notes:"",aiCharacterIds:[],aiLocationId:"",aiGeneration:null,image:null,imagePath:null,position:no}}
+function blankShot(no=1){return {id:uid(),shotNo:no,duration:"",shotSize:"CU · Close Up",angle:"Eye Level",lens:"50mm",focus:"Shallow Focus",movement:"Static",startEnd:"",composition:"Centered / Symmetrical",summary:"",subject:"",description:"",performance:"",subjectMovement:"",costume:"",timeOfDay:"Night",location:"",lightSource:"Candle",lightDirection:"Camera Left",lightQuality:"Low Key",lighting:"",props:"",dialogue:"",voiceOver:"",sfx:"",music:"",transitionIn:"Cut",transitionOut:"Cut",notes:"",aiCharacterIds:[],aiLocationId:"",aiGeneration:null,image:null,imagePath:null,originalImage:null,originalImagePath:null,position:no}}
 function blankScene(no=1){return {id:uid(),number:no,title:`Scene ${no}`,description:"",storyLocation:"",storyTime:"Unspecified",shootTime:"Unspecified",timeStrategy:"natural",aiLocationId:"",aiCharacterIds:[],scriptSceneKey:null,position:no,collapsed:false,shots:[blankShot(1)]}}
 function blankShotForScene(no,scene){const shot=blankShot(no);if(!scene)return shot;shot.aiLocationId=scene.aiLocationId||"";shot.aiCharacterIds=[...(scene.aiCharacterIds||[])];if(scene.storyTime&&scene.storyTime!=="Unspecified")shot.timeOfDay=scene.storyTime;if(scene.storyLocation)shot.location=scene.storyLocation;return shot}
 function blankProject(name="Untitled Storyboard"){return {id:uid(),name,aspect:"3:4 Portrait",aspectWidth:3,aspectHeight:4,style:"Storyboard B&W",owner_id:null,role:"owner",position:0,isFavorite:false,folderId:null,folder:"General",tags:[],metadata:{director:"",cinematographer:"",writer:"",production:"",status:"Planning",notes:""},scenes:[blankScene(1)],updated_at:new Date().toISOString()}}
@@ -175,7 +175,7 @@ function projectMeta(p){return {director:"",cinematographer:"",writer:"",product
 function adminSupporting(projectId=app.current?.id){return !!(app.admin.isAdmin&&app.admin.supportProjectId&&app.admin.supportProjectId===projectId)}
 function projectCanEdit(p){return app.mode==="local" || p?.owner_id===app.session?.user?.id || adminSupporting(p?.id) || !!p?.dashboardPermissions?.project_settings}
 function projectIsOwner(p){return app.mode==="local" || p?.owner_id===app.session?.user?.id || adminSupporting(p?.id)}
-function shotDbData(s){const data={...s};delete data.id;delete data.image;delete data.imagePath;delete data.cameraHeight;return data}
+function shotDbData(s){const data={...s};delete data.id;delete data.image;delete data.imagePath;delete data.originalImage;delete data.originalImagePath;delete data.cameraHeight;return data}
 function currentScene(){return app.current?.scenes.find(s=>s.id===app.activeSceneId) || app.current?.scenes[0] || null}
 function currentShot(){const sc=currentScene(); return sc?.shots.find(s=>s.id===app.activeShotId) || sc?.shots[0] || null}
 function allShots(){return (app.current?.scenes||[]).flatMap(scene=>scene.shots.map(shot=>({scene,shot})))}
@@ -872,14 +872,10 @@ function projectMatchesSearch(p){
   return [p.name,p.folder,...(p.tags||[]),m.director,m.cinematographer,m.writer,m.production,m.status,m.notes].join(" ").toLowerCase().includes(q)
 }
 function filteredProjects(){
-  const now=Date.now(),recentMs=30*24*60*60*1000;
   return (app.projects||[]).filter(p=>{
-    if(!projectMatchesSearch(p))return false;
+    if(!projectMatchesActiveView(p))return false;
     if(app.projectFolder==="general" && p.folderId)return false;
     if(app.projectFolder!=="all"&&app.projectFolder!=="general"&&p.folderId!==app.projectFolder)return false;
-    if(app.projectFilter==="favorites" && !p.isFavorite)return false;
-    if(app.projectFilter==="recent" && now-new Date(p.updated_at||0).getTime()>recentMs)return false;
-    if(app.projectFilter==="shared" && p.owner_id===app.session?.user?.id)return false;
     return true;
   })
 }
@@ -890,8 +886,38 @@ function refreshFolderFilter(){
   el.innerHTML='<option value="all">All folders</option><option value="general">General</option>'+folders.map(folder=>`<option value="${escapeHtml(folder.id)}">${escapeHtml(folder.name)}</option>`).join("");
   const values=[...el.options].map(option=>option.value);el.value=values.includes(keep)?keep:"all";app.projectFolder=el.value;
 }
+function projectMatchesActiveView(p){
+  const now=Date.now(),recentMs=30*24*60*60*1000;
+  if(!projectMatchesSearch(p))return false;
+  if(app.projectFilter==="favorites"&&!p.isFavorite)return false;
+  if(app.projectFilter==="recent"&&now-new Date(p.updated_at||0).getTime()>recentMs)return false;
+  if(app.projectFilter==="shared"&&p.owner_id===app.session?.user?.id)return false;
+  return true
+}
+function directoryProjectCount(folderId){return (app.projects||[]).filter(project=>projectMatchesActiveView(project)&&(folderId==="general"?!project.folderId:project.folderId===folderId)).length}
+function openProjectDirectory(folderId="all"){
+  const valid=folderId==="all"||folderId==="general"||(app.projectFolders||[]).some(folder=>folder.id===folderId);
+  app.projectFolder=valid?folderId:"all";renderProjects();$("projectsView")?.scrollTo?.({top:0,behavior:"smooth"})
+}
+function renderProjectDirectory(){
+  const section=$("projectDirectory"),grid=$("projectDirectoryGrid"),back=$("projectDirectoryBackBtn"),actions=$("projectDirectoryActions");if(!section||!grid)return;
+  const folders=[...(app.projectFolders||[])].sort((a,b)=>a.name.localeCompare(b.name)),current=folders.find(folder=>folder.id===app.projectFolder)||null,inside=app.projectFolder!=="all";
+  back.hidden=!inside;actions.hidden=!current;grid.hidden=inside;grid.innerHTML="";
+  $("projectDirectoryTitle").textContent=current?.name||(app.projectFolder==="general"?"General":"All Folders");
+  $("projectDirectoryMeta").textContent=inside?`${directoryProjectCount(current?.id||"general")} project${directoryProjectCount(current?.id||"general")===1?"":"s"} in this folder.`:`${folders.length+1} folder${folders.length?"s":""} · Open a folder to browse its projects.`;
+  if(inside)return;
+  const entries=[{id:"general",name:"General",system:true},...folders];
+  for(const folder of entries){
+    const count=directoryProjectCount(folder.id),card=document.createElement("article");card.className="project-directory-card";card.dataset.folderId=folder.id;
+    card.innerHTML=`<button type="button" class="project-directory-open" aria-label="Open ${escapeHtml(folder.name)} folder"><span class="project-directory-icon" aria-hidden="true">▰</span><span><strong>${escapeHtml(folder.name)}</strong><small>${count} project${count===1?"":"s"}</small></span><b aria-hidden="true">→</b></button>${folder.system?"":'<div class="project-directory-card-actions"><button type="button" class="mini-btn rename-directory">Rename</button><button type="button" class="mini-btn danger-lite delete-directory">Delete</button></div>'}`;
+    card.querySelector(".project-directory-open").onclick=()=>openProjectDirectory(folder.id);
+    if(!folder.system){card.querySelector(".rename-directory").onclick=()=>renameProjectFolder(folder.id);card.querySelector(".delete-directory").onclick=()=>deleteProjectFolder(folder.id)}
+    grid.appendChild(card)
+  }
+}
 function renderProjects(){
   refreshFolderFilter();
+  renderProjectDirectory();
   if($("manageProjectFoldersBtn"))$("manageProjectFoldersBtn").disabled=app.mode==="cloud"&&!app.foldersReady;
   const grid=$("projectsGrid");grid.innerHTML="";
   const list=filteredProjects();
@@ -1033,11 +1059,11 @@ async function deleteAdminProject(project){
     const {error:accessError}=await sb.rpc("storyboard_admin_open_project",{p_project_id:project.id,p_target_user_id:user.user_id});if(accessError)throw accessError;
     supportOpened=true;
     const [{data:paths},{data:characters},{data:locations}]=await Promise.all([
-      sb.from("shots").select("image_path").eq("project_id",project.id),
+      sb.from("shots").select("image_path,original_image_path").eq("project_id",project.id),
       sb.from("project_ai_characters").select("reference_path,source_path").eq("project_id",project.id),
       sb.from("project_ai_locations").select("reference_path,source_path").eq("project_id",project.id)
     ]);
-    await removeMediaPaths([...(paths||[]).map(x=>x.image_path),...(characters||[]).flatMap(x=>[x.reference_path,x.source_path]),...(locations||[]).flatMap(x=>[x.reference_path,x.source_path])]);
+    await removeMediaPaths([...(paths||[]).flatMap(x=>[x.image_path,x.original_image_path]),...(characters||[]).flatMap(x=>[x.reference_path,x.source_path]),...(locations||[]).flatMap(x=>[x.reference_path,x.source_path])]);
     const {error}=await sb.rpc("storyboard_admin_delete_project",{p_project_id:project.id,p_target_user_id:user.user_id});if(error)throw error;
     supportOpened=false;setMsg("adminCenterNotice",`Project "${project.name}" deleted.`);await Promise.all([loadAdminUserProjects(),loadAdminActivity(),loadAdminUsers(true)])
   }catch(err){setMsg("adminCenterNotice",err.message||"Could not delete the project.","warning")}
@@ -1108,7 +1134,7 @@ async function openCloudProject(id,options={}){
     const shotData={...blankShot(row.shot_number),...(row.data||{})};
     shotData.aiCharacterIds=Array.isArray(shotData.aiCharacterIds)?shotData.aiCharacterIds.filter(Boolean):[];
     shotData.aiLocationId=String(shotData.aiLocationId||"");
-    return {...shotData,id:row.id,shotNo:row.shot_number,position:row.position,version:Number(row.version||1),imagePath:row.image_path,image}
+    return {...shotData,id:row.id,shotNo:row.shot_number,position:row.position,version:Number(row.version||1),imagePath:row.image_path,originalImagePath:row.original_image_path||null,originalImage:null,image}
   }));
   const sceneObjects=(scenes||[]).map(s=>({id:s.id,number:s.scene_number,title:s.title||`Scene ${s.scene_number}`,description:s.description||"",storyLocation:s.story_location||"",storyTime:s.story_time||"Unspecified",shootTime:s.shoot_time||"Unspecified",timeStrategy:s.time_strategy||"natural",aiLocationId:s.ai_location_id||"",aiCharacterIds:Array.isArray(s.ai_character_ids)?s.ai_character_ids.filter(Boolean):[],scriptSceneKey:s.script_scene_key||null,position:Number(s.position||s.scene_number||1),collapsed:!!s.collapsed,version:Number(s.version||1),shots:signed.filter(x=>(shots||[]).find(r=>r.id===x.id)?.scene_id===s.id)}));
   sceneObjects.sort((a,b)=>a.position-b.position).forEach((scene,i)=>{
@@ -1364,6 +1390,9 @@ function applyPermissionLocks(){
   generateButton.title=generationReady.ready?"":uiText(generationReady.message);
   $("aiLocationId").disabled=shotLocked||!app.ai.ready;
   $("shotCharacterPicker").querySelectorAll("input").forEach(x=>x.disabled=shotLocked||!app.ai.ready);
+  // Lighting Studio can always be opened for the active project. Its own
+  // controls enforce edit permissions and show the database setup warning.
+  if($("openLightingDiagramBtn"))$("openLightingDiagramBtn").disabled=!app.current;
   $("collaborateBtn").hidden=app.mode!=="cloud";
 }
 
@@ -1505,7 +1534,7 @@ async function duplicateScene(sceneId){
   const source=app.current.scenes.find(s=>s.id===sceneId);if(!source)return;
   if(app.mode==="local"){
     const clone=deepClone(source);clone.id=uid();clone.title=`${source.title||`Scene ${source.number}`} Copy`;clone.position=source.position+.5;clone.collapsed=false;
-    clone.shots=source.shots.map((s,i)=>({...deepClone(s),id:uid(),shotNo:i+1,position:i+1}));
+    clone.shots=source.shots.map((s,i)=>({...deepClone(s),id:uid(),shotNo:i+1,position:i+1,originalImage:null,originalImagePath:null}));
     app.current.scenes.push(clone);normalizeSceneOrder();app.activeSceneId=clone.id;app.activeShotId=clone.shots[0]?.id||null;saveLocal();renderEditor();return
   }
   app.suppressRealtime++;
@@ -1547,7 +1576,7 @@ async function deleteScene(sceneId=app.activeSceneId){
 
   app.suppressRealtime++;
   try{
-    await removeMediaPaths(s.shots.map(x=>x.imagePath));
+    await removeMediaPaths(s.shots.flatMap(x=>[x.imagePath,x.originalImagePath]));
     const {error}=await sb.from("scenes").delete().eq("id",s.id);
     if(error)throw error;
 
@@ -1612,7 +1641,7 @@ async function moveShotById(sceneId,shotId,delta){
 async function insertShotCopy(source,afterIndex){
   const sc=currentScene();if(!sc||!source)return;
   const ordered=[...sc.shots].sort((a,b)=>a.position-b.position),insertIndex=Math.max(0,Math.min(ordered.length,Number(afterIndex)+1));
-  const copy=deepClone(source);copy.id=uid();copy.position=ordered.length+1;copy.shotNo=ordered.length+1;
+  const copy=deepClone(source);copy.id=uid();copy.position=ordered.length+1;copy.shotNo=ordered.length+1;copy.originalImage=null;copy.originalImagePath=null;
   if(app.mode==="local"){ordered.splice(insertIndex,0,copy);sc.shots=ordered;normalizeShotNumbers(sc);app.activeShotId=copy.id;saveLocal();renderEditor();return}
   app.suppressRealtime++;
   try{
@@ -1650,7 +1679,7 @@ async function deleteShot(){
   if(app.mode==="local"){sc.shots=sc.shots.filter(x=>x.id!==s.id);normalizeShotNumbers(sc);app.activeShotId=nextId||sc.shots[0].id;saveLocal();renderEditor();return}
   app.suppressRealtime++;
   try{
-    await removeMediaPaths([s.imagePath]);
+    await removeMediaPaths([s.imagePath,s.originalImagePath]);
     const {error}=await sb.from("shots").delete().eq("id",s.id);if(error)throw error;
     const remaining=sc.shots.filter(x=>x.id!==s.id).sort((a,b)=>a.position-b.position);remaining.forEach((x,i)=>{x.position=i+1;x.shotNo=i+1});
     for(const x of remaining){const {error:e}=await sb.from("shots").update({shot_number:x.shotNo,position:x.position,data:shotDbData(x)}).eq("id",x.id);if(e)throw e}
@@ -1666,35 +1695,37 @@ function adjacentShot(delta){
 async function loadImage(e){
   const file=e.target.files[0];if(!file||!can("media"))return;const s=currentShot();
   if(app.mode==="local"){
-    const r=new FileReader();r.onload=()=>{s.image=r.result;s.aiGeneration=null;saveLocal();renderEditor()};r.readAsDataURL(file);e.target.value="";return
+    const r=new FileReader();r.onload=()=>{s.image=r.result;s.imagePath=null;s.originalImage=null;s.originalImagePath=null;s.aiGeneration=null;saveLocal();renderEditor()};r.readAsDataURL(file);e.target.value="";return
   }
   if(!/^image\/(jpeg|png|webp)$/.test(file.type)||file.size>12*1024*1024){e.target.value="";return uiAlert("Use a JPEG, PNG or WebP image up to 12 MB.")}
   try{
-    const optimized=await optimizeImageBlob(file,1024,.82),format=optimizedImageFormat(optimized),path=`${app.current.id}/${s.id}/${Date.now()}-manual.${format.extension}`,oldPath=s.imagePath;s.aiGeneration=null;
+    const optimized=await optimizeImageBlob(file,1024,.82),format=optimizedImageFormat(optimized),path=`${app.current.id}/${s.id}/${Date.now()}-manual.${format.extension}`,oldPaths=[s.imagePath,s.originalImagePath];s.aiGeneration=null;
     const {error}=await sb.storage.from("storyboards").upload(path,optimized,{upsert:false,contentType:format.type,cacheControl:"31536000"});if(error)throw error;
-    const {error:u}=await sb.from("shots").update({image_path:path}).eq("id",s.id);if(u){await removeMediaPaths([path]);throw u}
-    s.imagePath=path;const {data}=await sb.storage.from("storyboards").createSignedUrl(path,SIGNED_IMAGE_TTL_SECONDS);s.image=data?.signedUrl||URL.createObjectURL(optimized);await removeMediaPaths([oldPath]);await saveCloud("shot");renderEditor()
+    const {error:u}=await sb.from("shots").update({image_path:path,original_image_path:null}).eq("id",s.id);if(u){await removeMediaPaths([path]);throw u}
+    s.imagePath=path;s.originalImagePath=null;s.originalImage=null;const {data}=await sb.storage.from("storyboards").createSignedUrl(path,SIGNED_IMAGE_TTL_SECONDS);s.image=data?.signedUrl||URL.createObjectURL(optimized);await removeMediaPaths(oldPaths);await saveCloud("shot");renderEditor()
   }catch(err){uiAlert(err.message||"Could not save image.")}finally{e.target.value=""}
 }
 async function removeImage(){
   if(!can("media"))return;const s=currentShot();
-  if(app.mode==="cloud"&&s.imagePath){await sb.storage.from("storyboards").remove([s.imagePath]);await sb.from("shots").update({image_path:null}).eq("id",s.id)}
-  s.image=null;s.imagePath=null;s.aiGeneration=null;if(app.mode==="local")saveLocal();else await saveCloud("shot");renderEditor();rememberWorkspace()
+  if(app.mode==="cloud"){const {error}=await sb.from("shots").update({image_path:null,original_image_path:null}).eq("id",s.id);if(error)return uiAlert(error.message);await removeMediaPaths([s.imagePath,s.originalImagePath])}
+  s.image=null;s.imagePath=null;s.originalImage=null;s.originalImagePath=null;s.aiGeneration=null;if(app.mode==="local")saveLocal();else await saveCloud("shot");renderEditor();rememberWorkspace()
 }
 
 function shotById(id){return allShots().find(item=>item.shot.id===id)?.shot||null}
 function shotImageTarget(shot){
   if(!shot?.image)return null;const scene=app.current?.scenes.find(item=>item.shots.some(candidate=>candidate.id===shot.id));
-  return {kind:"shot",id:shot.id,url:shot.image,title:`Shot ${shot.shotNo}`,caption:`${scene?.title||`Scene ${scene?.number||""}`} · ${projectAspectText(app.current)}`,maxDimension:1024}
+  return {kind:"shot",id:shot.id,url:shot.image,title:`Shot ${shot.shotNo}`,caption:`${scene?.title||`Scene ${scene?.number||""}`} · ${projectAspectText(app.current)}`,maxDimension:1024,hasOriginal:!!(shot.originalImagePath||shot.originalImage)}
 }
 function aiAssetImageTarget(asset,type,role="reference"){
   const source=role==="source",url=source?asset?.sourceUrl:asset?.referenceUrl;if(!url)return null;
   return {kind:source?"asset-source":"asset-reference",id:asset.id,type,url,title:asset.name||uiText(type),caption:source?`${asset.name} · Source image used to guide AI generation`:`${asset.name} · ${type} reference`,maxDimension:496,aspect:type==="character"?{w:3,h:4}:{w:4,h:3}}
 }
 function canCropImageTarget(target){return !!(target?.url&&can("media")&&!app.ai.generating&&(target.kind==="shot"||target.kind==="asset-reference"||target.kind==="asset-source"))}
+function canRestoreOriginalImageTarget(target){const shot=target?.kind==="shot"?shotById(target.id):null;return !!(shot&&can("media")&&!app.ai.generating&&(shot.originalImagePath||shot.originalImage))}
+function syncImageViewerActions(target=imageViewerTarget){$("openCropFromViewerBtn").hidden=!canCropImageTarget(target);$("restoreOriginalImageBtn").hidden=!canRestoreOriginalImageTarget(target)}
 function openImageViewer(target){
   if(!target?.url)return;exitCropMode();imageViewerTarget=target;$("imageViewerTitle").textContent=target.title||"Image Preview";$("imageViewerCaption").dataset.baseCaption=target.caption||"";$("imageViewerCaption").textContent=target.caption||"";const stage=$("imageViewerStage"),fallback=target.aspect||aspectNumbers(app.current);stage.style.setProperty("--viewer-aspect",`${fallback.w}/${fallback.h}`);$("imageViewerImage").src=target.url;
-  $("openCropFromViewerBtn").hidden=!canCropImageTarget(target);const dialog=$("imageViewerModal");if(!dialog.open)dialog.showModal()
+  syncImageViewerActions(target);const dialog=$("imageViewerModal");if(!dialog.open)dialog.showModal()
 }
 function updateImageViewerAspect(){const image=$("imageViewerImage"),width=Number(image.naturalWidth),height=Number(image.naturalHeight);if(!width||!height)return;const stage=$("imageViewerStage"),card=document.querySelector(".image-viewer-card"),ratio=width/height,ratioLabel=String(Number(ratio.toFixed(3)));if(!cropState.active){stage.style.setProperty("--viewer-aspect",`${width}/${height}`);card.style.setProperty("--viewer-ratio",String(Math.max(.18,Math.min(5,ratio))))}const base=$("imageViewerCaption").dataset.baseCaption||"";$("imageViewerCaption").textContent=[base,`${width} × ${height} · ${ratioLabel}:1`].filter(Boolean).join(" · ")}
 function closeImageViewer(){if(cropState.saving)return;exitCropMode();const dialog=$("imageViewerModal");if(dialog.open)dialog.close();$("imageViewerImage").removeAttribute("src");document.querySelector(".image-viewer-card")?.style.removeProperty("--viewer-ratio");imageViewerTarget=null}
@@ -1746,11 +1777,26 @@ function cropCanvasBlob(){return new Promise((resolve,reject)=>$("cropCanvas").t
 function blobToDataUrl(blob){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(reader.error||new Error("Could not save image."));reader.readAsDataURL(blob)})}
 async function saveCroppedShot(target,blob){
   const shot=shotById(target.id);if(!shot)throw new Error("Shot not found.");
-  if(app.mode==="local"){shot.image=await blobToDataUrl(blob);saveLocal();renderEditor();return}
-  const format=optimizedImageFormat(blob),path=`${app.current.id}/${shot.id}/${Date.now()}-crop.${format.extension}`,oldPath=shot.imagePath;
+  if(app.mode==="local"){if(!shot.originalImage)shot.originalImage=shot.image;shot.image=await blobToDataUrl(blob);saveLocal();renderEditor();return}
+  const format=optimizedImageFormat(blob),path=`${app.current.id}/${shot.id}/${Date.now()}-crop.${format.extension}`,oldPath=shot.imagePath,originalPath=shot.originalImagePath||oldPath;
   const {error:uploadError}=await sb.storage.from("storyboards").upload(path,blob,{upsert:false,contentType:format.type,cacheControl:"31536000"});if(uploadError)throw uploadError;
-  const {error:updateError}=await sb.from("shots").update({image_path:path}).eq("id",shot.id).eq("project_id",app.current.id);if(updateError){await removeMediaPaths([path]);throw updateError}
-  shot.imagePath=path;const {data:signed}=await sb.storage.from("storyboards").createSignedUrl(path,SIGNED_IMAGE_TTL_SECONDS);shot.image=signed?.signedUrl||URL.createObjectURL(blob);await removeMediaPaths([oldPath]);renderEditor();rememberWorkspace()
+  const {error:updateError}=await sb.from("shots").update({image_path:path,original_image_path:originalPath}).eq("id",shot.id).eq("project_id",app.current.id);if(updateError){await removeMediaPaths([path]);throw updateError}
+  shot.imagePath=path;shot.originalImagePath=originalPath;const {data:signed}=await sb.storage.from("storyboards").createSignedUrl(path,SIGNED_IMAGE_TTL_SECONDS);shot.image=signed?.signedUrl||URL.createObjectURL(blob);if(oldPath&&oldPath!==originalPath)await removeMediaPaths([oldPath]);renderEditor();rememberWorkspace()
+}
+async function restoreOriginalShotImage(){
+  const target=imageViewerTarget,shot=target?.kind==="shot"?shotById(target.id):null;if(!shot||(app.mode==="local"?!shot.originalImage:!shot.originalImagePath)||!can("media"))return;
+  if(!uiConfirm("Restore the original image from before the first crop? The current cropped version will be removed."))return;
+  const button=$("restoreOriginalImageBtn");button.disabled=true;setMsg("cropNotice","Restoring original image…");
+  try{
+    if(app.mode==="local"){shot.image=shot.originalImage;shot.originalImage=null;shot.originalImagePath=null;saveLocal()}
+    else{
+      const croppedPath=shot.imagePath,originalPath=shot.originalImagePath,{data:signed,error:signError}=await sb.storage.from("storyboards").createSignedUrl(originalPath,SIGNED_IMAGE_TTL_SECONDS);if(signError||!signed?.signedUrl)throw signError||new Error("Could not open the original image.");
+      const {error:updateError}=await sb.from("shots").update({image_path:originalPath,original_image_path:null}).eq("id",shot.id).eq("project_id",app.current.id);if(updateError)throw updateError;
+      shot.imagePath=originalPath;shot.originalImagePath=null;shot.originalImage=null;shot.image=signed.signedUrl;if(croppedPath&&croppedPath!==originalPath)await removeMediaPaths([croppedPath])
+    }
+    renderEditor();const refreshed=shotImageTarget(shot);imageViewerTarget=refreshed;$("imageViewerTitle").textContent=refreshed.title;$("imageViewerCaption").dataset.baseCaption=refreshed.caption||"";$("imageViewerImage").src=refreshed.url;syncImageViewerActions(refreshed);setMsg("cropNotice","");setMsg("editorNotice","Original image restored.");rememberWorkspace()
+  }catch(error){setMsg("cropNotice",error.message||"Could not restore the original image.","warning")}
+  finally{button.disabled=false}
 }
 async function saveCroppedAiAsset(target,blob){
   const asset=aiCollection(target.type).find(item=>item.id===target.id);if(!asset)throw new Error("Bible item not found.");const source=target.kind==="asset-source",format=optimizedImageFormat(blob),role=source?"source":"reference",path=`${app.current.id}/ai/${aiFolder(target.type)}/${asset.id}/${Date.now()}-${role}-crop.${format.extension}`,oldPath=source?asset.source_path:asset.reference_path,oldUrl=source?asset.sourceUrl:asset.referenceUrl;
@@ -1761,7 +1807,7 @@ async function saveCroppedAiAsset(target,blob){
 }
 async function saveCrop(){
   if(cropState.saving||!cropState.drawable||!cropState.target)return;cropState.saving=true;$("saveCropBtn").disabled=true;$("cancelCropBtn").disabled=true;$("closeImageViewerBtn").disabled=true;setMsg("cropNotice","Saving crop…");
-  try{const blob=await cropCanvasBlob(),target=cropState.target;if(target.kind==="shot")await saveCroppedShot(target,blob);else await saveCroppedAiAsset(target,blob);const refreshed=target.kind==="shot"?shotImageTarget(shotById(target.id)):aiAssetImageTarget(aiCollection(target.type).find(item=>item.id===target.id),target.type,target.kind==="asset-source"?"source":"reference");cropState.saving=false;exitCropMode();if(refreshed){imageViewerTarget=refreshed;$("imageViewerTitle").textContent=refreshed.title||"Image Preview";$("imageViewerCaption").dataset.baseCaption=refreshed.caption||"";$("imageViewerImage").src=refreshed.url;$("openCropFromViewerBtn").hidden=!canCropImageTarget(refreshed)}setMsg("editorNotice","Image cropped and saved.")}
+  try{const blob=await cropCanvasBlob(),target=cropState.target;if(target.kind==="shot")await saveCroppedShot(target,blob);else await saveCroppedAiAsset(target,blob);const refreshed=target.kind==="shot"?shotImageTarget(shotById(target.id)):aiAssetImageTarget(aiCollection(target.type).find(item=>item.id===target.id),target.type,target.kind==="asset-source"?"source":"reference");cropState.saving=false;exitCropMode();if(refreshed){imageViewerTarget=refreshed;$("imageViewerTitle").textContent=refreshed.title||"Image Preview";$("imageViewerCaption").dataset.baseCaption=refreshed.caption||"";$("imageViewerImage").src=refreshed.url;syncImageViewerActions(refreshed)}setMsg("editorNotice","Image cropped and saved.")}
   catch(error){setMsg("cropNotice",error.message||"Could not save the cropped image.","warning")}
   finally{cropState.saving=false;$("saveCropBtn").disabled=!cropState.drawable;$("cancelCropBtn").disabled=false;$("closeImageViewerBtn").disabled=false}
 }
@@ -1888,11 +1934,11 @@ function setScriptEditorText(value){
 }
 function setScriptEditorHtml(value,fallback=""){
   if(!value){setScriptEditorText(fallback);return}const editor=$("scriptTextEditor"),doc=new DOMParser().parseFromString(`<div>${String(value)}</div>`,"text/html"),source=doc.body.firstElementChild,fragment=document.createDocumentFragment();
-  const append=(node,parent)=>{if(node.nodeType===Node.TEXT_NODE){parent.appendChild(document.createTextNode(node.nodeValue||""));return}if(node.nodeType!==Node.ELEMENT_NODE)return;const tag=node.tagName;if(tag==="BR"){parent.appendChild(document.createElement("br"));return}if(tag==="B"||tag==="STRONG"){const strong=document.createElement("strong");[...node.childNodes].forEach(child=>append(child,strong));parent.appendChild(strong);return}const block=["DIV","P","LI","H1","H2","H3","BLOCKQUOTE"].includes(tag);if(block&&parent.childNodes.length&&parent.lastChild?.nodeName!=="BR")parent.appendChild(document.createElement("br"));[...node.childNodes].forEach(child=>append(child,parent));if(block&&node!==source&&parent.lastChild?.nodeName!=="BR")parent.appendChild(document.createElement("br"))};
+  const append=(node,parent)=>{if(node.nodeType===Node.TEXT_NODE){parent.appendChild(document.createTextNode(node.nodeValue||""));return}if(node.nodeType!==Node.ELEMENT_NODE)return;const tag=node.tagName;if(tag==="BR"){parent.appendChild(document.createElement("br"));return}if(tag==="B"||tag==="STRONG"||tag==="U"||tag==="FONT"){let safe;if(tag==="B"||tag==="STRONG")safe=document.createElement("strong");else if(tag==="U")safe=document.createElement("u");else{const size=String(node.getAttribute("size")||"");if(!/^[1-7]$/.test(size)){[...node.childNodes].forEach(child=>append(child,parent));return}safe=document.createElement("font");safe.setAttribute("size",size)}[...node.childNodes].forEach(child=>append(child,safe));parent.appendChild(safe);return}const block=["DIV","P","LI","H1","H2","H3","BLOCKQUOTE"].includes(tag);if(block&&parent.childNodes.length&&parent.lastChild?.nodeName!=="BR")parent.appendChild(document.createElement("br"));[...node.childNodes].forEach(child=>append(child,parent));if(block&&node!==source&&parent.lastChild?.nodeName!=="BR")parent.appendChild(document.createElement("br"))};
   [...(source?.childNodes||[])].forEach(child=>append(child,fragment));while(fragment.lastChild?.nodeName==="BR")fragment.removeChild(fragment.lastChild);editor.replaceChildren(fragment);if(scriptEditorText()!==String(fallback||"").replace(/\r\n?/g,"\n"))setScriptEditorText(fallback);app.script.selectionCache=null;app.script.savedRange=null
 }
 function scriptEditorHtml(){
-  const encode=node=>{if(node.nodeType===Node.TEXT_NODE)return escapeHtml(node.nodeValue||"").replace(/\n/g,"<br>");if(node.nodeType!==Node.ELEMENT_NODE)return "";if(node.tagName==="BR")return "<br>";const content=[...node.childNodes].map(encode).join("");return node.tagName==="B"||node.tagName==="STRONG"?`<strong>${content}</strong>`:content};return [...$("scriptTextEditor").childNodes].map(encode).join("")
+  const encode=node=>{if(node.nodeType===Node.TEXT_NODE)return escapeHtml(node.nodeValue||"").replace(/\n/g,"<br>");if(node.nodeType!==Node.ELEMENT_NODE)return "";if(node.tagName==="BR")return "<br>";const content=[...node.childNodes].map(encode).join("");if(node.tagName==="B"||node.tagName==="STRONG")return `<strong>${content}</strong>`;if(node.tagName==="U")return `<u>${content}</u>`;if(node.tagName==="FONT"){const size=String(node.getAttribute("size")||"");return /^[1-7]$/.test(size)?`<font size="${size}">${content}</font>`:content}return content};return [...$("scriptTextEditor").childNodes].map(encode).join("")
 }
 function scriptSelectionRange(){const editor=$("scriptTextEditor"),selection=window.getSelection();if(!selection?.rangeCount)return null;const range=selection.getRangeAt(0);return editor.contains(range.commonAncestorContainer)?range:null}
 function currentScriptSelection(){
@@ -1901,10 +1947,13 @@ function currentScriptSelection(){
 }
 function restoreScriptSelection(){const range=app.script.savedRange,editor=$("scriptTextEditor");if(!range||!editor.contains(range.commonAncestorContainer))return false;const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);return true}
 function setScriptDirection(value){const direction=value==="rtl"?"rtl":"ltr",editor=$("scriptTextEditor");editor.dir=direction;$("scriptDirectionSelect").value=direction}
-function toggleScriptBold(){
-  const editor=$("scriptTextEditor");if(editor.getAttribute("contenteditable")!=="true")return;editor.focus();restoreScriptSelection();document.execCommand("bold",false);app.script.savedRange=scriptSelectionRange()?.cloneRange()||null;editor.dispatchEvent(new Event("input",{bubbles:true}));updateScriptBoldState()
+function applyScriptFormat(command,value=null){
+  const editor=$("scriptTextEditor");if(editor.getAttribute("contenteditable")!=="true")return;editor.focus();restoreScriptSelection();if(!scriptSelectionRange())return;document.execCommand(command,false,value);app.script.savedRange=scriptSelectionRange()?.cloneRange()||null;editor.dispatchEvent(new Event("input",{bubbles:true}));updateScriptFormatState()
 }
-function updateScriptBoldState(){const active=!!scriptSelectionRange()&&document.queryCommandState?.("bold");$("scriptBoldBtn").classList.toggle("active",active);$("scriptBoldBtn").setAttribute("aria-pressed",String(active))}
+function toggleScriptBold(){applyScriptFormat("bold")}
+function toggleScriptUnderline(){applyScriptFormat("underline")}
+function changeScriptFontSize(delta){const current=Math.max(1,Math.min(7,Number(document.queryCommandValue?.("fontSize"))||3)),next=Math.max(1,Math.min(7,current+delta));applyScriptFormat("fontSize",String(next))}
+function updateScriptFormatState(){for(const [id,command] of [["scriptBoldBtn","bold"],["scriptUnderlineBtn","underline"]]){const button=$(id),active=!!scriptSelectionRange()&&!!document.queryCommandState?.(command);button.classList.toggle("active",active);button.setAttribute("aria-pressed",String(active))}}
 function scriptShotLabel(shotId){const item=allShots().find(entry=>entry.shot.id===shotId);return item?`Scene ${item.scene.number} · Shot ${item.shot.shotNo}`:"Deleted shot"}
 function renderScriptLinkSelectors(){
   const sceneSelect=$("scriptLinkSceneSelect"),shotSelect=$("scriptLinkShotSelect");if(!sceneSelect||!shotSelect||!app.current)return;
@@ -1934,8 +1983,8 @@ function renderScriptBible(){
   const ready=app.script.ready,editable=ready&&scriptCanEdit(),editor=$("scriptTextEditor"),projectId=app.current?.id||"";
   editor.dataset.placeholder=uiText("Choose a script file or paste screenplay text here…");
   if(!app.script.editorHydrated||editor.dataset.projectId!==projectId){setScriptEditorHtml(app.script.record?.content_html||"",app.script.record?.content||"");setScriptDirection(app.script.record?.text_direction||"ltr");editor.dataset.projectId=projectId;app.script.editorHydrated=true}
-  const content=scriptEditorText(),busy=app.script.analyzing||app.script.applying,fileName=app.script.pendingFileName||app.script.record?.file_name||"No script",analysisMatches=!!app.script.record&&content===app.script.record.content;$("scriptFileBadge").textContent=fileName;$("scriptFileInput").disabled=!editable||busy;editor.setAttribute("contenteditable",String(editable&&!busy));$("scriptDirectionSelect").disabled=!editable||busy;$("scriptBoldBtn").disabled=!editable||busy;$("saveScriptBtn").disabled=!editable||app.script.saving||busy;$("analyzeScriptBtn").disabled=!editable||busy||!content.trim();$("analyzeScriptBtn").textContent=app.script.analyzing?"Analyzing Script…":"✦ Analyze with AI";$("analyzeScriptBtn").classList.toggle("script-analysis-btn-busy",app.script.analyzing);$("applyScriptBreakdownBtn").disabled=!scriptCanApply()||!app.script.analysis||!analysisMatches||busy;$("applyScriptBreakdownBtn").textContent=app.script.applying?"Applying Breakdown…":"Apply Breakdown to Project";
-  if(!ready)setMsg("scriptNotice",app.script.migrationMessage,"warning");renderScriptLinkSelectors();renderScriptAnalysis();renderScriptLinks();renderScriptLineMap();updateScriptSelection()
+  const content=scriptEditorText(),busy=app.script.analyzing||app.script.applying,fileName=app.script.pendingFileName||app.script.record?.file_name||"No script",analysisMatches=!!app.script.record&&content===app.script.record.content;$("scriptFileBadge").textContent=fileName;$("scriptFileInput").disabled=!editable||busy;editor.setAttribute("contenteditable",String(editable&&!busy));$("scriptDirectionSelect").disabled=!editable||busy;["scriptBoldBtn","scriptUnderlineBtn","scriptFontDecreaseBtn","scriptFontIncreaseBtn"].forEach(id=>$(id).disabled=!editable||busy);$("saveScriptBtn").disabled=!editable||app.script.saving||busy;$("analyzeScriptBtn").disabled=!editable||busy||!content.trim();$("analyzeScriptBtn").textContent=app.script.analyzing?"Analyzing Script…":"✦ Analyze with AI";$("analyzeScriptBtn").classList.toggle("script-analysis-btn-busy",app.script.analyzing);$("applyScriptBreakdownBtn").disabled=!scriptCanApply()||!app.script.analysis||!analysisMatches||busy;$("applyScriptBreakdownBtn").textContent=app.script.applying?"Applying Breakdown…":"Apply Breakdown to Project";
+  if(!ready)setMsg("scriptNotice",app.script.migrationMessage,"warning");renderScriptLinkSelectors();renderScriptAnalysis();renderScriptLinks();renderScriptLineMap();updateScriptSelection();updateScriptFormatState()
 }
 function rtfToPlainText(value){return String(value||"").replace(/\\u(-?\d+)\??/g,(_,code)=>String.fromCharCode(Number(code)<0?Number(code)+65536:Number(code))).replace(/\\'([0-9a-f]{2})/gi,(_,hex)=>String.fromCharCode(parseInt(hex,16))).replace(/\\(?:par|line)\b\s?/g,"\n").replace(/\\tab\b\s?/g,"\t").replace(/\\[a-z]+-?\d*\s?/gi,"").replace(/\\([{}\\])/g,"$1").replace(/[{}]/g,"").replace(/\n{3,}/g,"\n\n").trim()}
 function screenplayMarkupToText(raw,type,name){
@@ -2006,7 +2055,7 @@ async function deleteScriptLink(id){if(!scriptCanEdit()||!can("shots"))return;if
 async function openAiVisualBible(){
   if(app.mode!=="cloud")return uiAlert("Bible and AI generation are available for signed-in cloud projects.");
   if(app.ai.ready&&!app.ai.generating)setMsg("aiBibleNotice","");
-  renderAiVisualBible();$("aiBibleModal").showModal();
+  const dialog=$("aiBibleModal");if(!dialog.open)$("scriptBibleSection").open=false;renderAiVisualBible();if(!dialog.open)dialog.showModal();
   await Promise.all([...app.ai.characters,...app.ai.locations].filter(x=>(x.reference_path&&!x.referenceUrl)||(x.source_path&&!x.sourceUrl)).map(signAiAsset));renderAiVisualBible()
 }
 function aiAssetCard(asset,type){
@@ -2288,12 +2337,12 @@ async function generateShotImage(){
     const projectSaved=await saveCloud("project"),sceneSaved=await saveCloud("scene"),shotSaved=await saveCloud("shot");
     if(!projectSaved||!sceneSaved||!shotSaved)throw new Error("Could not save the latest shot settings before generation.");
     const result=await requestAiImage({mode:"shot",project_id:app.current.id,scene_id:scene.id,shot_id:shot.id,shot_data:shotDbData(shot)});
-    const optimized=await optimizeImageBlob(result.blob,1024,.82),format=optimizedImageFormat(optimized),path=`${app.current.id}/${shot.id}/${Date.now()}-ai.${format.extension}`,oldPath=shot.imagePath;
+    const optimized=await optimizeImageBlob(result.blob,1024,.82),format=optimizedImageFormat(optimized),path=`${app.current.id}/${shot.id}/${Date.now()}-ai.${format.extension}`,oldPaths=[shot.imagePath,shot.originalImagePath];
     const {error:uploadError}=await sb.storage.from("storyboards").upload(path,optimized,{upsert:false,contentType:format.type,cacheControl:"31536000"});if(uploadError)throw uploadError;
-    const {error:updateError}=await sb.from("shots").update({image_path:path}).eq("id",shot.id).eq("project_id",app.current.id);if(updateError){await removeMediaPaths([path]);throw updateError}
-    shot.imagePath=path;shot.aiGeneration={provider:"cloudflare-workers-ai",model:result.model,generatedAt:new Date().toISOString(),locationId:shot.aiLocationId,characterIds:[...(shot.aiCharacterIds||[])],promptHash:result.promptHash};
+    const {error:updateError}=await sb.from("shots").update({image_path:path,original_image_path:null}).eq("id",shot.id).eq("project_id",app.current.id);if(updateError){await removeMediaPaths([path]);throw updateError}
+    shot.imagePath=path;shot.originalImagePath=null;shot.originalImage=null;shot.aiGeneration={provider:"cloudflare-workers-ai",model:result.model,generatedAt:new Date().toISOString(),locationId:shot.aiLocationId,characterIds:[...(shot.aiCharacterIds||[])],promptHash:result.promptHash};
     const {data:signed}=await sb.storage.from("storyboards").createSignedUrl(path,SIGNED_IMAGE_TTL_SECONDS);shot.image=signed?.signedUrl||URL.createObjectURL(optimized);
-    await removeMediaPaths([oldPath]);const saved=await saveCloud("shot");if(saved)await recordShotGenerationScore(shot,result.promptHash);renderEditor();finalStatus=`Storyboard image generated and saved.${generationBalanceMessage(result.remaining)}`;finalStatusKind="success";setMsg("editorNotice",finalStatus)
+    await removeMediaPaths(oldPaths);const saved=await saveCloud("shot");if(saved)await recordShotGenerationScore(shot,result.promptHash);renderEditor();finalStatus=`Storyboard image generated and saved.${generationBalanceMessage(result.remaining)}`;finalStatusKind="success";setMsg("editorNotice",finalStatus)
   }catch(err){finalStatus=err.message||"Could not generate this shot.";finalStatusKind="error";setMsg("editorNotice",finalStatus,"warning")}
   finally{finishAiGeneration();app.suppressRealtime=Math.max(0,app.suppressRealtime-1);renderShot();applyPermissionLocks();if(finalStatus)announceAiShotStatus(finalStatus,finalStatusKind);rememberWorkspace();await loadAiUsage()}
 }
@@ -2494,7 +2543,7 @@ async function createCloudProjectFromJSON(projectData){
     if(se) throw se;
     let shots=Array.isArray(sc.shots)?sc.shots:[];if(!shots.length)shots=[blankShot(1)];
     for(let i=0;i<shots.length;i++){
-      const shot={...blankShot(i+1),...shots[i],shotNo:i+1,position:i+1};delete shot.id;delete shot.image;delete shot.imagePath;
+      const shot={...blankShot(i+1),...shots[i],shotNo:i+1,position:i+1};delete shot.id;delete shot.image;delete shot.imagePath;delete shot.originalImage;delete shot.originalImagePath;
       const {error:e}=await sb.from("shots").insert({project_id:p.id,scene_id:s.id,shot_number:i+1,position:i+1,image_path:null,data:shot});if(e)throw e
     }
   }
@@ -2952,7 +3001,7 @@ async function loadLightingDiagrams(preferredId=null){
       .select("id,project_id,scene_id,shot_id,created_by,name,data,updated_at")
       .eq("project_id",app.current.id).order("updated_at",{ascending:false});
     if(error){
-      setMsg("lightingDiagramNotice",`Lighting Diagram database is not ready: ${error.message}`,"warning");
+      setMsg("lightingDiagramNotice",`Lighting Diagram setup is not active. Run the saved SQL query “Storyboard v4.7 - Lighting & Image Restore”, then reload this project. Details: ${error.message}`,"warning");
       app.lighting.diagrams=[]
     }else{
       setMsg("lightingDiagramNotice","");
@@ -3893,11 +3942,11 @@ async function deleteProject(id){
     app.suppressRealtime++;
     try{
       const [{data:paths},{data:characters},{data:locations}]=await Promise.all([
-        sb.from("shots").select("image_path").eq("project_id",id),
+        sb.from("shots").select("image_path,original_image_path").eq("project_id",id),
         sb.from("project_ai_characters").select("reference_path,source_path").eq("project_id",id),
         sb.from("project_ai_locations").select("reference_path,source_path").eq("project_id",id)
       ]);
-      await removeMediaPaths([...(paths||[]).map(x=>x.image_path),...(characters||[]).flatMap(x=>[x.reference_path,x.source_path]),...(locations||[]).flatMap(x=>[x.reference_path,x.source_path])]);
+      await removeMediaPaths([...(paths||[]).flatMap(x=>[x.image_path,x.original_image_path]),...(characters||[]).flatMap(x=>[x.reference_path,x.source_path]),...(locations||[]).flatMap(x=>[x.reference_path,x.source_path])]);
       const rpc=await sb.rpc("delete_own_project",{p_project_id:id});
       if(rpc.error){
         const {data:deleted,error}=await sb.from("projects").delete().eq("id",id).eq("owner_id",app.session.user.id).select("id");
@@ -3992,12 +4041,16 @@ function bind(){
   $("backProjectsBtn").onclick=returnToProjects;$("editorProjectsBtn").onclick=returnToProjects;$("editorAccountBtn").onclick=()=>{closeEditorActions();openAccount()};$("editorLogoutBtn").onclick=()=>{closeEditorActions();logout()};$("headerBibleBtn").onclick=()=>{closeEditorActions();openAiVisualBible()};$("headerProjectSettingsBtn").onclick=()=>{closeEditorActions();openProjectDetails(app.current.id)};
   $("projectSearch").oninput=e=>{app.projectSearch=e.target.value;renderProjects()};
   $("projectFilter").onchange=e=>{app.projectFilter=e.target.value;renderProjects()};
-  $("projectFolderFilter").onchange=e=>{app.projectFolder=e.target.value;renderProjects()};
+  $("projectFolderFilter").onchange=e=>openProjectDirectory(e.target.value);
+  $("projectDirectoryBackBtn").onclick=()=>openProjectDirectory("all");
+  $("renameCurrentFolderBtn").onclick=()=>{if(app.projectFolder!=="all"&&app.projectFolder!=="general")renameProjectFolder(app.projectFolder)};
+  $("deleteCurrentFolderBtn").onclick=()=>{if(app.projectFolder!=="all"&&app.projectFolder!=="general")deleteProjectFolder(app.projectFolder)};
   $("closeProjectDetailsBtn").onclick=()=>$("projectDetailsModal").close();$("saveProjectDetailsBtn").onclick=saveProjectDetails;$("projectDetailsBtn").onclick=()=>openProjectDetails(app.current.id);
   $("aiBibleBtn").onclick=openAiVisualBible;$("manageAiCharactersBtn").onclick=openAiVisualBible;$("closeAiBibleBtn").onclick=()=>$("aiBibleModal").close();$("doneAiBibleBtn").onclick=()=>$("aiBibleModal").close();
+  $("aiBibleModal").addEventListener("close",()=>{$("scriptBibleSection").open=false});
   $("addAiCharacterBtn").onclick=()=>addAiAsset("character");$("addAiLocationBtn").onclick=()=>addAiAsset("location");$("aiLocationId").onchange=onAiShotLinksChange;$("generateShotImageBtn").onclick=generateShotImage;
   $("scriptFileInput").onchange=loadScriptFile;$("saveScriptBtn").onclick=()=>saveProjectScript();$("analyzeScriptBtn").onclick=analyzeProjectScript;$("applyScriptBreakdownBtn").onclick=applyScriptBreakdown;$("linkScriptSelectionBtn").onclick=linkScriptSelectionToShot;$("createShotFromScriptBtn").onclick=createShotFromScriptSelection;
-  ["click","keyup","mouseup","focus"].forEach(eventName=>$("scriptTextEditor").addEventListener(eventName,()=>{updateScriptSelection();updateScriptBoldState()}));$("scriptTextEditor").addEventListener("input",()=>{updateScriptSelection();updateScriptBoldState();$("applyScriptBreakdownBtn").disabled=true;clearTimeout(scriptRenderTimer);scriptRenderTimer=setTimeout(renderScriptLineMap,220)});$("scriptTextEditor").addEventListener("beforeinput",event=>{if(event.inputType==="insertParagraph"){event.preventDefault();document.execCommand("insertLineBreak",false)}});$("scriptTextEditor").addEventListener("paste",event=>{event.preventDefault();document.execCommand("insertText",false,event.clipboardData?.getData("text/plain")||"")});$("scriptDirectionSelect").onchange=event=>setScriptDirection(event.target.value);$("scriptBoldBtn").addEventListener("pointerdown",event=>event.preventDefault());$("scriptBoldBtn").onclick=toggleScriptBold;document.addEventListener("selectionchange",()=>{if(scriptSelectionRange()){updateScriptSelection();updateScriptBoldState()}});$("scriptLinkSceneSelect").onchange=()=>{renderScriptLinkSelectors();updateScriptSelection()};$("scriptLinkShotSelect").onchange=updateScriptSelection;
+  ["click","keyup","mouseup","focus"].forEach(eventName=>$("scriptTextEditor").addEventListener(eventName,()=>{updateScriptSelection();updateScriptFormatState()}));$("scriptTextEditor").addEventListener("input",()=>{updateScriptSelection();updateScriptFormatState();$("applyScriptBreakdownBtn").disabled=true;clearTimeout(scriptRenderTimer);scriptRenderTimer=setTimeout(renderScriptLineMap,220)});$("scriptTextEditor").addEventListener("beforeinput",event=>{if(event.inputType==="insertParagraph"){event.preventDefault();document.execCommand("insertLineBreak",false)}});$("scriptTextEditor").addEventListener("paste",event=>{event.preventDefault();document.execCommand("insertText",false,event.clipboardData?.getData("text/plain")||"")});$("scriptDirectionSelect").onchange=event=>setScriptDirection(event.target.value);["scriptBoldBtn","scriptUnderlineBtn","scriptFontDecreaseBtn","scriptFontIncreaseBtn"].forEach(id=>$(id).addEventListener("pointerdown",event=>event.preventDefault()));$("scriptBoldBtn").onclick=toggleScriptBold;$("scriptUnderlineBtn").onclick=toggleScriptUnderline;$("scriptFontDecreaseBtn").onclick=()=>changeScriptFontSize(-1);$("scriptFontIncreaseBtn").onclick=()=>changeScriptFontSize(1);document.addEventListener("selectionchange",()=>{if(scriptSelectionRange()){updateScriptSelection();updateScriptFormatState()}});$("scriptLinkSceneSelect").onchange=()=>{renderScriptLinkSelectors();updateScriptSelection()};$("scriptLinkShotSelect").onchange=updateScriptSelection;
   ["projectName","projectAspect","projectStyle","aspectWidth","aspectHeight"].forEach(id=>{["input","change"].forEach(ev=>$(id).addEventListener(ev,onProjectChange))});
   ["sceneTitle","sceneDescription","sceneStoryLocation","sceneStoryTime","sceneShootTime","sceneTimeStrategy","sceneAiLocationId"].forEach(id=>{["input","change"].forEach(ev=>$(id).addEventListener(ev,onSceneChange))});$("syncSceneBibleBtn").onclick=syncSceneBibleToShots;
   SHOT_FIELDS.filter(id=>id!=="shotNo").forEach(id=>{if($(id))["input","change"].forEach(ev=>$(id).addEventListener(ev,()=>onShotChange(id)))});
@@ -4006,7 +4059,7 @@ function bind(){
   $("prevShotBtn").onclick=()=>adjacentShot(-1);$("nextShotBtn").onclick=()=>adjacentShot(1);
   $("frameImageInput").onchange=loadImage;$("removeImageBtn").onclick=removeImage;
   $("frameImage").onclick=openCurrentShotImage;$("frameImage").onkeydown=event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();openCurrentShotImage()}};
-  $("closeImageViewerBtn").onclick=closeImageViewer;$("doneImageViewerBtn").onclick=closeImageViewer;$("imageViewerModal").addEventListener("cancel",event=>{event.preventDefault();if(cropState.active)closeCropEditor();else closeImageViewer()});
+  $("closeImageViewerBtn").onclick=closeImageViewer;$("doneImageViewerBtn").onclick=closeImageViewer;$("restoreOriginalImageBtn").onclick=restoreOriginalShotImage;$("imageViewerModal").addEventListener("cancel",event=>{event.preventDefault();if(cropState.active)closeCropEditor();else closeImageViewer()});
   $("imageViewerImage").onload=updateImageViewerAspect;
   $("openCropFromViewerBtn").onclick=()=>{const target=imageViewerTarget;if(target)openCropEditor(target)};
   $("cancelCropBtn").onclick=closeCropEditor;$("resetCropBtn").onclick=resetCrop;$("saveCropBtn").onclick=saveCrop;$("cropZoom").oninput=updateCropZoom;
