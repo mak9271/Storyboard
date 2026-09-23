@@ -1,4 +1,4 @@
-// Storyboard Shot Builder v4.9.3 — English / Persian interface
+// Storyboard Shot Builder v4.9.4 — English / Persian interface
 (() => {
   "use strict";
 
