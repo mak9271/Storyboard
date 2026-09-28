@@ -12,10 +12,10 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="styles.css?v=530" />
+  <link rel="stylesheet" href="styles.css?v=540" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0"></script>
-  <script src="config.js?v=530"></script>
-  <meta name="storyboard-build" content="v5.3.0-lighting-camera-paths" />
+  <script src="config.js?v=540"></script>
+  <meta name="storyboard-build" content="v5.4.0-lighting-inline-controls" />
 </head>
 <body>
 
@@ -812,7 +812,7 @@
 
 
 
-  <!-- LIGHTING STUDIO v5.3 -->
+  <!-- LIGHTING STUDIO v5.4 -->
   <dialog id="lightingDiagramModal" class="lighting-studio-modal">
     <div class="lighting-studio-shell">
 
@@ -840,16 +840,16 @@
 
       <main class="lighting-studio-stage">
         <div id="lightingPlanView" class="lighting-plan-view">
-          <div id="lightingPlanPipHeader" class="lighting-plan-pip-header" hidden>
-            <span><strong>LIVE DIAGRAM</strong><small>Drag to move · edit while viewing camera</small></span>
-          </div>
-          <div class="lighting-plan-canvas-wrap">
+          <div id="lightingPlanPipHeader" class="lighting-plan-pip-header">
+            <span><strong id="lightingPlanWindowTitle">LIGHTING DIAGRAM</strong><small id="lightingPlanPipHint">Drag empty space to pan · select an object to edit</small></span>
             <div class="lighting-plan-tools" aria-label="Diagram zoom controls">
               <button id="lightingZoomOutBtn" type="button" title="Zoom out">−</button>
               <button id="lightingZoomValue" type="button" title="Reset zoom">100%</button>
               <button id="lightingZoomInBtn" type="button" title="Zoom in">＋</button>
               <button id="lightingZoomFitBtn" type="button" title="Fit diagram">Fit</button>
             </div>
+          </div>
+          <div class="lighting-plan-canvas-wrap">
             <div class="lighting-plan-views">
               <section class="lighting-plan-pane lighting-plan-top-pane">
                 <div class="lighting-view-label">TOP VIEW</div>
@@ -1026,8 +1026,8 @@
             <div id="lightingCharacterList" class="lighting-object-list"></div>
           </details>
 
-          <section id="lightingPropertiesSection" class="lighting-drawer-section">
-            <div class="lighting-section-title">PROPERTIES</div>
+          <section id="lightingPropertiesSection" class="lighting-drawer-section lighting-inline-properties">
+            <div id="lightingInspectorTitle" class="lighting-section-title">CAMERA SETTINGS</div>
             <div id="lightingInspectorEmpty" class="lighting-inspector-empty">Click an object in the diagram or in the list.</div>
 
             <div id="lightingInspector" class="lighting-object-inspector" hidden>
@@ -1152,6 +1152,8 @@
               <button id="deleteLightingObjectBtn" type="button" class="lighting-delete-object">Delete Selected Object</button>
             </div>
           </section>
+
+          <div id="lightingInspectorParking" class="lighting-inspector-parking" aria-hidden="true"></div>
 
           <section class="lighting-drawer-section lighting-output-section">
             <div class="lighting-section-title">OUTPUT &amp; SHARE</div>
@@ -1302,7 +1304,7 @@
     </div>
   </dialog>
 
-  <script src="i18n.js?v=530"></script>
-  <script src="app.js?v=530"></script>
+  <script src="i18n.js?v=540"></script>
+  <script src="app.js?v=540"></script>
 </body>
 </html>

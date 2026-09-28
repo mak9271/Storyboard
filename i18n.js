@@ -1,4 +1,4 @@
-// FilmBoard v5.3.0 — English / Persian interface
+// FilmBoard v5.4.0 — English / Persian interface
 (() => {
   "use strict";
 
@@ -522,6 +522,9 @@
     "Save":"ذخیره",
     "TOP VIEW":"نمای بالا",
     "SIDE / ELEVATION":"نمای جانبی / ارتفاع",
+    "LIGHTING DIAGRAM":"دیاگرام نورپردازی",
+    "Drag empty space to pan · select an object to edit":"فضای خالی را برای جابه‌جایی بکشید · یک شیء را برای ویرایش انتخاب کنید",
+    "Drag bar to move · drag empty canvas to pan":"نوار را برای حرکت پنجره بکشید · فضای خالی را برای جابه‌جایی نما بکشید",
     "Diagram zoom controls":"کنترل‌های زوم دیاگرام",
     "Zoom out":"کوچک‌نمایی",
     "Reset zoom":"بازنشانی زوم",
@@ -627,6 +630,18 @@
     "Tilt":"تیلت",
     "Apply current Shot":"اعمال شات فعلی",
     "Camera Model":"مدل دوربین",
+    "CAMERA SETTINGS":"تنظیمات دوربین",
+    "LIGHT SETTINGS":"تنظیمات نور",
+    "CHARACTER SETTINGS":"تنظیمات کاراکتر",
+    "SENSOR":"حسگر",
+    "DYNAMIC RANGE":"دامنهٔ دینامیکی",
+    "BIT DEPTH":"عمق بیت",
+    "RECORDING FORMAT":"فرمت ضبط",
+    "VIEWFINDER":"ویزور",
+    "Official manufacturer specification":"مشخصات رسمی سازنده",
+    "↗ Official manufacturer specification":"↗ مشخصات رسمی سازنده",
+    "Top view zoom":"زوم نمای بالا",
+    "Side / elevation zoom":"زوم نمای جانبی / ارتفاع",
     "⌁ Open Lighting Diagram":"⌁ بازکردن دیاگرام نورپردازی",
     "Angle":"زاویه",
     "Focus":"فوکوس",

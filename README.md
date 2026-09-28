@@ -1,6 +1,15 @@
-# FilmBoard v5.3.0 — Camera Paths & Physical Viewfinders
+# FilmBoard v5.4.0 — Inline Lighting Controls & Canvas Navigation
 
-This build adds a keyframed camera-path workflow, manufacturer-based cinema-camera optics and a dual top/elevation Lighting Diagram while retaining the FilmBoard shot workflow and Spatial Bible features.
+This build makes both 2D diagram views easier to navigate, keeps each object's controls directly beneath that object and expands the manufacturer-based camera profiles while retaining the FilmBoard camera-path and Spatial Bible workflows.
+
+## v5.4.0 changes
+
+- Moves Zoom Out, zoom percentage, Zoom In and Fit into the 2D diagram window's top bar in both the full Lighting Diagram and Camera View companion.
+- Empty space in the top and side/elevation canvases now uses grab/grabbing feedback and pans the active view. Wheel/trackpad zoom and the header buttons act on the last-used pane.
+- Camera, light and character settings are mounted directly below the selected item inside its own collapsible drawer folder. There is no separate Properties block at the bottom.
+- Replaces the compact camera-spec pills with larger, labeled cards for sensor, active area, recording format, resolution and viewfinder.
+- Adds manufacturer-sourced **Bit Depth** and **Dynamic Range** to all 12 camera profiles, with a direct official-specification link in the camera panel. Where a camera separates internal recording from RAW output, the card states both paths.
+- No new SQL migration is required for v5.4.0; these changes are UI logic and static camera-profile metadata.
 
 ## v5.3.0 changes
 
@@ -95,7 +104,7 @@ This build adds a keyframed camera-path workflow, manufacturer-based cinema-came
 
 ## Existing installation: deployment
 
-v5.3.0 does not add database fields. If the v5.0 and v5.1 migrations already succeeded, do not run another SQL query. Existing hidden Subject fields remain in saved shot data for backward compatibility and are not deleted.
+v5.4.0 does not add database fields. If the v5.0 and v5.1 migrations already succeeded, do not run another SQL query. Existing hidden Subject fields remain in saved shot data for backward compatibility and are not deleted.
 
 1. If `Storyboard v4.8 - Lighting Access Repair` has not already succeeded, run the packaged v4.8 query once using the saved-query instructions from the prior release. Otherwise leave SQL Editor unchanged.
 2. Run `supabase-v5.0-virtual-locations.sql` once if it has not already been run.
@@ -108,8 +117,8 @@ v5.3.0 does not add database fields. If the v5.0 and v5.1 migrations already suc
    ```
 
 6. No Supabase Edge Function redeploy is required.
-7. Hard-refresh the app. Page source should show `styles.css?v=530`, `config.js?v=530`, `i18n.js?v=530`, `app.js?v=530` and build `v5.3.0-lighting-camera-paths`.
-8. Open Lighting Diagram → Camera View. Select Explore and verify W/A/S/D, Q/E and R/F; then add two camera points, play the path and test WebM export.
+7. Hard-refresh the app. Page source should show `styles.css?v=540`, `config.js?v=540`, `i18n.js?v=540`, `app.js?v=540` and build `v5.4.0-lighting-inline-controls`.
+8. Open Lighting Diagram, zoom either 2D pane and drag its empty canvas. Select a camera, light and character and verify each settings card opens directly beneath that selected item.
 
 ## Fresh Supabase installation
 

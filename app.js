@@ -1,4 +1,4 @@
-// FilmBoard v5.3.0 — camera paths, physical viewfinders and dual-view Lighting Diagram
+// FilmBoard v5.4.0 — inline Lighting controls, canvas panning and verified camera latitude
 const OPTIONS = {
   shotSize:["ECU · Extreme Close Up","CU · Close Up","MCU · Medium Close Up","MS · Medium Shot","MLS · Medium Long Shot","WS · Wide Shot","EWS · Extreme Wide Shot","OTS · Over The Shoulder","POV · Point of View","Insert","Top Shot"],
   angle:["Eye Level","High Angle","Low Angle","Top / Bird's Eye","Dutch Angle","Ground Level","Overhead","Custom"],
@@ -183,8 +183,11 @@ let app = {
     upload: null,
     faceUpload: null,
     pipDrag: null,
+    panDrag: null,
     mobileSplit: 55,
+    planPane: "top",
     planView: {zoom:1,centerX:600,centerY:400},
+    elevationView: {zoom:1,centerX:600,centerY:250},
     sheetLinks: [],
     sheetLinksProjectId: null,
     explorer: {
@@ -2865,21 +2868,21 @@ async function importJSONOnline(file){
 
 
 
-/* ---------- LIGHTING STUDIO v5.3 ---------- */
+/* ---------- LIGHTING STUDIO v5.4 ---------- */
 /* Manufacturer-published sensor and recording-area data. Dimensions are millimetres. */
 const CINEMA_CAMERAS = Object.freeze({
-  "ARRI ALEXA XT":{brand:"ARRI",model:"ALEXA XT",sensorWidth:28.25,sensorHeight:18.17,activeWidth:28.25,activeHeight:18.17,resolution:"3424 × 2202",format:"ALEV III Open Gate",hud:"arri",display:"EVF-1 / MON OUT"},
-  "ARRI ALEXA Classic":{brand:"ARRI",model:"ALEXA Classic",sensorWidth:28.25,sensorHeight:18.17,activeWidth:23.76,activeHeight:17.82,resolution:"2880 × 2160",format:"ALEV III 4:3",hud:"arri",display:"EVF-1"},
-  "ARRI ALEXA LF":{brand:"ARRI",model:"ALEXA LF",sensorWidth:36.70,sensorHeight:25.54,activeWidth:36.70,activeHeight:25.54,resolution:"4448 × 3096",format:"ALEV III LF Open Gate",hud:"arri",display:"MVF-2"},
-  "ARRI ALEXA Mini":{brand:"ARRI",model:"ALEXA Mini",sensorWidth:28.25,sensorHeight:18.17,activeWidth:28.25,activeHeight:18.17,resolution:"3424 × 2202",format:"ALEV III Open Gate",hud:"arri",display:"MVF-1"},
-  "RED EPIC DRAGON":{brand:"RED",model:"EPIC DRAGON",sensorWidth:30.70,sensorHeight:15.80,activeWidth:30.70,activeHeight:15.80,resolution:"6144 × 3160",format:"DRAGON 6K",hud:"red",display:"DSMC Touch"},
-  "RED KOMODO 6K":{brand:"RED",model:"KOMODO 6K",sensorWidth:27.03,sensorHeight:14.26,activeWidth:27.03,activeHeight:14.26,resolution:"6144 × 3240",format:"S35 Global Shutter",hud:"red",display:"KOMODO LCD"},
-  "Sony BURANO":{brand:"Sony",model:"BURANO",sensorWidth:35.90,sensorHeight:24.00,activeWidth:35.90,activeHeight:20.20,resolution:"8632 × 4856",format:"FF 8.6K 16:9",hud:"sony",display:"3.5-inch LCD"},
-  "Sony PXW-FX9":{brand:"Sony",model:"PXW-FX9",sensorWidth:35.70,sensorHeight:18.80,activeWidth:35.70,activeHeight:18.80,resolution:"6K Full Frame",format:"FF 6K",hud:"sony",display:"3.5-inch LCD"},
-  "Sony FX6":{brand:"Sony",model:"FX6",sensorWidth:35.60,sensorHeight:23.80,activeWidth:35.60,activeHeight:20.03,resolution:"4240 × 2385",format:"FF 4.2K 16:9",hud:"sony",display:"3.5-inch LCD"},
-  "Sony FX3":{brand:"Sony",model:"FX3",sensorWidth:35.60,sensorHeight:23.80,activeWidth:35.60,activeHeight:20.03,resolution:"4264 × 2408",format:"FF 4.2K 16:9",hud:"sony",display:"3.0-inch LCD"},
-  "Canon EOS C500":{brand:"Canon",model:"EOS C500",sensorWidth:26.20,sensorHeight:13.80,activeWidth:26.20,activeHeight:13.80,resolution:"4206 × 2340",format:"Super 35",hud:"canon",display:"4-inch LCD"},
-  "Canon EOS C500 Mark II":{brand:"Canon",model:"EOS C500 Mark II",sensorWidth:38.10,sensorHeight:20.10,activeWidth:38.10,activeHeight:20.10,resolution:"5952 × 3140",format:"5.9K Full Frame",hud:"canon",display:"LM-V2 LCD"}
+  "ARRI ALEXA XT":{brand:"ARRI",model:"ALEXA XT",sensorWidth:28.25,sensorHeight:18.17,activeWidth:28.25,activeHeight:18.17,resolution:"3424 × 2202",format:"ALEV III Open Gate",hud:"arri",display:"EVF-1 / MON OUT",bitDepth:"12-bit ARRIRAW",dynamicRange:"14.5 stops",source:"https://www.arri.com/resource/blob/279392/13ef3e45b45c888c6f7eeb0b7a4825c4/alexa-xt-user-manual-sup-9-1-data.pdf"},
+  "ARRI ALEXA Classic":{brand:"ARRI",model:"ALEXA Classic",sensorWidth:28.25,sensorHeight:18.17,activeWidth:23.76,activeHeight:17.82,resolution:"2880 × 2160",format:"ALEV III 4:3",hud:"arri",display:"EVF-1",bitDepth:"12-bit ARRIRAW (external)",dynamicRange:"14.5 stops",source:"https://www.arri.com/en/learn-help/learn-help-camera-system/image-science/image-quality"},
+  "ARRI ALEXA LF":{brand:"ARRI",model:"ALEXA LF",sensorWidth:36.70,sensorHeight:25.54,activeWidth:36.70,activeHeight:25.54,resolution:"4448 × 3096",format:"ALEV III LF Open Gate",hud:"arri",display:"MVF-2",bitDepth:"12-bit ARRIRAW",dynamicRange:"14.5 stops",source:"https://www.arri.com/resource/blob/31900/0e7ebc9a3ed67d6f2be7d3ad263f5b5e/alexa-lf-user-manual-data.pdf"},
+  "ARRI ALEXA Mini":{brand:"ARRI",model:"ALEXA Mini",sensorWidth:28.25,sensorHeight:18.17,activeWidth:28.25,activeHeight:18.17,resolution:"3424 × 2202",format:"ALEV III Open Gate",hud:"arri",display:"MVF-1",bitDepth:"12-bit ARRIRAW",dynamicRange:"14.5+ stops",source:"https://www.arri.com/resource/blob/279366/17ee4ee06ab474988cf09f42ee574a9f/alexa-mini-user-manual-sup-6-1-data.pdf"},
+  "RED EPIC DRAGON":{brand:"RED",model:"EPIC DRAGON",sensorWidth:30.70,sensorHeight:15.80,activeWidth:30.70,activeHeight:15.80,resolution:"6144 × 3160",format:"DRAGON 6K",hud:"red",display:"DSMC Touch",bitDepth:"16-bit REDCODE RAW",dynamicRange:"16.5+ stops",source:"https://docs.red.com/955-0153/EPICSCARLET_Operation_Guide/Content/1_Intro/Tech_Specs_EPIC_DRAGON.htm"},
+  "RED KOMODO 6K":{brand:"RED",model:"KOMODO 6K",sensorWidth:27.03,sensorHeight:14.26,activeWidth:27.03,activeHeight:14.26,resolution:"6144 × 3240",format:"S35 Global Shutter",hud:"red",display:"KOMODO LCD",bitDepth:"16-bit REDCODE RAW",dynamicRange:"16+ stops",source:"https://docs.red.com/955-0190/955-0190_V1.7%20Rev-B%20RED%20PS%2C%20KOMODO%206K%20Operation%20Guide/Content/1_Intro/Tech_Specs.htm"},
+  "Sony BURANO":{brand:"Sony",model:"BURANO",sensorWidth:35.90,sensorHeight:24.00,activeWidth:35.90,activeHeight:20.20,resolution:"8632 × 4856",format:"FF 8.6K 16:9",hud:"sony",display:"3.5-inch LCD",bitDepth:"16-bit X-OCN LT (internal)",dynamicRange:"16 stops",source:"https://pro.sony/ue_US/products/digital-cinema-cameras/burano"},
+  "Sony PXW-FX9":{brand:"Sony",model:"PXW-FX9",sensorWidth:35.70,sensorHeight:18.80,activeWidth:35.70,activeHeight:18.80,resolution:"6K Full Frame",format:"FF 6K",hud:"sony",display:"3.5-inch LCD",bitDepth:"16-bit RAW out · 10-bit internal",dynamicRange:"15+ stops",source:"https://pro.sony/ue_US/products/handheld-camcorders/pxw-fx9"},
+  "Sony FX6":{brand:"Sony",model:"FX6",sensorWidth:35.60,sensorHeight:23.80,activeWidth:35.60,activeHeight:20.03,resolution:"4240 × 2385",format:"FF 4.2K 16:9",hud:"sony",display:"3.5-inch LCD",bitDepth:"16-bit RAW out · 10-bit internal",dynamicRange:"15+ stops",source:"https://pro.sony/en_MM/pdf/ilme-fx6"},
+  "Sony FX3":{brand:"Sony",model:"FX3",sensorWidth:35.60,sensorHeight:23.80,activeWidth:35.60,activeHeight:20.03,resolution:"4264 × 2408",format:"FF 4.2K 16:9",hud:"sony",display:"3.0-inch LCD",bitDepth:"16-bit RAW out · 10-bit internal",dynamicRange:"15+ stops",source:"https://www.sony.com/electronics/support/camcorders-and-video-cameras-interchangeable-lens-camcorders/ilme-fx3/specifications"},
+  "Canon EOS C500":{brand:"Canon",model:"EOS C500",sensorWidth:26.20,sensorHeight:13.80,activeWidth:26.20,activeHeight:13.80,resolution:"4206 × 2340",format:"Super 35",hud:"canon",display:"4-inch LCD",bitDepth:"12-bit 4K RAW ≤60p · 10-bit ≤120p",dynamicRange:"12 stops (Canon Log)",source:"https://downloads.canon.com/cinemaeos/EOS_C500_C500PL_White_Paper.pdf"},
+  "Canon EOS C500 Mark II":{brand:"Canon",model:"EOS C500 Mark II",sensorWidth:38.10,sensorHeight:20.10,activeWidth:38.10,activeHeight:20.10,resolution:"5952 × 3140",format:"5.9K Full Frame",hud:"canon",display:"LM-V2 LCD",bitDepth:"12-bit Cinema RAW Light",dynamicRange:"15+ stops",source:"https://www.canon-europe.com/video-cameras/eos-c500-mark-ii/specifications/"}
 });
 
 const LIGHTING_FIXTURES = {
@@ -3577,8 +3580,27 @@ function renderLightingCameraSummary(){
 function renderLightingDiagramList(){
   /* The current shot owns the visible diagram; the former diagram switcher was removed. */
 }
+function parkLightingInspector(){
+  const section=$("lightingPropertiesSection"),parking=$("lightingInspectorParking");
+  if(section&&parking&&section.parentElement!==parking)parking.append(section)
+}
+function lightingFolderForType(type){
+  return type==="camera"?$("lightingCamerasSection"):type==="light"?$("lightingLightsSection"):type==="subject"?$("lightingCharactersSection"):null
+}
+function mountLightingInspector(){
+  const section=$("lightingPropertiesSection"),o=lightingSelected();if(!section)return;
+  if(!o){parkLightingInspector();section.hidden=true;return}
+  const attribute=o.type==="camera"?"lightingCameraSelect":"lightingSelect";
+  const row=[...document.querySelectorAll("[data-lighting-select],[data-lighting-camera-select]")].find(node=>node.dataset[attribute]===o.id);
+  const folder=lightingFolderForType(o.type);if(folder)folder.open=true;
+  section.hidden=false;
+  if(row)row.insertAdjacentElement("afterend",section);
+  const title=$("lightingInspectorTitle");
+  if(title)title.textContent=o.type==="camera"?"CAMERA SETTINGS":o.type==="light"?"LIGHT SETTINGS":"CHARACTER SETTINGS"
+}
 function renderLightingObjectList(){
   if(!app.lighting.current)return;
+  parkLightingInspector();
   const renderType=(targetId,type,title)=>{
     const el=$(targetId);if(!el)return;const items=app.lighting.current.data.objects.filter(o=>o.type===type);
     el.innerHTML=`<div class="lighting-object-group">
@@ -3591,7 +3613,7 @@ function renderLightingObjectList(){
     </div>`;
     el.querySelectorAll("[data-lighting-select]").forEach(b=>b.onclick=()=>selectLightingObject(b.dataset.lightingSelect,false))
   };
-  renderType("lightingLightList","light","LIGHTS");renderType("lightingCharacterList","subject","CHARACTERS");renderLightingCameraList()
+  renderType("lightingLightList","light","LIGHTS");renderType("lightingCharacterList","subject","CHARACTERS");renderLightingCameraList();mountLightingInspector()
 }
 function renderLightingCameraList(){
   const el=$("lightingCameraList");if(!el||!app.lighting.current)return;const items=app.lighting.current.data.objects.filter(o=>o.type==="camera");
@@ -3654,7 +3676,9 @@ function setLightingCurrent(diagram){
   app.lighting.selectedId=firstCam?.id||app.lighting.current.data.objects[0]?.id||null;
   app.lighting.playback.selectedKeyframeId=app.lighting.current.data.timeline.keyframes[0]?.id||null;
   app.lighting.playback.elapsed=0;app.lighting.playback.baseCamera=null;app.lighting.playback.playing=false;
+  app.lighting.panDrag=null;app.lighting.planPane="top";
   app.lighting.planView={zoom:1,centerX:600,centerY:400};
+  app.lighting.elevationView={zoom:1,centerX:600,centerY:250};
   app.lighting.dirty=false;
   $("lightingDiagramName").value=app.lighting.current.name||"Lighting Diagram";
   $("lightingDiagramNotes").value=app.lighting.current.data.notes||"";
@@ -3713,6 +3737,7 @@ function selectLightingObject(id,openDrawer=false){
   app.lighting.selectedId=id;
   const o=lightingSelected();
   if(o?.type==="camera"&&!app.lighting.activeCameraId)app.lighting.activeCameraId=o.id;
+  const folder=lightingFolderForType(o?.type);if(folder)folder.open=true;
   renderLightingObjectList();renderLightingInspector();renderLightingCanvas();syncLighting3D()
 }
 function markLightingDirty(){app.lighting.dirty=true;$("saveLightingDiagramBtn").textContent="Save •"}
@@ -3762,7 +3787,7 @@ function restartLightingDiagram(){
   if(!uiConfirm("Restart this diagram? All lights, camera points and unsaved layout work in this diagram will be cleared."))return;
   stopVirtualExplore();stopLightingPlayback(false);
   d.data.objects=[defaultLightingCamera(),defaultLightingSubject()];d.data.notes="";d.data.timeline=defaultLightingTimeline();
-  app.lighting.activeCameraId=d.data.objects[0].id;app.lighting.selectedId=d.data.objects[0].id;app.lighting.playback.selectedKeyframeId=null;app.lighting.planView={zoom:1,centerX:600,centerY:400};
+  app.lighting.activeCameraId=d.data.objects[0].id;app.lighting.selectedId=d.data.objects[0].id;app.lighting.playback.selectedKeyframeId=null;app.lighting.panDrag=null;app.lighting.planPane="top";app.lighting.planView={zoom:1,centerX:600,centerY:400};app.lighting.elevationView={zoom:1,centerX:600,centerY:250};
   $("lightingDiagramNotes").value="";markLightingDirty();renderLightingObjectList();renderLightingInspector();renderLightingCanvas();renderLightingTimeline();syncLighting3D();setMsg("lightingDiagramNotice","Diagram restarted. Save when ready.","warning")
 }
 function applyLightingPermissions(){
@@ -3896,6 +3921,7 @@ function selectedLightingChange(sourceId=""){
 }
 function renderLightingInspector(updateInputs=true){
   const o=lightingSelected();
+  mountLightingInspector();
   $("lightingInspectorEmpty").hidden=!!o;$("lightingInspector").hidden=!o;
   if(!o)return;
   $("lightingLightFields").hidden=o.type!=="light";
@@ -3941,7 +3967,13 @@ function renderLightingInspector(updateInputs=true){
     $("lightingTiltValue").textContent=`${Math.round(Number(o.tilt||0))}°`
   }else if(o.type==="camera"){
     const cameraSpec=cinemaCameraSpec(o),active=cameraActiveSensor(o);
-    $("lightingCameraModelSpecs").innerHTML=`<span><strong>${cameraSpec.sensorWidth.toFixed(2)} × ${cameraSpec.sensorHeight.toFixed(2)} mm</strong> sensor</span><span>${escapeHtml(cameraSpec.format)}</span><span>${escapeHtml(cameraSpec.resolution)}</span><span>${escapeHtml(cameraSpec.display)}</span><span>${active.width.toFixed(2)} × ${active.height.toFixed(2)} mm active</span>`;
+    $("lightingCameraModelSpecs").innerHTML=`
+      <div class="lighting-camera-spec-card lighting-camera-spec-primary"><small>SENSOR</small><strong>${cameraSpec.sensorWidth.toFixed(2)} × ${cameraSpec.sensorHeight.toFixed(2)} mm</strong><em>${active.width.toFixed(2)} × ${active.height.toFixed(2)} mm active</em></div>
+      <div class="lighting-camera-spec-card"><small>DYNAMIC RANGE</small><strong>${escapeHtml(cameraSpec.dynamicRange||"Not published")}</strong></div>
+      <div class="lighting-camera-spec-card"><small>BIT DEPTH</small><strong>${escapeHtml(cameraSpec.bitDepth||"Not published")}</strong></div>
+      <div class="lighting-camera-spec-card"><small>RECORDING FORMAT</small><strong>${escapeHtml(cameraSpec.format)}</strong><em>${escapeHtml(cameraSpec.resolution)}</em></div>
+      <div class="lighting-camera-spec-card"><small>VIEWFINDER</small><strong>${escapeHtml(cameraSpec.display)}</strong></div>
+      ${cameraSpec.source?`<a class="lighting-camera-spec-source" href="${escapeHtml(cameraSpec.source)}" target="_blank" rel="noopener noreferrer">↗ Official manufacturer specification</a>`:""}`;
     $("lightingCameraHeightValue").textContent=`${Number(o.height3d||1.65).toFixed(2)} m`;
     $("lightingCameraTiltValue").textContent=`${Math.round(Number(o.tilt||0))}°`
   }else if(o.type==="subject"){
@@ -4036,19 +4068,51 @@ function lightingObjectSvg(o,selected){
   return ""
 }
 
-function lightingPlanViewBox(){
-  const view=app.lighting.planView||{zoom:1,centerX:600,centerY:400},zoom=Math.max(.45,Math.min(3.5,Number(view.zoom)||1));
-  const width=1200/zoom,height=800/zoom,centerX=Math.max(width/2,Math.min(1200-width/2,Number(view.centerX)||600)),centerY=Math.max(height/2,Math.min(800-height/2,Number(view.centerY)||400));
+function lightingViewState(pane=app.lighting.planPane||"top"){
+  if(pane==="elevation")return app.lighting.elevationView||(app.lighting.elevationView={zoom:1,centerX:600,centerY:250});
+  return app.lighting.planView||(app.lighting.planView={zoom:1,centerX:600,centerY:400})
+}
+function lightingViewBoxFor(pane="top"){
+  const elevation=pane==="elevation",worldWidth=1200,worldHeight=elevation?500:800,view=lightingViewState(pane),zoom=Math.max(.45,Math.min(3.5,Number(view.zoom)||1));
+  const width=worldWidth/zoom,height=worldHeight/zoom;
+  const centerX=width>=worldWidth?worldWidth/2:Math.max(width/2,Math.min(worldWidth-width/2,Number(view.centerX)||worldWidth/2));
+  const centerY=height>=worldHeight?worldHeight/2:Math.max(height/2,Math.min(worldHeight-height/2,Number(view.centerY)||worldHeight/2));
   view.zoom=zoom;view.centerX=centerX;view.centerY=centerY;return {x:centerX-width/2,y:centerY-height/2,width,height,zoom}
 }
+function lightingPlanViewBox(){return lightingViewBoxFor("top")}
+function lightingElevationViewBox(){return lightingViewBoxFor("elevation")}
 function applyLightingPlanViewBox(){
-  const svg=$("lightingCanvas");if(!svg)return;const box=lightingPlanViewBox();svg.setAttribute("viewBox",`${box.x} ${box.y} ${box.width} ${box.height}`);if($("lightingZoomValue"))$("lightingZoomValue").textContent=`${Math.round(box.zoom*100)}%`
+  const top=$("lightingCanvas"),elevation=$("lightingElevationCanvas"),topBox=lightingPlanViewBox(),elevationBox=lightingElevationViewBox();
+  if(top)top.setAttribute("viewBox",`${topBox.x} ${topBox.y} ${topBox.width} ${topBox.height}`);
+  if(elevation)elevation.setAttribute("viewBox",`${elevationBox.x} ${elevationBox.y} ${elevationBox.width} ${elevationBox.height}`);
+  const pane=app.lighting.planPane==="elevation"?"elevation":"top",active=pane==="elevation"?elevationBox:topBox,zoomValue=$("lightingZoomValue");
+  if(zoomValue){zoomValue.textContent=`${Math.round(active.zoom*100)}%`;zoomValue.title=pane==="elevation"?"Side / elevation zoom":"Top view zoom"}
 }
-function setLightingPlanZoom(value){
-  app.lighting.planView.zoom=Math.max(.45,Math.min(3.5,Number(value)||1));applyLightingPlanViewBox()
+function setLightingPlanZoom(value,pane=app.lighting.planPane||"top"){
+  app.lighting.planPane=pane;lightingViewState(pane).zoom=Math.max(.45,Math.min(3.5,Number(value)||1));applyLightingPlanViewBox()
 }
-function lightingPlanWheel(event){
-  event.preventDefault();const factor=event.deltaY<0?1.14:.88;setLightingPlanZoom((app.lighting.planView?.zoom||1)*factor)
+function lightingPlanWheel(event,pane="top"){
+  event.preventDefault();app.lighting.planPane=pane;const factor=event.deltaY<0?1.14:.88;setLightingPlanZoom((lightingViewState(pane).zoom||1)*factor,pane)
+}
+function fitLightingPlanViews(){
+  app.lighting.planView={zoom:1,centerX:600,centerY:400};app.lighting.elevationView={zoom:1,centerX:600,centerY:250};applyLightingPlanViewBox()
+}
+function lightingCanvasForPane(pane){return pane==="elevation"?$("lightingElevationCanvas"):$("lightingCanvas")}
+function startLightingCanvasPan(event,pane="top"){
+  if(event.pointerType==="mouse"&&event.button!==0)return;
+  const svg=lightingCanvasForPane(pane);if(!svg)return;const box=lightingViewBoxFor(pane),rect=svg.getBoundingClientRect(),view=lightingViewState(pane);
+  app.lighting.planPane=pane;app.lighting.panDrag={pane,pointerId:event.pointerId,startClientX:event.clientX,startClientY:event.clientY,startCenterX:view.centerX,startCenterY:view.centerY,worldPerPixelX:box.width/Math.max(1,rect.width),worldPerPixelY:box.height/Math.max(1,rect.height)};
+  svg.classList.add("is-panning");svg.setPointerCapture?.(event.pointerId);event.preventDefault();applyLightingPlanViewBox()
+}
+function moveLightingCanvasPan(event){
+  const drag=app.lighting.panDrag;if(!drag||drag.pointerId!==event.pointerId)return;const view=lightingViewState(drag.pane);
+  view.centerX=drag.startCenterX-(event.clientX-drag.startClientX)*drag.worldPerPixelX;
+  view.centerY=drag.startCenterY-(event.clientY-drag.startClientY)*drag.worldPerPixelY;
+  applyLightingPlanViewBox();event.preventDefault()
+}
+function endLightingCanvasPan(event){
+  const drag=app.lighting.panDrag;if(!drag||drag.pointerId!==event.pointerId)return;
+  lightingCanvasForPane(drag.pane)?.classList.remove("is-panning");app.lighting.panDrag=null
 }
 function lightingElevationObjectSvg(o,selected){
   const x=55+Number(o.x||0)*.9,floor=440,height=Math.max(.1,Number(o.height3d||(o.type==="subject"?1.75:1.65))),y=floor-height*62,stroke=selected?"#4ee2ff":"#e7eff2",label=safeSvgText(o.label||o.fixture||o.type);
@@ -4073,6 +4137,7 @@ function renderLightingElevationCanvas(){
   const svg=$("lightingElevationCanvas"),d=app.lighting.current;if(!svg||!d)return;
   let content=`<defs><pattern id="elevationGrid" width="90" height="62" patternUnits="userSpaceOnUse"><path d="M90 0H0V62" fill="none" stroke="#222b30" stroke-width="1"/></pattern></defs><rect class="lighting-elevation-bg" width="1200" height="500" fill="#080a0c"/><rect class="lighting-elevation-bg" x="55" y="68" width="1080" height="372" fill="url(#elevationGrid)"/><line x1="45" y1="440" x2="1160" y2="440" stroke="#829097" stroke-width="2"/><text x="18" y="82" fill="#64747c" font-size="12">6 m</text><text x="21" y="444" fill="#64747c" font-size="12">0 m</text><text x="1060" y="475" fill="#64747c" font-size="12">Side elevation · drag vertically to set height</text>`;
   content+=lightingCameraPathElevationSvg();content+=(d.data.objects||[]).map(o=>lightingElevationObjectSvg(o,o.id===app.lighting.selectedId)).join("");svg.innerHTML=content;
+  applyLightingPlanViewBox();
   svg.querySelectorAll("[data-lighting-elevation-id]").forEach(node=>{node.style.cursor=lightingCanEdit()?"ns-resize":"pointer";node.addEventListener("pointerdown",event=>startLightingElevationDrag(event,node.dataset.lightingElevationId))})
 }
 
@@ -4112,6 +4177,7 @@ function lightingSvgPoint(e){
 function normalizeDegrees(v){return ((Number(v||0)%360)+360)%360}
 function angleBetween2d(a,b){return Math.atan2(b.y-a.y,b.x-a.x)*180/Math.PI}
 function startLightingRotateHandle(e,id){
+  app.lighting.planPane="top";
   selectLightingObject(id,false);
   if(!lightingCanEdit())return;
   const o=lightingSelected();if(!o)return;
@@ -4126,6 +4192,7 @@ function startLightingRotateHandle(e,id){
   $("lightingCanvas").setPointerCapture?.(e.pointerId)
 }
 function startLightingDrag(e,id){
+  app.lighting.planPane="top";
   selectLightingObject(id,false);
   if(!lightingCanEdit())return;
   const o=lightingSelected();if(!o)return;
@@ -4141,7 +4208,7 @@ function startLightingDrag(e,id){
   $("lightingCanvas").setPointerCapture?.(e.pointerId)
 }
 function moveLightingDrag(e){
-  if(!lightingCanEdit())return;
+  if(!lightingCanEdit()||!app.lighting.dragging||app.lighting.dragging.mode==="elevation")return;
   const p=lightingSvgPoint(e);
   app.lighting.pointers[e.pointerId]=p;
   const d=app.lighting.dragging;if(!d)return;
@@ -4177,10 +4244,10 @@ function endLightingDrag(e){
   if(!Object.keys(app.lighting.pointers).length)app.lighting.dragging=null
 }
 function lightingElevationPoint(event){
-  const svg=$("lightingElevationCanvas"),r=svg.getBoundingClientRect();return {x:(event.clientX-r.left)*1200/r.width,y:(event.clientY-r.top)*500/r.height}
+  const svg=$("lightingElevationCanvas"),r=svg.getBoundingClientRect(),box=svg.viewBox.baseVal;return {x:box.x+(event.clientX-r.left)*box.width/r.width,y:box.y+(event.clientY-r.top)*box.height/r.height}
 }
 function startLightingElevationDrag(event,id){
-  selectLightingObject(id,false);if(!lightingCanEdit())return;const o=lightingSelected();if(!o)return;event.preventDefault();event.stopPropagation();const p=lightingElevationPoint(event);app.lighting.dragging={id,mode:"elevation",pointerId:event.pointerId,startX:p.x,startY:p.y,objectX:Number(o.x||600),height3d:Number(o.height3d||(o.type==="light"?2.2:o.type==="subject"?1.75:1.65))};$("lightingElevationCanvas").setPointerCapture?.(event.pointerId)
+  app.lighting.planPane="elevation";applyLightingPlanViewBox();selectLightingObject(id,false);if(!lightingCanEdit())return;const o=lightingSelected();if(!o)return;event.preventDefault();event.stopPropagation();const p=lightingElevationPoint(event);app.lighting.dragging={id,mode:"elevation",pointerId:event.pointerId,startX:p.x,startY:p.y,objectX:Number(o.x||600),height3d:Number(o.height3d||(o.type==="light"?2.2:o.type==="subject"?1.75:1.65))};$("lightingElevationCanvas").setPointerCapture?.(event.pointerId)
 }
 function moveLightingElevationDrag(event){
   const drag=app.lighting.dragging;if(!drag||drag.mode!=="elevation"||drag.pointerId!==event.pointerId||!lightingCanEdit())return;const o=app.lighting.current?.data?.objects?.find(item=>item.id===drag.id);if(!o)return;const p=lightingElevationPoint(event);o.x=Math.max(0,Math.min(1200,drag.objectX+(p.x-drag.startX)/.9));o.height3d=Math.max(.1,Math.min(o.type==="subject"?2.5:o.type==="camera"?12:8,drag.height3d-(p.y-drag.startY)/62));if(o.type==="camera"){o.cameraHeight="Custom";o.autoFrame=false}markLightingDirty();renderLightingInspector(false);renderLightingCanvas();syncLighting3D()
@@ -4377,7 +4444,7 @@ function resetLightingPlanPip(){
   const stage=document.querySelector(".lighting-studio-stage");if(!stage)return;stage.style.removeProperty("--lighting-pip-left");stage.style.removeProperty("--lighting-pip-top")
 }
 function startLightingPipDrag(event){
-  if(lightingCompanionIsMobile()||event.target.closest("button"))return;const stage=document.querySelector(".lighting-studio-stage"),plan=$("lightingPlanView");if(!stage||!plan)return;
+  if(app.lighting.viewMode!=="camera"||lightingCompanionIsMobile()||event.target.closest("button"))return;const stage=document.querySelector(".lighting-studio-stage"),plan=$("lightingPlanView");if(!stage||!plan)return;
   const stageRect=stage.getBoundingClientRect(),rect=plan.getBoundingClientRect();app.lighting.pipDrag={mode:"pip",pointerId:event.pointerId,offsetX:event.clientX-rect.left,offsetY:event.clientY-rect.top,stageRect};event.currentTarget.setPointerCapture?.(event.pointerId);event.preventDefault()
 }
 function moveLightingPipDrag(event){
@@ -4401,7 +4468,9 @@ async function renderLightingViewMode(){
   stage?.classList.toggle("camera-companion",cameraMode);
   $("lightingPlanView").hidden=false;
   $("lightingCameraView").hidden=!cameraMode;
-  $("lightingPlanPipHeader").hidden=!cameraMode||mobile;$("lightingSplitHandle").hidden=!cameraMode||!mobile;
+  $("lightingPlanPipHeader").hidden=false;$("lightingSplitHandle").hidden=!cameraMode||!mobile;
+  if($("lightingPlanWindowTitle"))$("lightingPlanWindowTitle").textContent=cameraMode?"LIVE DIAGRAM":"LIGHTING DIAGRAM";
+  if($("lightingPlanPipHint"))$("lightingPlanPipHint").textContent=cameraMode&&!mobile?"Drag bar to move · drag empty canvas to pan":"Drag empty space to pan · select an object to edit";
   if(cameraMode){if(mobile)stage?.style.setProperty("--lighting-mobile-camera",`${app.lighting.mobileSplit}%`);updateLightingPlaybackStatus();await startLighting3D();requestAnimationFrame(()=>{resizeThreeRenderer();updateCameraViewfinder()})}
   else{stopVirtualExplore();pauseLightingPlayback();stopLighting3D(false)}
   renderVirtualLocationControls();renderLightingTimeline()
@@ -5093,22 +5162,21 @@ function bind(){
   ].forEach(id=>["input","change"].forEach(ev=>$(id).addEventListener(ev,()=>selectedLightingChange(id))));
 
   $("deleteLightingObjectBtn").onclick=deleteSelectedLightingObject;
-  $("lightingCanvas").addEventListener("pointermove",moveLightingDrag);
-  $("lightingCanvas").addEventListener("pointerup",endLightingDrag);
-  $("lightingCanvas").addEventListener("pointercancel",endLightingDrag);
-  $("lightingCanvas").addEventListener("wheel",lightingPlanWheel,{passive:false});
+  $("lightingCanvas").addEventListener("pointermove",event=>{moveLightingDrag(event);moveLightingCanvasPan(event)});
+  $("lightingCanvas").addEventListener("pointerup",event=>{endLightingDrag(event);endLightingCanvasPan(event)});
+  $("lightingCanvas").addEventListener("pointercancel",event=>{endLightingDrag(event);endLightingCanvasPan(event)});
+  $("lightingCanvas").addEventListener("wheel",event=>lightingPlanWheel(event,"top"),{passive:false});
   $("lightingCanvas").addEventListener("pointerdown",e=>{
-    if(e.target.classList?.contains("lighting-bg")){
-      app.lighting.selectedId=null;renderLightingObjectList();renderLightingInspector();renderLightingCanvas()
-    }
+    if(e.target===$("lightingCanvas")||e.target.classList?.contains("lighting-bg"))startLightingCanvasPan(e,"top")
   });
-  $("lightingElevationCanvas").addEventListener("pointermove",moveLightingElevationDrag);
-  $("lightingElevationCanvas").addEventListener("pointerup",endLightingDrag);
-  $("lightingElevationCanvas").addEventListener("pointercancel",endLightingDrag);
-  $("lightingElevationCanvas").addEventListener("pointerdown",event=>{if(event.target.classList?.contains("lighting-elevation-bg")){app.lighting.selectedId=null;renderLightingObjectList();renderLightingInspector();renderLightingCanvas()}});
-  $("lightingZoomOutBtn").onclick=()=>setLightingPlanZoom((app.lighting.planView?.zoom||1)/1.2);
-  $("lightingZoomInBtn").onclick=()=>setLightingPlanZoom((app.lighting.planView?.zoom||1)*1.2);
-  $("lightingZoomValue").onclick=$("lightingZoomFitBtn").onclick=()=>{app.lighting.planView={zoom:1,centerX:600,centerY:400};applyLightingPlanViewBox()};
+  $("lightingElevationCanvas").addEventListener("pointermove",event=>{moveLightingElevationDrag(event);moveLightingCanvasPan(event)});
+  $("lightingElevationCanvas").addEventListener("pointerup",event=>{endLightingDrag(event);endLightingCanvasPan(event)});
+  $("lightingElevationCanvas").addEventListener("pointercancel",event=>{endLightingDrag(event);endLightingCanvasPan(event)});
+  $("lightingElevationCanvas").addEventListener("wheel",event=>lightingPlanWheel(event,"elevation"),{passive:false});
+  $("lightingElevationCanvas").addEventListener("pointerdown",event=>{if(event.target===$("lightingElevationCanvas")||event.target.classList?.contains("lighting-elevation-bg"))startLightingCanvasPan(event,"elevation")});
+  $("lightingZoomOutBtn").onclick=()=>{const pane=app.lighting.planPane||"top";setLightingPlanZoom((lightingViewState(pane).zoom||1)/1.2,pane)};
+  $("lightingZoomInBtn").onclick=()=>{const pane=app.lighting.planPane||"top";setLightingPlanZoom((lightingViewState(pane).zoom||1)*1.2,pane)};
+  $("lightingZoomValue").onclick=$("lightingZoomFitBtn").onclick=fitLightingPlanViews;
 
   $("lightingPlaybackPlayBtn").onclick=playLightingPlayback;
   $("lightingPlaybackPauseBtn").onclick=pauseLightingPlayback;

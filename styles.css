@@ -1090,3 +1090,57 @@ html[data-layout-mode="mobile"] .account-modal-card{width:100%;max-width:none}
 .lighting-diagram-minihead{order:0}.lighting-cameras-section{order:1}
 #lightingCamerasSection{order:1}#lightingLightsSection{order:2}#lightingCharactersSection{order:3}#virtualLocationSection{order:4}#lightingPropertiesSection{order:5}.lighting-output-section{order:6}
 @media(max-width:760px){.lighting-save-float{bottom:132px}.lighting-studio-stage.camera-companion{height:auto;padding-bottom:126px}}
+
+/* v5.4 — window-bar zoom controls, grab-to-pan canvases and inline object settings. */
+.lighting-plan-pip-header{
+  position:absolute;z-index:31;top:68px;left:14px;right:354px;height:42px;
+  border:1px solid rgba(119,224,249,.2);border-radius:11px;
+  box-shadow:0 10px 28px rgba(0,0,0,.28);cursor:default
+}
+.lighting-plan-pip-header .lighting-plan-tools{
+  position:static;z-index:auto;left:auto;top:auto;transform:none;display:flex;flex:none;gap:4px;
+  padding:0;border:0;border-radius:0;background:transparent;backdrop-filter:none
+}
+.lighting-plan-pip-header .lighting-plan-tools button{height:29px;min-width:30px;padding:0 8px}
+.lighting-plan-pip-header #lightingZoomFitBtn{min-width:40px}
+.lighting-view-label{top:118px}
+#lightingCanvas,#lightingElevationCanvas,.lighting-bg,.lighting-elevation-bg{cursor:grab}
+#lightingCanvas.is-panning,#lightingElevationCanvas.is-panning,
+#lightingCanvas.is-panning *,#lightingElevationCanvas.is-panning *{cursor:grabbing!important}
+
+.lighting-inspector-parking{display:none}
+#lightingPropertiesSection.lighting-inline-properties{
+  order:0;margin:2px 0 11px 35px;padding:11px;border:1px solid #2c4f5c!important;border-radius:11px;
+  background:linear-gradient(145deg,rgba(15,31,37,.96),rgba(8,13,16,.98));box-shadow:0 8px 22px rgba(0,0,0,.22)
+}
+.lighting-inline-properties[hidden]{display:none!important}
+.lighting-inline-properties>.lighting-section-title{margin-bottom:9px;color:#82e6fb;font-size:10px}
+.lighting-folder>.lighting-object-list,.lighting-folder>.lighting-camera-list{padding-bottom:11px}
+
+.lighting-camera-model-specs{
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin:8px 0 11px;padding:8px;
+  border:1px solid #31505b;border-radius:11px;background:#091115
+}
+.lighting-camera-spec-card{display:grid;align-content:start;gap:4px;min-width:0;padding:9px;border:1px solid #253a43;border-radius:9px;background:#111b20}
+.lighting-camera-spec-card small{color:#6f8b96;font-size:8px;font-weight:900;letter-spacing:.1em}
+.lighting-camera-spec-card strong{color:#e3f7fb;font-size:11px;line-height:1.3;overflow-wrap:anywhere}
+.lighting-camera-spec-card em{color:#91a8b1;font-size:9px;font-style:normal;line-height:1.35;overflow-wrap:anywhere}
+.lighting-camera-spec-primary{grid-column:1/-1;border-color:#316777;background:#10242b}
+.lighting-camera-spec-primary strong{color:#8be9ff;font-size:14px}
+.lighting-camera-spec-source{grid-column:1/-1;display:flex;align-items:center;justify-content:center;min-height:31px;padding:7px;border:1px solid #2f6676;border-radius:8px;background:#10262d;color:#83e7fb;font-size:9px;font-weight:850;text-decoration:none}
+.lighting-camera-spec-source:hover{border-color:#4bacc3;background:#15333c;color:#e8fbff}
+
+.lighting-studio-stage.camera-companion .lighting-plan-pip-header{top:0;left:0;right:0;height:42px;border:0;border-bottom:1px solid rgba(255,255,255,.1);border-radius:0;cursor:grab;box-shadow:none}
+.lighting-studio-stage.camera-companion .lighting-plan-pip-header:active{cursor:grabbing}
+.lighting-studio-stage.camera-companion .lighting-plan-view .lighting-plan-canvas-wrap{inset:42px 0 0}
+.lighting-studio-stage.camera-companion .lighting-view-label{top:8px}
+.lighting-studio-stage.camera-companion .lighting-plan-tools{position:static;transform:none}
+
+@media(max-width:760px){
+  .lighting-plan-pip-header{top:58px;left:8px;right:8px;height:40px;padding-inline:8px}
+  .lighting-plan-pip-header small{display:none}.lighting-plan-pip-header .lighting-plan-tools button{height:27px;min-width:28px;padding-inline:6px}
+  .lighting-view-label{top:104px}
+  .lighting-studio-stage.camera-companion .lighting-plan-pip-header{display:flex!important;position:absolute;top:0;left:0;right:0;height:40px;border-radius:0}
+  .lighting-studio-stage.camera-companion .lighting-plan-view .lighting-plan-canvas-wrap{inset:40px 0 0}
+  .lighting-camera-model-specs{grid-template-columns:1fr}.lighting-camera-spec-primary,.lighting-camera-spec-source{grid-column:auto}
+}
