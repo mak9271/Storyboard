@@ -1,7 +1,8 @@
-// Storyboard Shot Builder v4.9.4 — fixed-width Collaboration Production Dashboard
+// Storyboard Shot Builder v5.0.0 — Virtual Location scans and spatial walkthrough
 const OPTIONS = {
   shotSize:["ECU · Extreme Close Up","CU · Close Up","MCU · Medium Close Up","MS · Medium Shot","MLS · Medium Long Shot","WS · Wide Shot","EWS · Extreme Wide Shot","OTS · Over The Shoulder","POV · Point of View","Insert","Top Shot"],
   angle:["Eye Level","High Angle","Low Angle","Top / Bird's Eye","Dutch Angle","Ground Level","Overhead","Custom"],
+  cameraHeight:["Eye Level","Chest Level","Waist Level","Table Level","Ground Level","Overhead","Custom"],
   lens:["18mm","24mm","28mm","35mm","40mm","50mm","65mm","85mm","100mm","135mm","Wide","Normal","Telephoto"],
   focus:["Shallow Focus","Deep Focus","Rack Focus","Selective Focus","Soft Focus","Split Diopter","Auto / Unspecified"],
   movement:["Static","Pan Left","Pan Right","Tilt Up","Tilt Down","Dolly In","Dolly Out","Tracking Left","Tracking Right","Push In","Pull Out","Crane / Jib","Handheld","Zoom In","Zoom Out","Orbit","Whip Pan"],
@@ -172,7 +173,22 @@ let app = {
     drawerCollapsed: false,
     viewMode: "plan",
     activeCameraId: null,
-    three: null
+    three: null,
+    virtualLocations: [],
+    virtualLocationsReady: true,
+    virtualLocationMigrationMessage: "Run supabase-v5.0-virtual-locations.sql, then reload this project.",
+    locationModelCache: new Map(),
+    upload: null,
+    explorer: {
+      active: false,
+      pose: null,
+      startPose: null,
+      motionEnabled: false,
+      motionBase: null,
+      motionStart: null,
+      motionQuaternion: null,
+      motionListener: null
+    }
   },
   projectSearch: "",
   projectFilter: "all",
@@ -1097,12 +1113,13 @@ async function deleteAdminProject(project){
   try{
     const {error:accessError}=await sb.rpc("storyboard_admin_open_project",{p_project_id:project.id,p_target_user_id:user.user_id});if(accessError)throw accessError;
     supportOpened=true;
-    const [{data:paths},{data:characters},{data:locations}]=await Promise.all([
+    const [{data:paths},{data:characters},{data:locations},{data:locationScans}]=await Promise.all([
       sb.from("shots").select("image_path,original_image_path").eq("project_id",project.id),
       sb.from("project_ai_characters").select("reference_path,source_path").eq("project_id",project.id),
-      sb.from("project_ai_locations").select("reference_path,source_path").eq("project_id",project.id)
+      sb.from("project_ai_locations").select("reference_path,source_path").eq("project_id",project.id),
+      sb.from("location_scans").select("model_path").eq("project_id",project.id)
     ]);
-    await removeMediaPaths([...(paths||[]).flatMap(x=>[x.image_path,x.original_image_path]),...(characters||[]).flatMap(x=>[x.reference_path,x.source_path]),...(locations||[]).flatMap(x=>[x.reference_path,x.source_path])]);
+    await removeMediaPaths([...(paths||[]).flatMap(x=>[x.image_path,x.original_image_path]),...(characters||[]).flatMap(x=>[x.reference_path,x.source_path]),...(locations||[]).flatMap(x=>[x.reference_path,x.source_path]),...(locationScans||[]).map(x=>x.model_path)]);
     const {error}=await sb.rpc("storyboard_admin_delete_project",{p_project_id:project.id,p_target_user_id:user.user_id});if(error)throw error;
     supportOpened=false;setMsg("adminCenterNotice",`Project "${project.name}" deleted.`);await Promise.all([loadAdminUserProjects(),loadAdminActivity(),loadAdminUsers(true)])
   }catch(err){setMsg("adminCenterNotice",err.message||"Could not delete the project.","warning")}
@@ -2765,7 +2782,233 @@ const LIGHTING_MODIFIERS = {
   "Muslin Bounce":         {short:"Muslin",spread:40,softness:0.60, transmission:0.46}
 };
 
-const THREE_CDN = "https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.module.min.js";
+// Use the same jsDelivr ESM identity imported internally by the addon loaders.
+// Keeping one Three.js module instance avoids cross-module scene graph issues.
+const THREE_CDN = "https://cdn.jsdelivr.net/npm/three@0.185.1/+esm";
+const GLTF_LOADER_CDN = "https://cdn.jsdelivr.net/npm/three@0.185.1/examples/jsm/loaders/GLTFLoader.js/+esm";
+const USDZ_LOADER_CDN = "https://cdn.jsdelivr.net/npm/three@0.185.1/examples/jsm/loaders/USDZLoader.js/+esm";
+const DRACO_LOADER_CDN = "https://cdn.jsdelivr.net/npm/three@0.185.1/examples/jsm/loaders/DRACOLoader.js/+esm";
+const DRACO_DECODER_PATH = "https://cdn.jsdelivr.net/npm/three@0.185.1/examples/jsm/libs/draco/";
+const TUS_CLIENT_CDN = "https://cdn.jsdelivr.net/npm/tus-js-client@4.3.1/+esm";
+const VIRTUAL_LOCATION_MAX_BYTES = 250 * 1024 * 1024;
+const VIRTUAL_LOCATION_SIGNED_URL_SECONDS = 60 * 60;
+
+function defaultVirtualLocationSettings(){
+  return {scanId:null,transform:{scale:1,rotationY:0,x:0,y:0,z:0}}
+}
+function normalizeVirtualLocationSettings(value){
+  const input=value&&typeof value==="object"?value:{},transform=input.transform&&typeof input.transform==="object"?input.transform:{};
+  return {
+    scanId:String(input.scanId||"")||null,
+    transform:{
+      scale:Math.max(.1,Math.min(5,Number(transform.scale)||1)),
+      rotationY:Math.max(-180,Math.min(180,Number(transform.rotationY)||0)),
+      x:Math.max(-20,Math.min(20,Number(transform.x)||0)),
+      y:Math.max(-5,Math.min(5,Number(transform.y)||0)),
+      z:Math.max(-20,Math.min(20,Number(transform.z)||0))
+    }
+  }
+}
+function virtualLocationSettings(){
+  const d=app.lighting.current;if(!d)return defaultVirtualLocationSettings();
+  d.data.virtualLocation=normalizeVirtualLocationSettings(d.data.virtualLocation);
+  if(d.location_scan_id&&!d.data.virtualLocation.scanId)d.data.virtualLocation.scanId=d.location_scan_id;
+  if(d.data.virtualLocation.scanId&&!d.location_scan_id)d.location_scan_id=d.data.virtualLocation.scanId;
+  return d.data.virtualLocation
+}
+function virtualLocationLocalKey(projectId=app.current?.id){return `storyboard-v5-virtual-locations:${projectId||"none"}`}
+function linkedVirtualLocation(){
+  const scanId=app.lighting.current?.location_scan_id||app.lighting.current?.data?.virtualLocation?.scanId;
+  return app.lighting.virtualLocations.find(scan=>scan.id===scanId)||null
+}
+function virtualLocationFormat(fileName="",mime=""){
+  const ext=String(fileName).split(".").pop().toLowerCase();
+  if(ext==="glb"||mime==="model/gltf-binary")return "glb";
+  if(ext==="usdz"||mime==="model/vnd.usdz+zip")return "usdz";
+  return ""
+}
+function virtualLocationContentType(format){return format==="usdz"?"model/vnd.usdz+zip":"model/gltf-binary"}
+function virtualLocationFileSize(bytes){
+  const n=Math.max(0,Number(bytes)||0);if(n<1024)return `${n} B`;if(n<1024*1024)return `${(n/1024).toFixed(1)} KB`;return `${(n/1024/1024).toFixed(n<10*1024*1024?1:0)} MB`
+}
+function safeVirtualLocationFileName(name){return String(name||"location").replace(/[^a-zA-Z0-9._-]+/g,"-").replace(/^-+|-+$/g,"")||"location"}
+function setVirtualLocationNotice(message="",kind=""){
+  const el=$("virtualLocationNotice");if(!el)return;el.textContent=uiText(message);el.hidden=!message;el.className=`virtual-location-notice${kind?` ${kind}`:""}`
+}
+function setVirtualLocationProgress(percent=0,label="Uploading scan…",visible=true){
+  const wrap=$("virtualLocationProgress");if(!wrap)return;const value=Math.max(0,Math.min(100,Number(percent)||0));wrap.hidden=!visible;$("virtualLocationProgressBar").value=value;$("virtualLocationProgressValue").textContent=`${Math.round(value)}%`;$("virtualLocationProgressLabel").textContent=uiText(label)
+}
+
+let virtualLocationDbPromise=null;
+function openVirtualLocationDb(){
+  if(virtualLocationDbPromise)return virtualLocationDbPromise;
+  virtualLocationDbPromise=new Promise((resolve,reject)=>{
+    if(!window.indexedDB){reject(new Error("This browser cannot store 3D scans offline."));return}
+    const request=indexedDB.open("storyboard-virtual-locations",1);
+    request.onupgradeneeded=()=>{const db=request.result;if(!db.objectStoreNames.contains("models"))db.createObjectStore("models",{keyPath:"id"})};
+    request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error||new Error("Could not open offline scan storage."))
+  });
+  return virtualLocationDbPromise
+}
+async function putLocalVirtualLocationBlob(id,file){
+  const db=await openVirtualLocationDb();return new Promise((resolve,reject)=>{const tx=db.transaction("models","readwrite");tx.objectStore("models").put({id,blob:file,updatedAt:Date.now()});tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error||new Error("Could not store this scan offline."))})
+}
+async function getLocalVirtualLocationBlob(id){
+  const db=await openVirtualLocationDb();return new Promise((resolve,reject)=>{const tx=db.transaction("models","readonly"),request=tx.objectStore("models").get(id);request.onsuccess=()=>resolve(request.result?.blob||null);request.onerror=()=>reject(request.error||new Error("Could not open this offline scan."))})
+}
+async function deleteLocalVirtualLocationBlob(id){
+  try{const db=await openVirtualLocationDb();await new Promise((resolve,reject)=>{const tx=db.transaction("models","readwrite");tx.objectStore("models").delete(id);tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error)})}catch(error){console.warn("Could not remove offline virtual location",error)}
+}
+function persistLocalVirtualLocations(){localStorage.setItem(virtualLocationLocalKey(),JSON.stringify(app.lighting.virtualLocations.map(({objectUrl,...scan})=>scan)))}
+
+function normalizeVirtualLocation(row){
+  return {
+    id:String(row?.id||uid()),project_id:row?.project_id||app.current?.id||null,created_by:row?.created_by||null,
+    name:String(row?.name||"Virtual Location"),model_path:row?.model_path||null,file_name:String(row?.file_name||"location.glb"),
+    format:virtualLocationFormat(row?.file_name,row?.format)||String(row?.format||"glb").toLowerCase(),size_bytes:Number(row?.size_bytes)||0,
+    captured_with:String(row?.captured_with||"import"),metadata:row?.metadata&&typeof row.metadata==="object"?row.metadata:{},
+    created_at:row?.created_at||new Date().toISOString(),updated_at:row?.updated_at||new Date().toISOString(),objectUrl:row?.objectUrl||null
+  }
+}
+async function loadVirtualLocations(){
+  clearVirtualLocationModelCache();
+  if(!app.current){app.lighting.virtualLocations=[];return}
+  if(app.mode==="local"){
+    let list=[];try{list=JSON.parse(localStorage.getItem(virtualLocationLocalKey())||"[]")}catch(error){}
+    app.lighting.virtualLocations=(list||[]).map(normalizeVirtualLocation);app.lighting.virtualLocationsReady=true;renderVirtualLocationControls();return
+  }
+  const {data,error}=await sb.from("location_scans").select("id,project_id,created_by,name,model_path,file_name,format,size_bytes,captured_with,metadata,created_at,updated_at").eq("project_id",app.current.id).order("updated_at",{ascending:false});
+  if(error){
+    app.lighting.virtualLocations=[];app.lighting.virtualLocationsReady=false;
+    setVirtualLocationNotice(`${app.lighting.virtualLocationMigrationMessage} ${error.message||""}`,"warning")
+  }else{
+    app.lighting.virtualLocations=(data||[]).map(normalizeVirtualLocation);app.lighting.virtualLocationsReady=true;setVirtualLocationNotice("")
+  }
+  renderVirtualLocationControls()
+}
+async function deleteLocalProjectVirtualLocations(projectId){
+  let list=[];try{list=JSON.parse(localStorage.getItem(virtualLocationLocalKey(projectId))||"[]")}catch(error){}
+  await Promise.all((list||[]).map(scan=>deleteLocalVirtualLocationBlob(scan.id)));localStorage.removeItem(virtualLocationLocalKey(projectId))
+}
+
+function renderVirtualLocationControls(){
+  const select=$("virtualLocationSelect");if(!select)return;
+  const currentId=app.lighting.current?.location_scan_id||app.lighting.current?.data?.virtualLocation?.scanId||"";
+  select.innerHTML=`<option value="">${escapeHtml(uiText("No virtual location"))}</option>`+app.lighting.virtualLocations.map(scan=>`<option value="${escapeHtml(scan.id)}">${escapeHtml(scan.name)} · ${escapeHtml(scan.format.toUpperCase())} · ${escapeHtml(virtualLocationFileSize(scan.size_bytes))}</option>`).join("");
+  select.value=app.lighting.virtualLocations.some(scan=>scan.id===currentId)?currentId:"";
+  const linked=linkedVirtualLocation(),settings=virtualLocationSettings(),transform=settings.transform;
+  $("virtualLocationTransform").hidden=!linked;
+  $("detachVirtualLocationBtn").disabled=!linked||!lightingCanEdit();
+  $("deleteVirtualLocationBtn").disabled=!linked||!lightingCanEdit();
+  $("importVirtualLocationBtn").disabled=!lightingCanEdit()||!!app.lighting.upload||(app.mode==="cloud"&&!app.lighting.virtualLocationsReady);
+  $("scanVirtualLocationBtn").disabled=!lightingCanEdit()||!!app.lighting.upload||(app.mode==="cloud"&&!app.lighting.virtualLocationsReady);
+  select.disabled=!lightingCanEdit()||(app.mode==="cloud"&&!app.lighting.virtualLocationsReady);
+  if(linked){
+    $("virtualLocationScale").value=String(Math.round(transform.scale*100));$("virtualLocationRotation").value=String(transform.rotationY);
+    $("virtualLocationOffsetX").value=String(transform.x);$("virtualLocationOffsetY").value=String(transform.y);$("virtualLocationOffsetZ").value=String(transform.z);
+    $("virtualLocationScaleValue").textContent=`${Math.round(transform.scale*100)}%`;$("virtualLocationRotationValue").textContent=`${Math.round(transform.rotationY)}°`;
+    $("virtualLocationOffsetXValue").textContent=`${transform.x.toFixed(1)} m`;$("virtualLocationOffsetYValue").textContent=`${transform.y.toFixed(1)} m`;$("virtualLocationOffsetZValue").textContent=`${transform.z.toFixed(1)} m`
+  }
+  renderVirtualLocationBadge();renderVirtualExploreUi()
+}
+function renderVirtualLocationBadge(){
+  const scan=linkedVirtualLocation(),badge=$("virtualLocationBadge");if(!badge)return;badge.hidden=!scan;if(!scan)return;
+  $("virtualLocationBadgeName").textContent=scan.name;$("virtualLocationBadgeMeta").textContent=`${scan.format.toUpperCase()} · ${virtualLocationFileSize(scan.size_bytes)}`
+}
+function disposeVirtualLocationObject(object){
+  object?.traverse?.(node=>{if(node.geometry?.dispose)node.geometry.dispose();const materials=Array.isArray(node.material)?node.material:[node.material];for(const material of materials.filter(Boolean)){for(const value of Object.values(material)){if(value?.isTexture&&value.dispose)value.dispose()}material.dispose?.()}})
+}
+function clearVirtualLocationModelCache(scanId=null){
+  for(const [id,entry] of app.lighting.locationModelCache){
+    if(scanId&&id!==scanId)continue;disposeVirtualLocationObject(entry.root);if(entry.objectUrl)URL.revokeObjectURL(entry.objectUrl);app.lighting.locationModelCache.delete(id)
+  }
+}
+async function uploadVirtualLocationResumable(file,path,onProgress){
+  const [{data:{session}},tus]=await Promise.all([sb.auth.getSession(),import(TUS_CLIENT_CDN)]);if(!session?.access_token)throw new Error("Your session expired. Sign in again before uploading the scan.");
+  const host=new URL(cfg.SUPABASE_URL).hostname,projectRef=host.split(".")[0];if(!projectRef)throw new Error("Storage is not configured.");
+  return new Promise((resolve,reject)=>{
+    const upload=new tus.Upload(file,{
+      endpoint:`https://${projectRef}.storage.supabase.co/storage/v1/upload/resumable`,
+      retryDelays:[0,3000,5000,10000,20000],headers:{authorization:`Bearer ${session.access_token}`},
+      uploadDataDuringCreation:true,removeFingerprintOnSuccess:true,chunkSize:6*1024*1024,
+      metadata:{bucketName:"storyboards",objectName:path,contentType:virtualLocationContentType(virtualLocationFormat(file.name,file.type)),cacheControl:"31536000",metadata:JSON.stringify({feature:"virtual-location",projectId:app.current.id})},
+      onError:error=>reject(error),onProgress:(uploaded,total)=>onProgress?.(total?uploaded/total*100:0),onSuccess:()=>resolve(upload.url)
+    });
+    app.lighting.upload=upload;
+    upload.findPreviousUploads().then(previous=>{if(previous.length)upload.resumeFromPreviousUpload(previous[0]);upload.start()}).catch(reject)
+  })
+}
+async function importVirtualLocationFile(file,capturedWith="import"){
+  if(!file||!lightingCanEdit())return;const format=virtualLocationFormat(file.name,file.type);
+  if(!format)throw new Error("Choose one self-contained GLB or USDZ file.");
+  if(file.size>VIRTUAL_LOCATION_MAX_BYTES)throw new Error("This scan is larger than 250 MB. Optimize it before importing.");
+  const baseName=String(file.name||"Virtual Location").replace(/\.(glb|usdz)$/i,"").replace(/[-_]+/g," ").trim()||"Virtual Location";
+  const requested=uiPrompt("Location name:",baseName);if(requested===null)return;const name=requested.trim()||baseName,id=uid(),now=new Date().toISOString();
+  setVirtualLocationNotice("");setVirtualLocationProgress(0,app.mode==="cloud"?"Uploading scan…":"Saving scan…",true);renderVirtualLocationControls();
+  try{
+    let record;
+    if(app.mode==="local"){
+      await putLocalVirtualLocationBlob(id,file);setVirtualLocationProgress(92,"Saving scan…",true);
+      record=normalizeVirtualLocation({id,project_id:app.current.id,name,file_name:file.name,format,size_bytes:file.size,captured_with:capturedWith,metadata:{},created_at:now,updated_at:now})
+    }else{
+      if(!app.lighting.virtualLocationsReady)throw new Error(app.lighting.virtualLocationMigrationMessage);
+      const path=`${app.current.id}/virtual-locations/${id}/${Date.now()}-${safeVirtualLocationFileName(file.name)}`;
+      await uploadVirtualLocationResumable(file,path,percent=>setVirtualLocationProgress(percent,"Uploading scan…",true));
+      const {data,error}=await sb.from("location_scans").insert({id,project_id:app.current.id,created_by:app.session.user.id,name,model_path:path,file_name:file.name,format,size_bytes:file.size,captured_with:capturedWith,metadata:{}}).select().single();
+      if(error){await removeMediaPaths([path]);throw error}record=normalizeVirtualLocation(data)
+    }
+    app.lighting.virtualLocations=[record,...app.lighting.virtualLocations.filter(scan=>scan.id!==record.id)];if(app.mode==="local")persistLocalVirtualLocations();
+    app.lighting.current.location_scan_id=record.id;virtualLocationSettings().scanId=record.id;markLightingDirty();setVirtualLocationProgress(100,"Scan ready",true);renderVirtualLocationControls();renderLightingCanvas();
+    setVirtualLocationNotice("Scan attached. Open Camera View, then choose Explore Location.");
+    if(app.lighting.viewMode==="camera")await rebuildLighting3D();setTimeout(()=>setVirtualLocationProgress(0,"",false),900)
+  }finally{app.lighting.upload=null;renderVirtualLocationControls()}
+}
+async function handleVirtualLocationFileInput(event){
+  const input=event.currentTarget,file=input.files?.[0],capturedWith=input.dataset.captureSource||"import";input.value="";delete input.dataset.captureSource;if(!file)return;
+  try{await importVirtualLocationFile(file,capturedWith)}catch(error){console.error(error);setVirtualLocationProgress(0,"",false);setVirtualLocationNotice(error.message||"Could not import this 3D scan.","error")}
+}
+function chooseVirtualLocationFile(source="import"){$("virtualLocationFileInput").dataset.captureSource=source;$("virtualLocationFileInput").click()}
+function startIPhoneLocationScan(){
+  if(!lightingCanEdit())return;const bridge=window.webkit?.messageHandlers?.storyboardLocationScanner;
+  if(bridge?.postMessage){
+    bridge.postMessage({action:"scan",projectId:app.current.id,diagramId:app.lighting.current?.id||null,formats:["glb","usdz"]});
+    setVirtualLocationNotice("iPhone scanner opened. Keep this project open while the scan is prepared.");return
+  }
+  setVirtualLocationNotice("In the web version, scan with an iPhone LiDAR app and export one GLB or USDZ file. The native Storyboard scanner uses this same button when installed.","warning");chooseVirtualLocationFile("iphone-import")
+}
+async function completeNativeVirtualLocationScan(payload={}){
+  if(!payload.scanId)return;await loadVirtualLocations();const scan=app.lighting.virtualLocations.find(item=>item.id===payload.scanId);if(!scan)return setVirtualLocationNotice("The iPhone scan uploaded, but it is not available to this project yet.","warning");
+  app.lighting.current.location_scan_id=scan.id;virtualLocationSettings().scanId=scan.id;markLightingDirty();renderVirtualLocationControls();renderLightingCanvas();if(app.lighting.viewMode==="camera")await rebuildLighting3D()
+}
+window.storyboardVirtualLocationScanCompleted=completeNativeVirtualLocationScan;
+async function selectVirtualLocation(scanId){
+  if(!app.lighting.current||!lightingCanEdit())return;stopVirtualExplore();app.lighting.current.location_scan_id=scanId||null;app.lighting.current.data.virtualLocation=defaultVirtualLocationSettings();app.lighting.current.data.virtualLocation.scanId=scanId||null;markLightingDirty();renderVirtualLocationControls();renderLightingCanvas();if(app.lighting.viewMode==="camera")await rebuildLighting3D()
+}
+function detachVirtualLocation(){if(!linkedVirtualLocation()||!lightingCanEdit())return;selectVirtualLocation("")}
+async function deleteVirtualLocation(){
+  const scan=linkedVirtualLocation();if(!scan||!lightingCanEdit()||!uiConfirm(`Delete the 3D scan “${scan.name}”? Lighting objects and cameras will remain.`))return;
+  try{
+    stopVirtualExplore();
+    if(app.mode==="cloud"){
+      const {error}=await sb.from("location_scans").delete().eq("id",scan.id).eq("project_id",app.current.id);if(error)throw error;await removeMediaPaths([scan.model_path])
+    }else{await deleteLocalVirtualLocationBlob(scan.id)}
+    clearVirtualLocationModelCache(scan.id);app.lighting.virtualLocations=app.lighting.virtualLocations.filter(item=>item.id!==scan.id);
+    for(const diagram of [app.lighting.current,...app.lighting.diagrams]){if(diagram?.location_scan_id===scan.id){diagram.location_scan_id=null;if(diagram.data?.virtualLocation)diagram.data.virtualLocation.scanId=null}}
+    if(app.mode==="local")persistLocalVirtualLocations();markLightingDirty();renderVirtualLocationControls();renderLightingCanvas();if(app.lighting.viewMode==="camera")await rebuildLighting3D();setVirtualLocationNotice("3D scan deleted.")
+  }catch(error){setVirtualLocationNotice(error.message||"Could not delete this 3D scan.","error")}
+}
+function updateVirtualLocationTransform(){
+  if(!linkedVirtualLocation()||!lightingCanEdit())return;const settings=virtualLocationSettings(),transform=settings.transform;
+  transform.scale=Math.max(.1,Math.min(5,Number($("virtualLocationScale").value)/100||1));transform.rotationY=Number($("virtualLocationRotation").value)||0;
+  transform.x=Number($("virtualLocationOffsetX").value)||0;transform.y=Number($("virtualLocationOffsetY").value)||0;transform.z=Number($("virtualLocationOffsetZ").value)||0;
+  markLightingDirty();renderVirtualLocationControls();renderLightingCanvas();syncVirtualLocationTransform3D()
+}
+function resetVirtualLocationTransform(){
+  if(!linkedVirtualLocation()||!lightingCanEdit())return;const scanId=virtualLocationSettings().scanId;app.lighting.current.data.virtualLocation=defaultVirtualLocationSettings();app.lighting.current.data.virtualLocation.scanId=scanId;markLightingDirty();renderVirtualLocationControls();renderLightingCanvas();syncVirtualLocationTransform3D()
+}
+function focusVirtualLocationSection(){
+  toggleLightingDrawer(false);const section=$("virtualLocationSection");section.scrollIntoView({block:"nearest",behavior:"smooth"});section.classList.remove("focus-pulse");requestAnimationFrame(()=>section.classList.add("focus-pulse"));setTimeout(()=>section.classList.remove("focus-pulse"),900)
+}
 
 function lightingCanEdit(){return app.mode==="local"||app.isOwner||can("shots")||can("project_settings")}
 function lightingLocalKey(projectId=app.current?.id){return `storyboard-v3.8-lighting:${projectId||"none"}`}
@@ -3030,10 +3273,11 @@ function newLightingDiagramObject(){
   return {
     id:uid(),persisted:false,project_id:app.current?.id||null,
     scene_id:link?.scene?.id||null,shot_id:link?.shot?.id||null,
+    location_scan_id:null,
     created_by:app.session?.user?.id||null,
     name:`S${String(sn).padStart(2,"0")} · Shot ${String(sh).padStart(2,"0")} Lighting`,
     updated_at:new Date().toISOString(),
-    data:{canvas:{width:1200,height:800,metersPer100px:1},objects:[defaultLightingCamera(),defaultLightingSubject()],notes:""}
+    data:{canvas:{width:1200,height:800,metersPer100px:1},objects:[defaultLightingCamera(),defaultLightingSubject()],notes:"",virtualLocation:defaultVirtualLocationSettings()}
   }
 }
 function normalizeLightingDiagram(row){
@@ -3042,10 +3286,14 @@ function normalizeLightingDiagram(row){
   data.objects=data.objects.map(normalizeLightingObject);
   if(!data.canvas)data.canvas={width:1200,height:800,metersPer100px:1};
   if(typeof data.notes!=="string")data.notes="";
+  data.virtualLocation=normalizeVirtualLocationSettings(data.virtualLocation);
+  const locationScanId=row?.location_scan_id||data.virtualLocation.scanId||null;
+  data.virtualLocation.scanId=locationScanId;
   return {
     id:row?.id||uid(),persisted:row?.persisted!==false,
     project_id:row?.project_id||app.current?.id||null,
     scene_id:row?.scene_id||null,shot_id:row?.shot_id||null,
+    location_scan_id:locationScanId,
     created_by:row?.created_by||null,name:row?.name||"Lighting Diagram",
     updated_at:row?.updated_at||new Date().toISOString(),data
   }
@@ -3142,6 +3390,7 @@ function renderModifierCatalog(){
   })
 }
 function setLightingCurrent(diagram){
+  stopVirtualExplore();
   app.lighting.current=normalizeLightingDiagram(diagram);
   for(const cam of app.lighting.current.data.objects.filter(o=>o.type==="camera")){
     if(cam.autoFrame!==false){
@@ -3160,7 +3409,7 @@ function setLightingCurrent(diagram){
   $("lightingDiagramName").value=app.lighting.current.name||"Lighting Diagram";
   $("lightingDiagramNotes").value=app.lighting.current.data.notes||"";
   renderLightingShotOptions();renderLightingDiagramList();renderLightingObjectList();
-  renderLightingInspector();renderLightingCanvas();clearLightingDirty()
+  renderLightingInspector();renderLightingCanvas();renderVirtualLocationControls();clearLightingDirty()
 }
 async function loadLightingDiagrams(preferredId=null){
   if(!app.current)return;
@@ -3168,9 +3417,15 @@ async function loadLightingDiagrams(preferredId=null){
     let list=[];try{list=JSON.parse(localStorage.getItem(lightingLocalKey())||"[]")}catch(e){}
     app.lighting.diagrams=(list||[]).map(normalizeLightingDiagram)
   }else{
-    const {data,error}=await sb.from("lighting_diagrams")
-      .select("id,project_id,scene_id,shot_id,created_by,name,data,updated_at")
+    let {data,error}=await sb.from("lighting_diagrams")
+      .select("id,project_id,scene_id,shot_id,location_scan_id,created_by,name,data,updated_at")
       .eq("project_id",app.current.id).order("updated_at",{ascending:false});
+    if(error&&/location_scan_id/i.test(String(error.message||""))){
+      const fallback=await sb.from("lighting_diagrams")
+        .select("id,project_id,scene_id,shot_id,created_by,name,data,updated_at")
+        .eq("project_id",app.current.id).order("updated_at",{ascending:false});
+      data=fallback.data;error=fallback.error;app.lighting.virtualLocationsReady=false
+    }
     if(error){
       setMsg("lightingDiagramNotice",`Lighting Diagram setup is not active. Run the saved SQL query “Storyboard v4.8 - Lighting Access Repair”, then reload this project. Details: ${error.message}`,"warning");
       app.lighting.diagrams=[]
@@ -3190,13 +3445,14 @@ async function openLightingWorkspace(options={}){
   setMsg("lightingDiagramNotice","Loading Lighting Diagram…");
   try{
     populateLightingCameraSelects();renderLightingCameraSummary();
-    await loadLightingDiagrams(options.diagramId||null);applyLightingPermissions();
+    await loadVirtualLocations();await loadLightingDiagrams(options.diagramId||null);applyLightingPermissions();
     app.lighting.viewMode="plan";renderLightingViewMode();subscribeLightingRealtime()
   }catch(error){console.error("Could not open Lighting Diagram",error);setMsg("lightingDiagramNotice",`Could not open Lighting Diagram. ${error.message||"Reload the project and try again."}`,"warning")}
 }
 function closeLightingWorkspace(){
+  if(app.lighting.upload){setVirtualLocationNotice("Wait for the 3D scan upload to finish before closing Lighting Diagram.","warning");return}
   if(app.lighting.dirty&&!uiConfirm("Close Lighting Diagram without saving the latest changes?"))return;
-  stopLightingPlayback(true);stopLighting3D();unsubscribeLightingRealtime();$("lightingDiagramModal").close()
+  stopVirtualExplore();stopLightingPlayback(true);stopLighting3D();unsubscribeLightingRealtime();$("lightingDiagramModal").close()
 }
 function toggleLightingDrawer(force){
   app.lighting.drawerCollapsed=typeof force==="boolean"?force:!app.lighting.drawerCollapsed;
@@ -3217,6 +3473,7 @@ async function saveLightingDiagram(){
   const d=app.lighting.current;if(!d||!lightingCanEdit())return;
   d.name=$("lightingDiagramName").value.trim()||"Lighting Diagram";
   d.data.notes=$("lightingDiagramNotes").value||"";
+  d.data.virtualLocation=virtualLocationSettings();d.data.virtualLocation.scanId=d.location_scan_id||null;
   d.updated_at=new Date().toISOString();
   if(app.mode==="local"){
     d.persisted=true;
@@ -3224,9 +3481,11 @@ async function saveLightingDiagram(){
     if(i>=0)app.lighting.diagrams[i]=deepClone(d);else app.lighting.diagrams.unshift(deepClone(d));
     persistLocalLightingList();clearLightingDirty();renderLightingDiagramList();return
   }
+  const payload={scene_id:d.scene_id,shot_id:d.shot_id,name:d.name,data:d.data,updated_at:d.updated_at};
+  if(app.lighting.virtualLocationsReady)payload.location_scan_id=d.location_scan_id||null;
   const result=d.persisted
-    ?await sb.from("lighting_diagrams").update({scene_id:d.scene_id,shot_id:d.shot_id,name:d.name,data:d.data,updated_at:d.updated_at}).eq("id",d.id).select().single()
-    :await sb.from("lighting_diagrams").insert({id:d.id,project_id:app.current.id,scene_id:d.scene_id,shot_id:d.shot_id,created_by:app.session.user.id,name:d.name,data:d.data}).select().single();
+    ?await sb.from("lighting_diagrams").update(payload).eq("id",d.id).select().single()
+    :await sb.from("lighting_diagrams").insert({id:d.id,project_id:app.current.id,created_by:app.session.user.id,...payload}).select().single();
   if(result.error){setMsg("lightingDiagramNotice",result.error.message,"warning");return}
   const saved=normalizeLightingDiagram(result.data);saved.persisted=true;
   const i=app.lighting.diagrams.findIndex(x=>x.id===saved.id);
@@ -3256,8 +3515,12 @@ function applyLightingPermissions(){
     "lightingObjectKelvin","lightingObjectIntensity","lightingObjectBeam","lightingObjectHeight3d","lightingObjectTilt",
     "lightingObjectLens","lightingObjectShotSize","lightingObjectAngle","lightingObjectHeight","lightingObjectMovement",
     "lightingObjectFocus","lightingCameraHeight3d","lightingCameraTilt","lightingSubjectHeight3d","lightingSubjectScale",
-    "lightingSubjectGender","lightingObjectRotation","deleteLightingObjectBtn","lightingDiagramNotes"
+    "lightingSubjectGender","lightingObjectRotation","deleteLightingObjectBtn","lightingDiagramNotes","virtualLocationSelect",
+    "importVirtualLocationBtn","scanVirtualLocationBtn","detachVirtualLocationBtn","deleteVirtualLocationBtn",
+    "virtualLocationScale","virtualLocationRotation","virtualLocationOffsetX","virtualLocationOffsetY","virtualLocationOffsetZ",
+    "resetVirtualLocationTransformBtn","placeCameraFromExplorerBtn"
   ].forEach(id=>{if($(id))$(id).disabled=!edit})
+  renderVirtualLocationControls()
 }
 function addLightingObject(o){
   const d=app.lighting.current;if(!d||!lightingCanEdit())return;
@@ -3499,6 +3762,7 @@ function renderLightingCanvas(){
   <rect class="lighting-bg" x="0" y="0" width="1200" height="800" fill="#080a0c"/>
   <rect class="lighting-bg" x="0" y="0" width="1200" height="800" fill="url(#lightingMajorGrid)"/>
   <text x="20" y="30" fill="#5f6d75" font-size="13">12 m × 8 m</text>`;
+  content+=virtualLocationFootprintSvg();
   content+=(d.data.objects||[]).map(o=>lightingObjectSvg(o,o.id===app.lighting.selectedId)).join("");
   svg.innerHTML=content;
   svg.querySelectorAll("[data-lighting-id]").forEach(node=>{
@@ -3509,6 +3773,12 @@ function renderLightingCanvas(){
     node.style.cursor=lightingCanEdit()?"grab":"default";
     node.addEventListener("pointerdown",e=>startLightingRotateHandle(e,node.dataset.lightingRotateHandle))
   })
+}
+function virtualLocationFootprintSvg(){
+  const scan=linkedVirtualLocation();if(!scan)return "";const settings=virtualLocationSettings(),transform=settings.transform,cached=app.lighting.locationModelCache.get(scan.id),bounds=cached?.bounds||scan.metadata?.bounds;
+  if(!bounds?.size)return `<g class="lighting-scan-footprint"><rect x="420" y="300" width="360" height="200" rx="12"/><text x="600" y="390" text-anchor="middle">${safeSvgText(scan.name)}</text><text class="lighting-scan-footprint-meta" x="600" y="414" text-anchor="middle">${safeSvgText("Open Camera View to load scan footprint")}</text></g>`;
+  const width=Math.max(12,Number(bounds.size.x||0)*Number(transform.scale||1)*100),height=Math.max(12,Number(bounds.size.z||0)*Number(transform.scale||1)*100),cx=600+Number(transform.x||0)*100,cy=400+Number(transform.z||0)*100;
+  return `<g class="lighting-scan-footprint" transform="rotate(${Number(transform.rotationY)||0} ${cx} ${cy})"><rect x="${cx-width/2}" y="${cy-height/2}" width="${width}" height="${height}" rx="12"/><path d="M ${cx-18} ${cy} H ${cx+18} M ${cx} ${cy-18} V ${cy+18}"/><text x="${cx}" y="${cy-26}" text-anchor="middle">${safeSvgText(scan.name)}</text></g>`
 }
 function lightingSvgPoint(e){
   const r=$("lightingCanvas").getBoundingClientRect();
@@ -3711,7 +3981,8 @@ async function renderLightingViewMode(){
   $("lightingPlanView").hidden=cameraMode;
   $("lightingCameraView").hidden=!cameraMode;
   if(cameraMode){updateLightingPlaybackStatus();await startLighting3D()}
-  else{pauseLightingPlayback();stopLighting3D(false)}
+  else{stopVirtualExplore();pauseLightingPlayback();stopLighting3D(false)}
+  renderVirtualLocationControls()
 }
 
 /* ----- 3D CAMERA VIEW ----- */
@@ -3809,6 +4080,51 @@ function makeMannequin(THREE,o){
   return g
 }
 
+async function virtualLocationModelUrl(scan){
+  if(scan.objectUrl)return {url:scan.objectUrl,objectUrl:null};
+  if(app.mode==="local"){
+    const blob=await getLocalVirtualLocationBlob(scan.id);if(!blob)throw new Error("The offline scan file is missing. Import it again.");const objectUrl=URL.createObjectURL(blob);return {url:objectUrl,objectUrl}
+  }
+  const {data,error}=await sb.storage.from("storyboards").createSignedUrl(scan.model_path,VIRTUAL_LOCATION_SIGNED_URL_SECONDS);if(error||!data?.signedUrl)throw error||new Error("Could not open the 3D scan.");return {url:data.signedUrl,objectUrl:null}
+}
+async function loadVirtualLocationModel(scan){
+  const cached=app.lighting.locationModelCache.get(scan.id);if(cached?.root)return cached;if(cached?.promise)return cached.promise;
+  const entry={root:null,bounds:null,objectUrl:null,promise:null};app.lighting.locationModelCache.set(scan.id,entry);
+  entry.promise=(async()=>{
+    $("lighting3dLoading").hidden=false;$("lighting3dLoading").textContent=uiText("Loading 3D Camera View…");
+    const source=await virtualLocationModelUrl(scan);entry.objectUrl=source.objectUrl;
+    let root;
+    const progress=event=>{if(event?.total){const percent=Math.round(event.loaded/event.total*100);$("lighting3dLoading").textContent=`Loading ${scan.name} · ${percent}%`}};
+    if(scan.format==="usdz"){
+      const {USDZLoader}=await import(USDZ_LOADER_CDN),loader=new USDZLoader();root=await loader.loadAsync(source.url,progress)
+    }else{
+      const [{GLTFLoader},{DRACOLoader}]=await Promise.all([import(GLTF_LOADER_CDN),import(DRACO_LOADER_CDN)]),loader=new GLTFLoader(),draco=new DRACOLoader();draco.setDecoderPath(DRACO_DECODER_PATH);loader.setDRACOLoader(draco);
+      const gltf=await loader.loadAsync(source.url,progress);root=gltf.scene||gltf.scenes?.[0];draco.dispose()
+    }
+    if(!root)throw new Error("The scan did not contain a readable 3D scene.");
+    root.traverse(node=>{if(node.isMesh){node.castShadow=true;node.receiveShadow=true;if(node.material){const materials=Array.isArray(node.material)?node.material:[node.material];materials.forEach(material=>{material.side=material.side??0;material.needsUpdate=true})}}});
+    const THREE=app.lighting.three?.THREE;if(!THREE)throw new Error("3D Camera View closed before the scan finished loading.");
+    const box=new THREE.Box3().setFromObject(root),size=box.getSize(new THREE.Vector3()),center=box.getCenter(new THREE.Vector3());if(box.isEmpty()||!Number.isFinite(size.x+size.y+size.z))throw new Error("The scan has invalid geometry.");
+    entry.root=root;entry.bounds={min:{x:box.min.x,y:box.min.y,z:box.min.z},max:{x:box.max.x,y:box.max.y,z:box.max.z},size:{x:size.x,y:size.y,z:size.z},center:{x:center.x,y:center.y,z:center.z}};scan.metadata={...(scan.metadata||{}),bounds:entry.bounds};entry.promise=null;
+    $("lighting3dLoading").hidden=true;renderVirtualLocationBadge();renderLightingCanvas();if(app.lighting.viewMode==="camera"&&linkedVirtualLocation()?.id===scan.id)rebuildLighting3D();return entry
+  })().catch(error=>{
+    entry.promise=null;app.lighting.locationModelCache.delete(scan.id);if(entry.objectUrl)URL.revokeObjectURL(entry.objectUrl);$("lighting3dLoading").hidden=true;setVirtualLocationNotice(`Could not load “${scan.name}”. ${error.message||"Check the model file."}`,"error");console.error("Virtual Location load failed",error);throw error
+  });
+  return entry.promise
+}
+function addVirtualLocationToScene(THREE,state){
+  const scan=linkedVirtualLocation();if(!scan)return false;const cached=app.lighting.locationModelCache.get(scan.id);
+  if(!cached?.root){loadVirtualLocationModel(scan).catch(()=>{});return false}
+  const settings=virtualLocationSettings(),transform=settings.transform,bounds=cached.bounds,wrapper=new THREE.Group(),content=cached.root.clone(true);
+  content.position.set(-bounds.center.x,-bounds.min.y,-bounds.center.z);wrapper.add(content);wrapper.scale.setScalar(transform.scale);wrapper.rotation.y=THREE.MathUtils.degToRad(-transform.rotationY);wrapper.position.set(transform.x,transform.y,transform.z);wrapper.name=`Virtual Location · ${scan.name}`;state.scene.add(wrapper);state.locationRoot=wrapper;
+  const diagonal=Math.hypot(bounds.size.x,bounds.size.y,bounds.size.z)*transform.scale;state.virtualLocationFar=Math.max(100,diagonal*4);return true
+}
+function syncVirtualLocationTransform3D(){
+  const state=app.lighting.three,root=state?.locationRoot,scan=linkedVirtualLocation(),cached=scan&&app.lighting.locationModelCache.get(scan.id);if(!root||!cached?.bounds){syncLighting3D();return}
+  const transform=virtualLocationSettings().transform,THREE=state.THREE;root.scale.setScalar(transform.scale);root.rotation.y=THREE.MathUtils.degToRad(-transform.rotationY);root.position.set(transform.x,transform.y,transform.z);
+  const size=cached.bounds.size,diagonal=Math.hypot(size.x,size.y,size.z)*transform.scale;state.virtualLocationFar=Math.max(100,diagonal*4);if(state.camera){state.camera.far=state.virtualLocationFar;state.camera.updateProjectionMatrix()}
+}
+
 function createThreeScene(THREE){
   const state=app.lighting.three,host=$("lighting3dViewport");
   if(!state.renderer){
@@ -3816,19 +4132,25 @@ function createThreeScene(THREE){
     state.renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
     state.renderer.shadowMap.enabled=true;
     state.renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+    state.renderer.outputColorSpace=THREE.SRGBColorSpace;
+    state.renderer.toneMapping=THREE.ACESFilmicToneMapping;
+    state.renderer.toneMappingExposure=1;
     host.innerHTML="";host.appendChild(state.renderer.domElement);
     bindThreeControls(state.renderer.domElement)
   }
   state.scene=new THREE.Scene();
   state.scene.background=new THREE.Color(0x090b0d);
   state.scene.add(new THREE.HemisphereLight(0x8da1b0,0x111111,.42));
-  const floor=new THREE.Mesh(
-    new THREE.PlaneGeometry(12,8),
-    new THREE.MeshStandardMaterial({color:0x20252a,roughness:.93,metalness:.02})
-  );
-  floor.rotation.x=-Math.PI/2;floor.receiveShadow=true;state.scene.add(floor);
-  const grid=new THREE.GridHelper(12,24,0x52606a,0x30383e);
-  grid.position.y=.002;state.scene.add(grid);
+  state.locationRoot=null;state.virtualLocationFar=100;
+  const hasVirtualLocation=addVirtualLocationToScene(THREE,state);
+  if(!hasVirtualLocation){
+    const floor=new THREE.Mesh(
+      new THREE.PlaneGeometry(12,8),
+      new THREE.MeshStandardMaterial({color:0x20252a,roughness:.93,metalness:.02})
+    );
+    floor.rotation.x=-Math.PI/2;floor.receiveShadow=true;state.scene.add(floor);
+    const grid=new THREE.GridHelper(12,24,0x52606a,0x30383e);grid.position.y=.002;state.scene.add(grid)
+  }
 
   const objects=app.lighting.current?.data?.objects||[];
   let shadowLights=0;
@@ -3867,14 +4189,75 @@ function createThreeScene(THREE){
   }
   $("lighting3dError").hidden=true;
   const rect=host.getBoundingClientRect(),aspect=Math.max(.2,rect.width/Math.max(1,rect.height));
-  state.camera=new THREE.PerspectiveCamera(cameraVerticalFov(camObj.lens),aspect,.03,100);
+  state.camera=new THREE.PerspectiveCamera(cameraVerticalFov(camObj.lens),aspect,.03,state.virtualLocationFar||100);
   updateThreeCameraFromObject();
   resizeThreeRenderer()
 }
 
+function explorerPoseFromCamera(camObj=activeLightingCameraObject()){
+  const p=planToWorld(camObj||{});return {x:p.x,y:Number(camObj?.height3d||1.65),z:p.z,rotation:Number(camObj?.rotation||0),tilt:Number(camObj?.tilt||0),roll:Number(camObj?.roll||0),lens:camObj?.lens||"50mm"}
+}
+function renderVirtualExploreUi(){
+  const scan=linkedVirtualLocation(),cameraMode=app.lighting.viewMode==="camera",explorer=app.lighting.explorer,controls=$("virtualExploreControls");if(!controls)return;
+  controls.hidden=!(scan&&cameraMode);$("lightingCameraView")?.classList.toggle("exploring",!!explorer.active);
+  $("toggleVirtualExploreBtn").textContent=uiText(explorer.active?"Exit Explore":"Explore Location");$("toggleVirtualExploreBtn").classList.toggle("active",explorer.active);
+  $("enablePhoneLookBtn").textContent=uiText(explorer.motionEnabled?"Stop Phone Look":"Phone Look");$("enablePhoneLookBtn").classList.toggle("active",explorer.motionEnabled);
+  $("enablePhoneLookBtn").disabled=!scan;$("resetVirtualExploreBtn").disabled=!explorer.active;$("placeCameraFromExplorerBtn").disabled=!explorer.active||!lightingCanEdit();
+  const mobile=window.matchMedia?.("(max-width: 760px)")?.matches;$("virtualWalkPad").hidden=!(explorer.active&&mobile);
+  if($("lightingCameraControlsHint"))$("lightingCameraControlsHint").textContent=explorer.active?uiText("Move the phone to look · use the arrows or W A S D to walk"):uiText("Drag = pan / tilt · W A S D = move · Q / E = down / up")
+}
+function startVirtualExplore(){
+  if(!linkedVirtualLocation())return setVirtualLocationNotice("Attach a 3D scan before exploring the location.","warning");const cam=activeLightingCameraObject();if(!cam)return setVirtualLocationNotice("Add a camera before exploring the location.","warning");
+  stopLightingPlayback(true);const pose=explorerPoseFromCamera(cam);app.lighting.explorer.active=true;app.lighting.explorer.pose={...pose};app.lighting.explorer.startPose={...pose};renderVirtualExploreUi();updateThreeCameraFromObject()
+}
+function stopVirtualExplore(){
+  disablePhoneLook(false);const explorer=app.lighting.explorer;explorer.active=false;explorer.pose=null;explorer.startPose=null;if(app.lighting.three?.keys)app.lighting.three.keys.clear();renderVirtualExploreUi();if(app.lighting.three?.camera)updateThreeCameraFromObject()
+}
+function toggleVirtualExplore(){app.lighting.explorer.active?stopVirtualExplore():startVirtualExplore()}
+function resetVirtualExplore(){
+  const explorer=app.lighting.explorer;if(!explorer.active||!explorer.startPose)return;disablePhoneLook(false);explorer.pose={...explorer.startPose};updateThreeCameraFromObject();renderVirtualExploreUi()
+}
+function orientationQuaternion(event,THREE){
+  const toRad=THREE.MathUtils.degToRad,alpha=event.alpha==null?0:toRad(event.alpha),beta=event.beta==null?0:toRad(event.beta),gamma=event.gamma==null?0:toRad(event.gamma),orient=toRad(Number(window.screen?.orientation?.angle??window.orientation??0));
+  const euler=new THREE.Euler(beta,alpha,-gamma,"YXZ"),quaternion=new THREE.Quaternion().setFromEuler(euler),screenFix=new THREE.Quaternion(-Math.sqrt(.5),0,0,Math.sqrt(.5)),screenRotation=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1),-orient);return quaternion.multiply(screenFix).multiply(screenRotation)
+}
+function onVirtualDeviceOrientation(event){
+  const state=app.lighting.three,explorer=app.lighting.explorer;if(!explorer.active||!explorer.motionEnabled||!state?.THREE||event.alpha==null)return;const raw=orientationQuaternion(event,state.THREE);
+  if(!explorer.motionBase){explorer.motionBase=raw.clone().invert();explorer.motionStart=state.camera?.quaternion?.clone()||new state.THREE.Quaternion()}
+  const delta=explorer.motionBase.clone().multiply(raw);explorer.motionQuaternion=explorer.motionStart.clone().multiply(delta);updateThreeCameraFromObject()
+}
+async function enablePhoneLook(){
+  const explorer=app.lighting.explorer;if(explorer.motionEnabled){disablePhoneLook();return}if(!explorer.active)startVirtualExplore();if(!app.lighting.explorer.active)return;
+  try{
+    if(typeof DeviceOrientationEvent==="undefined")throw new Error("Phone motion is not available in this browser.");
+    if(typeof DeviceOrientationEvent.requestPermission==="function"){const permission=await DeviceOrientationEvent.requestPermission();if(permission!=="granted")throw new Error("Motion permission was not granted.")}
+    explorer.motionEnabled=true;explorer.motionBase=null;explorer.motionStart=null;explorer.motionQuaternion=null;explorer.motionListener=onVirtualDeviceOrientation;window.addEventListener("deviceorientation",explorer.motionListener,true);renderVirtualExploreUi();setVirtualLocationNotice("Phone Look is active. Turn the phone to look around; use the arrows to move through the remote location.")
+  }catch(error){setVirtualLocationNotice(error.message||"Could not enable phone motion.","warning");disablePhoneLook(false)}
+}
+function disablePhoneLook(update=true){
+  const explorer=app.lighting.explorer,state=app.lighting.three;if(explorer.motionEnabled&&state?.camera&&explorer.pose){const dir=new state.THREE.Vector3(0,0,-1).applyQuaternion(state.camera.quaternion).normalize();explorer.pose.rotation=Math.atan2(dir.z,dir.x)*180/Math.PI;explorer.pose.tilt=Math.asin(Math.max(-1,Math.min(1,dir.y)))*180/Math.PI;explorer.pose.roll=0}
+  if(explorer.motionListener)window.removeEventListener("deviceorientation",explorer.motionListener,true);explorer.motionEnabled=false;explorer.motionBase=null;explorer.motionStart=null;explorer.motionQuaternion=null;explorer.motionListener=null;if(update){renderVirtualExploreUi();updateThreeCameraFromObject()}
+}
+function updateThreeCameraFromExplorer(){
+  const state=app.lighting.three,explorer=app.lighting.explorer,pose=explorer.pose;if(!state?.camera||!pose)return;const THREE=state.THREE,cameraPos=new THREE.Vector3(pose.x,pose.y,pose.z);state.camera.position.copy(cameraPos);state.camera.fov=cameraVerticalFov(pose.lens);state.camera.near=.03;state.camera.far=state.virtualLocationFar||100;
+  if(explorer.motionEnabled&&explorer.motionQuaternion)state.camera.quaternion.copy(explorer.motionQuaternion);
+  else{const yaw=THREE.MathUtils.degToRad(pose.rotation),pitch=THREE.MathUtils.degToRad(pose.tilt),dir=new THREE.Vector3(Math.cos(yaw)*Math.cos(pitch),Math.sin(pitch),Math.sin(yaw)*Math.cos(pitch)).normalize();state.camera.up.set(0,1,0);state.camera.lookAt(cameraPos.clone().add(dir));if(pose.roll)state.camera.rotateZ(THREE.MathUtils.degToRad(pose.roll))}
+  state.camera.updateProjectionMatrix();$("lightingCameraHudTitle").textContent="Virtual Location Explorer";$("lightingCameraHudMeta").textContent=`${linkedVirtualLocation()?.name||"Location"} · ${pose.y.toFixed(2)} m · ${explorer.motionEnabled?"Phone Look":"Free Look"}`
+}
+function placeShotCameraFromExplorer(){
+  const state=app.lighting.three,explorer=app.lighting.explorer,cam=activeLightingCameraObject();if(!state?.camera||!explorer.active||!explorer.pose||!cam||!lightingCanEdit())return;
+  const dir=new state.THREE.Vector3(0,0,-1).applyQuaternion(state.camera.quaternion).normalize();cam.x=Math.max(0,Math.min(1200,600+explorer.pose.x*100));cam.y=Math.max(0,Math.min(800,400+explorer.pose.z*100));cam.height3d=Math.max(.1,Math.min(6,explorer.pose.y));cam.rotation=Math.atan2(dir.z,dir.x)*180/Math.PI;cam.tilt=Math.asin(Math.max(-1,Math.min(1,dir.y)))*180/Math.PI;cam.roll=0;cam.angle="Custom";cam.cameraHeight="Custom";cam.autoFrame=false;
+  markLightingDirty();renderLightingCanvas();renderLightingInspector();renderLightingObjectList();setVirtualLocationNotice("Shot camera placed at the explored viewpoint.")
+}
+window.storyboardVirtualLocationPose=payload=>{
+  const explorer=app.lighting.explorer;if(!explorer.active||!explorer.startPose||!payload)return;const position=payload.position||payload;explorer.pose.x=explorer.startPose.x+(Number(position.x)||0);explorer.pose.y=explorer.startPose.y+(Number(position.y)||0);explorer.pose.z=explorer.startPose.z+(Number(position.z)||0);
+  if(payload.quaternion&&app.lighting.three?.THREE){const q=payload.quaternion,THREE=app.lighting.three.THREE;explorer.motionEnabled=true;explorer.motionQuaternion=new THREE.Quaternion(Number(q.x)||0,Number(q.y)||0,Number(q.z)||0,Number(q.w)||1)}updateThreeCameraFromObject()
+};
+
 function updateThreeCameraFromObject(){
   const state=app.lighting.three,camObj=activeLightingCameraObject();
   if(!state?.camera||!camObj)return;
+  if(app.lighting.explorer.active&&app.lighting.explorer.pose){updateThreeCameraFromExplorer();return}
   const THREE=state.THREE;
   const p=planToWorld(camObj);
   const cameraPos=new THREE.Vector3(p.x,Number(camObj.height3d||1.65),p.z);
@@ -3940,13 +4323,18 @@ function stopLighting3D(clear=false){
 function bindThreeControls(canvas){
   canvas.tabIndex=0;
   canvas.addEventListener("pointerdown",e=>{
-    if(!lightingCanEdit())return;
+    if(!app.lighting.explorer.active&&!lightingCanEdit())return;
+    if(app.lighting.explorer.active&&app.lighting.explorer.motionEnabled)disablePhoneLook();
     canvas.focus();app.lighting.three.drag={x:e.clientX,y:e.clientY};canvas.setPointerCapture?.(e.pointerId)
   });
   canvas.addEventListener("pointermove",e=>{
     const state=app.lighting.three,drag=state?.drag,camObj=activeLightingCameraObject();
-    if(!drag||!camObj||!lightingCanEdit())return;
+    if(!drag||!camObj)return;
     const dx=e.clientX-drag.x,dy=e.clientY-drag.y;drag.x=e.clientX;drag.y=e.clientY;
+    if(app.lighting.explorer.active&&app.lighting.explorer.pose){
+      const pose=app.lighting.explorer.pose;pose.rotation=Number(pose.rotation||0)+dx*.22;pose.tilt=Math.max(-89,Math.min(89,Number(pose.tilt||0)-dy*.18));pose.roll=0;updateThreeCameraFromObject();return
+    }
+    if(!lightingCanEdit())return;
     camObj.rotation=(Number(camObj.rotation||0)+dx*.22);
     camObj.tilt=Math.max(-89,Math.min(89,Number(camObj.tilt||0)-dy*.18));
     camObj.angle="Custom";
@@ -3961,13 +4349,18 @@ function bindThreeControls(canvas){
   canvas.addEventListener("blur",()=>app.lighting.three?.keys?.clear())
 }
 function moveThreeCameraByKeys(dt){
-  const state=app.lighting.three,camObj=activeLightingCameraObject();if(!state?.keys?.size||!camObj||!lightingCanEdit())return;
-  const speed=2.4,rot=Number(camObj.rotation||0)*Math.PI/180;
+  const state=app.lighting.three,camObj=activeLightingCameraObject();if(!state?.keys?.size||!camObj)return;
+  const explorer=app.lighting.explorer,exploring=explorer.active&&explorer.pose;if(!exploring&&!lightingCanEdit())return;
+  const speed=exploring?1.65:2.4,rot=Number(exploring?explorer.pose.rotation:camObj.rotation||0)*Math.PI/180;
   let fx=Math.cos(rot),fz=Math.sin(rot),rx=-Math.sin(rot),rz=Math.cos(rot),dx=0,dz=0,dy=0;
+  if(exploring&&explorer.motionEnabled&&state.camera){const dir=new state.THREE.Vector3();state.camera.getWorldDirection(dir);const horizontal=Math.hypot(dir.x,dir.z)||1;fx=dir.x/horizontal;fz=dir.z/horizontal;rx=-fz;rz=fx}
   if(state.keys.has("w")){dx+=fx;dz+=fz}if(state.keys.has("s")){dx-=fx;dz-=fz}
   if(state.keys.has("d")){dx+=rx;dz+=rz}if(state.keys.has("a")){dx-=rx;dz-=rz}
   if(state.keys.has("e"))dy+=1;if(state.keys.has("q"))dy-=1;
   const len=Math.hypot(dx,dz)||1;dx/=len;dz/=len;
+  if(exploring){
+    explorer.pose.x+=dx*speed*dt;explorer.pose.z+=dz*speed*dt;explorer.pose.y=Math.max(.1,Math.min(12,explorer.pose.y+dy*speed*dt));updateThreeCameraFromObject();return
+  }
   camObj.autoFrame=false;
   camObj.x=Math.max(0,Math.min(1200,Number(camObj.x||600)+dx*speed*dt*100));
   camObj.y=Math.max(0,Math.min(800,Number(camObj.y||400)+dz*speed*dt*100));
@@ -4006,6 +4399,9 @@ function subscribeLightingRealtime(){
   app.lighting.channel=sb.channel(`lighting-diagrams-${pid}`).on("postgres_changes",{event:"*",schema:"public",table:"lighting_diagrams",filter:`project_id=eq.${pid}`},async()=>{
     if(!$("lightingDiagramModal")?.open||app.lighting.dragging||app.lighting.dirty)return;
     const id=app.lighting.current?.id;await loadLightingDiagrams(id)
+  }).on("postgres_changes",{event:"*",schema:"public",table:"location_scans",filter:`project_id=eq.${pid}`},async()=>{
+    if(!$("lightingDiagramModal")?.open||app.lighting.dragging||app.lighting.dirty)return;
+    await loadVirtualLocations();renderLightingCanvas();if(app.lighting.viewMode==="camera")rebuildLighting3D()
   }).subscribe()
 }
 function unsubscribeLightingRealtime(){if(sb&&app.lighting.channel){sb.removeChannel(app.lighting.channel);app.lighting.channel=null}}
@@ -4111,12 +4507,13 @@ async function deleteProject(id){
   if(app.mode==="cloud"){
     app.suppressRealtime++;
     try{
-      const [{data:paths},{data:characters},{data:locations}]=await Promise.all([
+      const [{data:paths},{data:characters},{data:locations},{data:locationScans}]=await Promise.all([
         sb.from("shots").select("image_path,original_image_path").eq("project_id",id),
         sb.from("project_ai_characters").select("reference_path,source_path").eq("project_id",id),
-        sb.from("project_ai_locations").select("reference_path,source_path").eq("project_id",id)
+        sb.from("project_ai_locations").select("reference_path,source_path").eq("project_id",id),
+        sb.from("location_scans").select("model_path").eq("project_id",id)
       ]);
-      await removeMediaPaths([...(paths||[]).flatMap(x=>[x.image_path,x.original_image_path]),...(characters||[]).flatMap(x=>[x.reference_path,x.source_path]),...(locations||[]).flatMap(x=>[x.reference_path,x.source_path])]);
+      await removeMediaPaths([...(paths||[]).flatMap(x=>[x.image_path,x.original_image_path]),...(characters||[]).flatMap(x=>[x.reference_path,x.source_path]),...(locations||[]).flatMap(x=>[x.reference_path,x.source_path]),...(locationScans||[]).map(x=>x.model_path)]);
       const rpc=await sb.rpc("delete_own_project",{p_project_id:id});
       if(rpc.error){
         const {data:deleted,error}=await sb.from("projects").delete().eq("id",id).eq("owner_id",app.session.user.id).select("id");
@@ -4126,7 +4523,7 @@ async function deleteProject(id){
     app.suppressRealtime--
   }
   app.projects=app.projects.filter(x=>x.id!==id);if(app.current?.id===id)app.current=null;
-  if(app.mode==="local"){localStorage.setItem("storyboard-v3-projects",JSON.stringify(app.projects))}else await persistProjectPositions();
+  if(app.mode==="local"){await deleteLocalProjectVirtualLocations(id);localStorage.setItem("storyboard-v3-projects",JSON.stringify(app.projects))}else await persistProjectPositions();
   renderProjects()
 }
 async function toggleFavorite(id){
@@ -4241,12 +4638,22 @@ function bind(){
   $("openLightingDiagramBtn").onclick=()=>openLightingWorkspace();
   $("closeLightingDiagramBtn").onclick=closeLightingWorkspace;
   $("lightingDiagramModal").addEventListener("cancel",e=>{e.preventDefault();closeLightingWorkspace()});
-  $("lightingDiagramModal").addEventListener("close",()=>{stopLighting3D();unsubscribeLightingRealtime()});
+  $("lightingDiagramModal").addEventListener("close",()=>{stopVirtualExplore();stopLighting3D();unsubscribeLightingRealtime()});
 
   $("lightingPlanModeBtn").onclick=()=>setLightingViewMode("plan");
   $("lightingCameraModeBtn").onclick=()=>setLightingViewMode("camera");
   $("lightingGodViewBtn").onclick=showLightingGodToast;
   $("lightingDrawerHeader").onclick=()=>toggleLightingDrawer();
+  $("openVirtualLocationBtn").onclick=focusVirtualLocationSection;
+
+  $("virtualLocationSelect").onchange=e=>selectVirtualLocation(e.target.value);
+  $("virtualLocationFileInput").onchange=handleVirtualLocationFileInput;
+  $("importVirtualLocationBtn").onclick=()=>chooseVirtualLocationFile("import");
+  $("scanVirtualLocationBtn").onclick=startIPhoneLocationScan;
+  $("detachVirtualLocationBtn").onclick=detachVirtualLocation;
+  $("deleteVirtualLocationBtn").onclick=deleteVirtualLocation;
+  ["virtualLocationScale","virtualLocationRotation","virtualLocationOffsetX","virtualLocationOffsetY","virtualLocationOffsetZ"].forEach(id=>["input","change"].forEach(eventName=>$(id).addEventListener(eventName,updateVirtualLocationTransform)));
+  $("resetVirtualLocationTransformBtn").onclick=resetVirtualLocationTransform;
 
   $("newLightingDiagramBtn").onclick=createNewLightingDiagram;
   $("saveLightingDiagramBtn").onclick=saveLightingDiagram;
@@ -4287,6 +4694,14 @@ function bind(){
   $("lightingPlaybackPlayBtn").onclick=playLightingPlayback;
   $("lightingPlaybackPauseBtn").onclick=pauseLightingPlayback;
   $("lightingPlaybackStopBtn").onclick=()=>stopLightingPlayback(true);
+  $("toggleVirtualExploreBtn").onclick=toggleVirtualExplore;
+  $("enablePhoneLookBtn").onclick=enablePhoneLook;
+  $("resetVirtualExploreBtn").onclick=resetVirtualExplore;
+  $("placeCameraFromExplorerBtn").onclick=placeShotCameraFromExplorer;
+  document.querySelectorAll("[data-virtual-move]").forEach(button=>{
+    const key=button.dataset.virtualMove,start=event=>{event.preventDefault();app.lighting.three?.keys?.add(key);button.classList.add("pressed");button.setPointerCapture?.(event.pointerId)},stop=event=>{event.preventDefault();app.lighting.three?.keys?.delete(key);button.classList.remove("pressed")};
+    button.addEventListener("pointerdown",start);button.addEventListener("pointerup",stop);button.addEventListener("pointercancel",stop);button.addEventListener("lostpointercapture",stop)
+  });
   $("exportLightingPngBtn").onclick=exportLightingPng;
   $("exportLightingSvgBtn").onclick=exportLightingSvg;
   $("exportLightingJsonBtn").onclick=exportLightingJson;
@@ -4314,13 +4729,13 @@ function bind(){
   window.addEventListener("storage",e=>{
     if(app.current&&e.key===chatReadKey(app.current.id))refreshChatNotificationBadge()
   });
-  window.addEventListener("resize",()=>{if(!isMobileEditor())closeEditorActions();syncMobileEditorUi()});
+  window.addEventListener("resize",()=>{if(!isMobileEditor())closeEditorActions();syncMobileEditorUi();renderVirtualExploreUi()});
   window.addEventListener("storyboard:languagechange",()=>{
     if(app.current)renderEditor();
     if($("aiBibleModal")?.open)renderAiVisualBible();
     if(!$("projectsView").hidden)renderProjects();
     if(!$("adminView").hidden&&app.admin.isAdmin){renderAdminUserResults(app.admin.users);loadAdminTeam();loadAdminActivity()}
-    if(app.profile)renderAccountProfile();if($("accountModal")?.open)renderCreatorScore();renderAiUsage();window.storyboardI18n?.translateTree(document.body)
+    if(app.profile)renderAccountProfile();if($("accountModal")?.open)renderCreatorScore();renderAiUsage();renderVirtualLocationControls();window.storyboardI18n?.translateTree(document.body)
   });
   document.addEventListener("click",e=>{
     if(!$("editorView")?.classList.contains("editor-actions-open"))return;

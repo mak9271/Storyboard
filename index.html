@@ -5,17 +5,17 @@
   <meta id="viewportMeta" name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="theme-color" content="#050607" />
   <meta name="description" content="Storyboard Shot Builder — collaborative pre-production planning." />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://xpqhsnyyjpfxpxvvrvsz.supabase.co; connect-src 'self' https://xpqhsnyyjpfxpxvvrvsz.supabase.co wss://xpqhsnyyjpfxpxvvrvsz.supabase.co https://cdn.jsdelivr.net; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none';" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://xpqhsnyyjpfxpxvvrvsz.supabase.co; connect-src 'self' blob: https://xpqhsnyyjpfxpxvvrvsz.supabase.co https://xpqhsnyyjpfxpxvvrvsz.storage.supabase.co wss://xpqhsnyyjpfxpxvvrvsz.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none';" />
   <title>Storyboard Shot Builder</title>
 
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="styles.css?v=494" />
+  <link rel="stylesheet" href="styles.css?v=500" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0"></script>
-  <script src="config.js?v=494"></script>
-  <meta name="storyboard-build" content="v4.9.4-production-dashboard-fixed" />
+  <script src="config.js?v=500"></script>
+  <meta name="storyboard-build" content="v5.0.0-virtual-location" />
 </head>
 <body>
 
@@ -833,6 +833,7 @@
         </div>
 
         <div class="lighting-add-actions">
+          <button id="openVirtualLocationBtn" type="button" class="lighting-add-btn virtual-location-toolbar-btn"><span>⌂</span> Virtual Location</button>
           <button id="addLightingCameraBtn" type="button" class="lighting-add-btn"><span>⌁</span> Add Camera</button>
           <button id="addLightingSubjectBtn" type="button" class="lighting-add-btn"><span>●</span> Add Subject</button>
           <button id="addLightingFixtureBtn" type="button" class="lighting-add-btn"><span>✦</span> Add Light</button>
@@ -853,9 +854,25 @@
           <div id="lighting3dViewport" class="lighting-3d-viewport"></div>
           <div id="lighting3dLoading" class="lighting-3d-loading" hidden>Loading 3D Camera View…</div>
           <div id="lighting3dError" class="lighting-3d-error" hidden></div>
+          <div id="virtualLocationBadge" class="virtual-location-badge" hidden>
+            <span class="virtual-location-badge-dot"></span>
+            <div><strong id="virtualLocationBadgeName">Virtual Location</strong><small id="virtualLocationBadgeMeta">Ready</small></div>
+          </div>
           <div class="lighting-camera-hud">
             <strong id="lightingCameraHudTitle">Camera View</strong>
             <span id="lightingCameraHudMeta">50mm · Eye Level</span>
+          </div>
+          <div id="virtualExploreControls" class="virtual-explore-controls" hidden>
+            <button id="toggleVirtualExploreBtn" type="button">Explore Location</button>
+            <button id="enablePhoneLookBtn" type="button">Phone Look</button>
+            <button id="resetVirtualExploreBtn" type="button">Reset View</button>
+            <button id="placeCameraFromExplorerBtn" type="button" class="primary">Place Shot Camera Here</button>
+          </div>
+          <div id="virtualWalkPad" class="virtual-walk-pad" hidden aria-label="Virtual location movement controls">
+            <button type="button" data-virtual-move="w" aria-label="Move forward">▲</button>
+            <button type="button" data-virtual-move="a" aria-label="Move left">◀</button>
+            <button type="button" data-virtual-move="s" aria-label="Move backward">▼</button>
+            <button type="button" data-virtual-move="d" aria-label="Move right">▶</button>
           </div>
           <div class="lighting-camera-playback">
             <button id="lightingPlaybackPlayBtn" type="button" class="lighting-playback-btn">Play</button>
@@ -863,7 +880,7 @@
             <button id="lightingPlaybackStopBtn" type="button" class="lighting-playback-btn">Stop</button>
             <span id="lightingPlaybackStatus" class="lighting-playback-status">Movement preview ready</span>
           </div>
-          <div class="lighting-camera-controls-hint">
+          <div id="lightingCameraControlsHint" class="lighting-camera-controls-hint">
             Drag = pan / tilt · W A S D = move · Q / E = down / up
           </div>
         </div>
@@ -887,6 +904,53 @@
               <button id="deleteLightingDiagramBtn" type="button">Delete</button>
             </div>
           </div>
+
+          <section id="virtualLocationSection" class="lighting-drawer-section virtual-location-section">
+            <div class="lighting-section-title">VIRTUAL LOCATION</div>
+            <p class="virtual-location-copy">Attach a GLB or USDZ scan, then revisit the filming location inside Camera View.</p>
+            <select id="virtualLocationSelect" title="Virtual location scan">
+              <option value="">No virtual location</option>
+            </select>
+            <input id="virtualLocationFileInput" type="file" accept=".glb,.usdz,model/gltf-binary,model/vnd.usdz+zip" hidden />
+            <div class="virtual-location-actions">
+              <button id="importVirtualLocationBtn" type="button">Import Scan</button>
+              <button id="scanVirtualLocationBtn" type="button">Scan with iPhone</button>
+            </div>
+            <div class="virtual-location-actions secondary">
+              <button id="detachVirtualLocationBtn" type="button">Detach</button>
+              <button id="deleteVirtualLocationBtn" type="button">Delete Scan</button>
+            </div>
+            <div id="virtualLocationProgress" class="virtual-location-progress" hidden>
+              <div><span id="virtualLocationProgressLabel">Uploading scan…</span><strong id="virtualLocationProgressValue">0%</strong></div>
+              <progress id="virtualLocationProgressBar" max="100" value="0"></progress>
+            </div>
+            <div id="virtualLocationNotice" class="virtual-location-notice" hidden></div>
+            <div id="virtualLocationTransform" class="virtual-location-transform" hidden>
+              <div class="lighting-property-pair">
+                <div>
+                  <label>Scale <span id="virtualLocationScaleValue">100%</span></label>
+                  <input id="virtualLocationScale" type="range" min="10" max="500" step="1" value="100" />
+                </div>
+                <div>
+                  <label>Rotation <span id="virtualLocationRotationValue">0°</span></label>
+                  <input id="virtualLocationRotation" type="range" min="-180" max="180" step="1" value="0" />
+                </div>
+              </div>
+              <div class="lighting-property-pair">
+                <div>
+                  <label>Left / Right <span id="virtualLocationOffsetXValue">0.0 m</span></label>
+                  <input id="virtualLocationOffsetX" type="range" min="-20" max="20" step="0.1" value="0" />
+                </div>
+                <div>
+                  <label>Forward / Back <span id="virtualLocationOffsetZValue">0.0 m</span></label>
+                  <input id="virtualLocationOffsetZ" type="range" min="-20" max="20" step="0.1" value="0" />
+                </div>
+              </div>
+              <label>Floor Offset <span id="virtualLocationOffsetYValue">0.0 m</span></label>
+              <input id="virtualLocationOffsetY" type="range" min="-5" max="5" step="0.05" value="0" />
+              <button id="resetVirtualLocationTransformBtn" type="button" class="lighting-wide-action">Center &amp; Reset Scan</button>
+            </div>
+          </section>
 
           <section class="lighting-drawer-section">
             <div class="lighting-section-title">OBJECTS</div>
@@ -1147,7 +1211,7 @@
     </div>
   </dialog>
 
-  <script src="i18n.js?v=494"></script>
-  <script src="app.js?v=494"></script>
+  <script src="i18n.js?v=500"></script>
+  <script src="app.js?v=500"></script>
 </body>
 </html>

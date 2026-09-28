@@ -1,6 +1,17 @@
-# Storyboard Shot Builder v4.9.4
+# Storyboard Shot Builder v5.0.0 — Virtual Location
 
-This build continues only from the user-approved `storyboard-v3.9.1-github(1).zip` lineage. It includes every accepted change through v4.9.3 and keeps the complete Production Dashboard inside the original fixed-width Collaboration window without horizontal scrolling or a database change.
+This build continues from the approved Storyboard lineage and adds reusable 3D filming-location scans to Lighting Diagram without removing the v4.9 production, Bible, collaboration or mobile features.
+
+## v5.0.0 changes
+
+- Adds **Virtual Location** to Lighting Diagram. A project can keep reusable self-contained `.glb` and `.usdz` scans and attach any one of them to a diagram.
+- Loads the selected scan inside **Camera View**, while preserving cameras, subjects and practical lights from the lighting plan.
+- Adds **Explore Location**: free-look by drag, keyboard movement on desktop, a touch movement pad on mobile, and iPhone Device Orientation through **Phone Look**.
+- Keeps exploration non-destructive. The shot camera changes only after **Place Shot Camera Here** is selected.
+- Adds scale, rotation, floor and horizontal alignment controls plus a scan footprint in Plan View.
+- Stores cloud scans privately in the existing `storyboards` bucket using resumable 6 MB TUS chunks. Local projects store models in IndexedDB instead of localStorage.
+- Adds a native bridge contract for an iOS RoomPlan wrapper: `storyboardLocationScanner`, `storyboardVirtualLocationScanCompleted(...)`, and `storyboardVirtualLocationPose(...)`.
+- In a normal browser, **Scan with iPhone** accepts the GLB/USDZ exported by a LiDAR scanning app. Direct RoomPlan capture and physical 6DoF translation require the native iOS wrapper; browser mode still provides phone look plus virtual walking.
 
 ## v4.9.4 changes
 
@@ -44,20 +55,20 @@ This build continues only from the user-approved `storyboard-v3.9.1-github(1).zi
 
 ## Existing installation: deployment
 
-**No new SQL query is required for v4.9.4. Do not create, save or run a v4.9.4 SQL query.** This is a responsive UI update in `styles.css` and the versioned static files.
+v5.0.0 requires one additive SQL migration. It creates `location_scans`, links Lighting diagrams to scans, and adds private Storage policies. Existing shots, diagrams and media are not rewritten.
 
 1. If `Storyboard v4.8 - Lighting Access Repair` has not already succeeded, run the packaged v4.8 query once using the saved-query instructions from the prior release. Otherwise leave SQL Editor unchanged.
-2. Deploy the repository-root files. Do not upload `node_modules`.
-3. Use this Cloudflare build/deploy command:
+2. Run `supabase-v5.0-virtual-locations.sql` once in Supabase SQL Editor.
+3. Deploy the repository-root files. Do not upload `node_modules`.
+4. Use this Cloudflare build/deploy command:
 
    ```bash
    npx wrangler deploy
    ```
 
-4. No Supabase Edge Function redeploy is required.
-5. Hard-refresh the app. Page source should show `styles.css?v=494`, `config.js?v=494`, `i18n.js?v=494`, `app.js?v=494` and build `v4.9.4-production-dashboard-fixed`.
-6. Open Bible → Script and re-run **Analyze with AI** for existing scripts; older saved analyses remain readable but do not contain the new production fields.
-7. Open Collaboration → Production Dashboard and verify that metrics, department cards and every Scene Breakdown card remain inside the dialog with vertical scrolling only.
+5. No Supabase Edge Function redeploy is required.
+6. Hard-refresh the app. Page source should show `styles.css?v=500`, `config.js?v=500`, `i18n.js?v=500`, `app.js?v=500` and build `v5.0.0-virtual-location`.
+7. Open Lighting Diagram → Virtual Location, import one GLB/USDZ file, save the diagram, then open Camera View and test Explore Location.
 
 ## Fresh Supabase installation
 
@@ -74,6 +85,7 @@ Run and save the packaged queries in this order:
 9. `supabase-v4.6-project-folders-rich-script.sql`
 10. `supabase-v4.7-lighting-image-restore.sql`
 11. `supabase-v4.8-lighting-access-repair.sql`
+12. `supabase-v5.0-virtual-locations.sql`
 
 Only for the first superadmin, replace the placeholder with the real Storyboard username and run:
 
@@ -82,6 +94,16 @@ select public.storyboard_grant_first_superadmin('YOUR_APP_USERNAME');
 ```
 
 For a fresh installation, deploy `supabase/functions/username-login/index.ts` from **Supabase → Edge Functions → username-login**, with **Verify JWT OFF**, before deploying the app.
+
+## Virtual Location workflow
+
+1. At the filming location, capture the space with an iPhone LiDAR scanner and export one self-contained `.glb` or `.usdz` file (maximum 250 MB).
+2. Open the project, choose **Lighting Diagram → Virtual Location**, and select **Import Scan** or **Scan with iPhone**.
+3. Attach the scan to the current diagram, align its scale, rotation, floor and horizontal position, then save the diagram.
+4. Open **Camera View → Explore Location**. Drag to look around, use W/A/S/D on desktop or the touch arrows on mobile, and enable **Phone Look** to aim the virtual view by rotating the iPhone.
+5. Exploration does not move the shot camera. Select **Place Shot Camera Here** only when the explored viewpoint should become the diagram's active camera.
+
+The browser displays the stored scan rather than the user's current camera feed. Direct RoomPlan capture and physical 6DoF tracking are exposed through the documented native iOS bridge; Safari uses sensor-based look plus virtual movement and imports the file exported by the scanning app.
 
 ## Script workflow
 
@@ -145,6 +167,8 @@ Automated checks cover HTML identity, Admin access, repaired Lighting RLS/persis
 ## Current limits
 
 - Bible and AI features require a signed-in cloud project and the relevant project permission.
+- Browser-based Virtual Location supports phone rotation plus virtual walking. Direct RoomPlan capture and translation from the iPhone's physical movement require the native iOS wrapper.
+- Virtual Location walkthrough currently has no collision mesh, so the user can move through scanned walls when navigating manually.
 - Script analysis is evidence-based but still requires user review before applying.
 - One location is required for shot generation; up to three recurring character references are supported.
 - Reference guidance improves continuity but cannot guarantee pixel-identical characters or sets in every pose and viewpoint.
