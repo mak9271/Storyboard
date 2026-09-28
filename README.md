@@ -1,6 +1,21 @@
-# FilmBoard v5.2.0 — Streamlined Shot Workflow
+# FilmBoard v5.3.0 — Camera Paths & Physical Viewfinders
 
-This build renames the app to FilmBoard and simplifies the shot editor while retaining the complete Lighting Companion and Spatial Bible workflow from v5.1.
+This build adds a keyframed camera-path workflow, manufacturer-based cinema-camera optics and a dual top/elevation Lighting Diagram while retaining the FilmBoard shot workflow and Spatial Bible features.
+
+## v5.3.0 changes
+
+- Desktop **Explore** enables W/A/S/D movement, Q/E yaw and R/F height. Keyboard motion is inactive until Explore is selected.
+- Adds a per-diagram camera timeline tied to shot duration. Set the playhead, explore or pose the camera, add points, preview interpolation and export the Camera View path as WebM or MP4 when supported by the browser.
+- Draws numbered camera-path points in both plan and elevation views.
+- Adds a permanent side/elevation view for camera, character and light heights beside the top plan.
+- Makes the top plan zoomable in the main workspace and floating Camera View companion. The desktop companion remains draggable and is now resizable; the reset-window button is removed.
+- Light beams and camera field-of-view overlays no longer intercept object dragging.
+- Adds a Lighting Diagram shortcut to every Storyboard Sheet shot that has a saved diagram.
+- Replaces diagram New/Delete controls with a confirmed red **Restart Diagram** action; the drawer starts with the diagram name, then collapsible Camera, Light and Characters folders.
+- Removes the Camera Height preset selector while preserving the physical height and tilt controls.
+- Adds ARRI ALEXA XT, ALEXA Classic, ALEXA LF and ALEXA Mini; RED EPIC DRAGON and KOMODO 6K; Sony BURANO, PXW-FX9, FX6 and FX3; and Canon EOS C500/C500 Mark II profiles.
+- Camera View derives field of view from the selected model's active sensor area, the project aspect ratio and focal length. Brand-specific viewfinder overlays show model, recording format, resolution, lens and timecode while dimming/blurring the area outside the project gate.
+- No new SQL migration is required for v5.3.0. Timeline and camera-profile state live in the existing `lighting_diagrams.data` JSON.
 
 ## v5.2.0 changes
 
@@ -80,7 +95,7 @@ This build renames the app to FilmBoard and simplifies the shot editor while ret
 
 ## Existing installation: deployment
 
-v5.2.0 does not add database fields. If the v5.0 and v5.1 migrations already succeeded, do not run another SQL query. Existing hidden Subject fields remain in saved shot data for backward compatibility and are not deleted.
+v5.3.0 does not add database fields. If the v5.0 and v5.1 migrations already succeeded, do not run another SQL query. Existing hidden Subject fields remain in saved shot data for backward compatibility and are not deleted.
 
 1. If `Storyboard v4.8 - Lighting Access Repair` has not already succeeded, run the packaged v4.8 query once using the saved-query instructions from the prior release. Otherwise leave SQL Editor unchanged.
 2. Run `supabase-v5.0-virtual-locations.sql` once if it has not already been run.
@@ -93,8 +108,8 @@ v5.2.0 does not add database fields. If the v5.0 and v5.1 migrations already suc
    ```
 
 6. No Supabase Edge Function redeploy is required.
-7. Hard-refresh the app. Page source should show `styles.css?v=520`, `config.js?v=520`, `i18n.js?v=520`, `app.js?v=520` and build `v5.2.0-filmboard-shot-workflow`.
-8. Open Lighting Diagram → Virtual Location, import one GLB/USDZ file, save the diagram, then open Camera View and test the live diagram companion and Explore Location.
+7. Hard-refresh the app. Page source should show `styles.css?v=530`, `config.js?v=530`, `i18n.js?v=530`, `app.js?v=530` and build `v5.3.0-lighting-camera-paths`.
+8. Open Lighting Diagram → Camera View. Select Explore and verify W/A/S/D, Q/E and R/F; then add two camera points, play the path and test WebM export.
 
 ## Fresh Supabase installation
 
@@ -127,9 +142,19 @@ For a fresh installation, deploy `supabase/functions/username-login/index.ts` fr
 1. At the filming location, capture the space with an iPhone LiDAR scanner and export one self-contained `.glb` or `.usdz` file (maximum 250 MB).
 2. Open the project, choose **Lighting Diagram → Virtual Location**, and select **Import Scan** or **Scan with iPhone**.
 3. Attach the scan to the current diagram, align its scale, rotation, floor and horizontal position, then save the diagram.
-4. Open **Camera View → Explore Location**. Drag to look around, use W/A/S/D on desktop or the touch arrows on mobile, and enable **Phone Look** to aim the virtual view by rotating the iPhone.
+4. Open **Camera View → Explore**. On desktop use W/A/S/D to move, Q/E to rotate and R/F to change height; on mobile use the touch arrows and **Phone Look**.
 5. Exploration does not move the shot camera. Select **Place Shot Camera Here** only when the explored viewpoint should become the diagram's active camera.
 6. In **Bible Connection**, choose the matching Bible location, select **Link Scan**, then frame the useful view and select **Capture Camera View for AI**.
+
+## Camera timeline workflow
+
+1. Set Duration to the shot length.
+2. Move the playhead to the first time, select **Explore**, pose the camera and choose **Keyframe**.
+3. Move the playhead to another time, change position, rotation, height or tilt, then add another keyframe. For example, save an overhead point at 0 seconds and an eye-level pull-back point at 7 seconds.
+4. Select **Play** to preview the interpolated path. Numbered path points appear in both top and side views.
+5. Select **Export Video** in Camera View to download a WebM or MP4 preview of the complete path, depending on browser support.
+
+See [CAMERA-SPECS.md](CAMERA-SPECS.md) for the sensor areas and official manufacturer references used by the camera profiles.
 
 ## 3D face workflow
 

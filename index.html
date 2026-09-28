@@ -12,10 +12,10 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="styles.css?v=520" />
+  <link rel="stylesheet" href="styles.css?v=530" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0"></script>
-  <script src="config.js?v=520"></script>
-  <meta name="storyboard-build" content="v5.2.0-filmboard-shot-workflow" />
+  <script src="config.js?v=530"></script>
+  <meta name="storyboard-build" content="v5.3.0-lighting-camera-paths" />
 </head>
 <body>
 
@@ -812,7 +812,7 @@
 
 
 
-  <!-- LIGHTING STUDIO v5.1 -->
+  <!-- LIGHTING STUDIO v5.3 -->
   <dialog id="lightingDiagramModal" class="lighting-studio-modal">
     <div class="lighting-studio-shell">
 
@@ -842,10 +842,24 @@
         <div id="lightingPlanView" class="lighting-plan-view">
           <div id="lightingPlanPipHeader" class="lighting-plan-pip-header" hidden>
             <span><strong>LIVE DIAGRAM</strong><small>Drag to move · edit while viewing camera</small></span>
-            <button id="resetLightingPlanPipBtn" type="button" title="Reset diagram window">↺</button>
           </div>
           <div class="lighting-plan-canvas-wrap">
-            <svg id="lightingCanvas" viewBox="0 0 1200 800" role="img" aria-label="Lighting diagram plan"></svg>
+            <div class="lighting-plan-tools" aria-label="Diagram zoom controls">
+              <button id="lightingZoomOutBtn" type="button" title="Zoom out">−</button>
+              <button id="lightingZoomValue" type="button" title="Reset zoom">100%</button>
+              <button id="lightingZoomInBtn" type="button" title="Zoom in">＋</button>
+              <button id="lightingZoomFitBtn" type="button" title="Fit diagram">Fit</button>
+            </div>
+            <div class="lighting-plan-views">
+              <section class="lighting-plan-pane lighting-plan-top-pane">
+                <div class="lighting-view-label">TOP VIEW</div>
+                <svg id="lightingCanvas" viewBox="0 0 1200 800" role="img" aria-label="Lighting diagram top view"></svg>
+              </section>
+              <section class="lighting-plan-pane lighting-plan-elevation-pane">
+                <div class="lighting-view-label">SIDE / ELEVATION</div>
+                <svg id="lightingElevationCanvas" viewBox="0 0 1200 500" role="img" aria-label="Lighting diagram side elevation"></svg>
+              </section>
+            </div>
           </div>
         </div>
 
@@ -855,6 +869,17 @@
 
         <div id="lightingCameraView" class="lighting-camera-view" hidden>
           <div id="lighting3dViewport" class="lighting-3d-viewport"></div>
+          <div id="lightingViewfinder" class="lighting-viewfinder vf-arri" aria-hidden="true">
+            <div class="viewfinder-mask viewfinder-mask-top"></div>
+            <div class="viewfinder-mask viewfinder-mask-right"></div>
+            <div class="viewfinder-mask viewfinder-mask-bottom"></div>
+            <div class="viewfinder-mask viewfinder-mask-left"></div>
+            <div id="lightingViewfinderGate" class="viewfinder-gate">
+              <div class="viewfinder-topline"><strong id="lightingViewfinderModel">ARRI ALEXA Mini</strong><span class="viewfinder-rec">● REC</span><span id="lightingViewfinderTimecode">00:00:00:00</span></div>
+              <div class="viewfinder-center-mark"><i></i><b></b></div>
+              <div class="viewfinder-bottomline"><span id="lightingViewfinderLens">50 mm</span><span id="lightingViewfinderFormat">S35 · 16:9</span><span id="lightingViewfinderResolution">3424 × 2202</span></div>
+            </div>
+          </div>
           <div id="lighting3dLoading" class="lighting-3d-loading" hidden>Loading 3D Camera View…</div>
           <div id="lighting3dError" class="lighting-3d-error" hidden></div>
           <div id="virtualLocationBadge" class="virtual-location-badge" hidden>
@@ -877,16 +902,32 @@
             <button type="button" data-virtual-move="s" aria-label="Move backward">▼</button>
             <button type="button" data-virtual-move="d" aria-label="Move right">▶</button>
           </div>
-          <div class="lighting-camera-playback">
-            <button id="lightingPlaybackPlayBtn" type="button" class="lighting-playback-btn">Play</button>
-            <button id="lightingPlaybackPauseBtn" type="button" class="lighting-playback-btn">Pause</button>
-            <button id="lightingPlaybackStopBtn" type="button" class="lighting-playback-btn">Stop</button>
-            <span id="lightingPlaybackStatus" class="lighting-playback-status">Movement preview ready</span>
-          </div>
           <div id="lightingCameraControlsHint" class="lighting-camera-controls-hint">
-            Drag = pan / tilt · W A S D = move · Q / E = down / up
+            Press Explore · W A S D move · Q / E rotate · R / F height
           </div>
         </div>
+
+        <section id="lightingCameraTimeline" class="lighting-camera-timeline" aria-label="Camera movement timeline">
+          <header>
+            <div><strong>CAMERA TIMELINE</strong><small>Set the playhead, pose the camera, then add a keyframe.</small></div>
+            <label>Duration <input id="lightingTimelineDuration" type="number" min="0.25" max="120" step="0.25" value="4" /> s</label>
+          </header>
+          <div class="lighting-timeline-track-wrap">
+            <input id="lightingTimelineScrubber" type="range" min="0" max="4" step="0.01" value="0" aria-label="Timeline playhead" />
+            <div id="lightingTimelineMarkers" class="lighting-timeline-markers"></div>
+          </div>
+          <div class="lighting-timeline-actions">
+            <button id="lightingAddKeyframeBtn" type="button">＋ Keyframe</button>
+            <button id="lightingDeleteKeyframeBtn" type="button">Delete Point</button>
+            <label class="lighting-timeline-time">Time <input id="lightingTimelineTime" type="number" min="0" max="4" step="0.01" value="0" /> s</label>
+            <span class="lighting-timeline-spacer"></span>
+            <button id="lightingPlaybackPlayBtn" type="button" class="lighting-playback-btn primary">▶ Play</button>
+            <button id="lightingPlaybackPauseBtn" type="button" class="lighting-playback-btn">Pause</button>
+            <button id="lightingPlaybackStopBtn" type="button" class="lighting-playback-btn">Stop</button>
+            <button id="exportLightingVideoBtn" type="button" class="lighting-playback-btn export">Export Video</button>
+            <span id="lightingPlaybackStatus" class="lighting-playback-status">Add two camera points to preview movement.</span>
+          </div>
+        </section>
       </main>
 
       <div id="lightingGodToast" class="lighting-god-toast" hidden>There is no God...</div>
@@ -899,13 +940,8 @@
 
         <div id="lightingDrawerBody" class="lighting-drawer-body">
           <div class="lighting-diagram-minihead">
-            <select id="lightingDiagramSelect" title="Lighting diagram"></select>
             <input id="lightingDiagramName" placeholder="Diagram name" />
-            <select id="lightingLinkedShot" title="Linked shot"></select>
-            <div class="lighting-mini-actions">
-              <button id="newLightingDiagramBtn" type="button">＋ New</button>
-              <button id="deleteLightingDiagramBtn" type="button">Delete</button>
-            </div>
+            <button id="restartLightingDiagramBtn" type="button" class="lighting-restart-diagram">Restart Diagram</button>
           </div>
 
           <section id="virtualLocationSection" class="lighting-drawer-section virtual-location-section">
@@ -966,24 +1002,29 @@
             </div>
           </section>
 
-          <section id="lightingCamerasSection" class="lighting-drawer-section lighting-camera-rack">
-            <div class="lighting-section-heading">
+          <details id="lightingCamerasSection" class="lighting-drawer-section lighting-folder lighting-camera-rack" open>
+            <summary class="lighting-section-heading">
               <div><div class="lighting-section-title">CAMERAS</div><small>Camera controls are separate from scene objects.</small></div>
               <button id="drawerAddLightingCameraBtn" type="button" class="lighting-section-add">＋ Camera</button>
-            </div>
+            </summary>
             <div id="lightingCameraList" class="lighting-camera-list"></div>
-          </section>
+          </details>
 
-          <section id="lightingObjectsSection" class="lighting-drawer-section">
-            <div class="lighting-section-heading">
-              <div><div class="lighting-section-title">LIGHTS &amp; SUBJECTS</div><small>Choose an item to edit its physical properties.</small></div>
-              <div class="lighting-section-quick-actions">
-                <button id="drawerAddLightingFixtureBtn" type="button" class="lighting-section-add">＋ Light</button>
-                <button id="drawerAddLightingSubjectBtn" type="button" class="lighting-section-add">＋ Subject</button>
-              </div>
-            </div>
-            <div id="lightingObjectList" class="lighting-object-list"></div>
-          </section>
+          <details id="lightingLightsSection" class="lighting-drawer-section lighting-folder" open>
+            <summary class="lighting-section-heading">
+              <div><div class="lighting-section-title">LIGHTS</div><small>Fixtures and physical modifiers.</small></div>
+              <button id="drawerAddLightingFixtureBtn" type="button" class="lighting-section-add">＋ Light</button>
+            </summary>
+            <div id="lightingLightList" class="lighting-object-list"></div>
+          </details>
+
+          <details id="lightingCharactersSection" class="lighting-drawer-section lighting-folder" open>
+            <summary class="lighting-section-heading">
+              <div><div class="lighting-section-title">CHARACTERS</div><small>Mannequins and linked Bible faces.</small></div>
+              <button id="drawerAddLightingSubjectBtn" type="button" class="lighting-section-add">＋ Character</button>
+            </summary>
+            <div id="lightingCharacterList" class="lighting-object-list"></div>
+          </details>
 
           <section id="lightingPropertiesSection" class="lighting-drawer-section">
             <div class="lighting-section-title">PROPERTIES</div>
@@ -1034,18 +1075,19 @@
                   <button id="applyShotCameraBtn" type="button">Apply current Shot</button>
                 </div>
 
+                <label>Camera Model</label>
+                <select id="lightingCameraModel"></select>
+                <div id="lightingCameraModelSpecs" class="lighting-camera-model-specs"></div>
+
                 <div class="lighting-property-pair">
                   <div><label>Lens</label><select id="lightingObjectLens"></select></div>
                   <div><label>Shot Size</label><select id="lightingObjectShotSize"></select></div>
                 </div>
                 <div class="lighting-property-pair">
                   <div><label>Angle</label><select id="lightingObjectAngle"></select></div>
-                  <div><label>Camera Height</label><select id="lightingObjectHeight"></select></div>
-                </div>
-                <div class="lighting-property-pair">
                   <div><label>Movement</label><select id="lightingObjectMovement"></select></div>
-                  <div><label>Focus</label><select id="lightingObjectFocus"></select></div>
                 </div>
+                <label>Focus</label><select id="lightingObjectFocus"></select>
                 <div class="lighting-property-pair">
                   <div>
                     <label>Physical Height from Ground <span id="lightingCameraHeightValue">1.65 m</span></label>
@@ -1260,7 +1302,7 @@
     </div>
   </dialog>
 
-  <script src="i18n.js?v=520"></script>
-  <script src="app.js?v=520"></script>
+  <script src="i18n.js?v=530"></script>
+  <script src="app.js?v=530"></script>
 </body>
 </html>

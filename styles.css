@@ -825,6 +825,47 @@ html[data-layout-mode="mobile"] .account-modal-card{width:100%;max-width:none}
   .ai-asset-list{grid-template-columns:1fr}
 }
 
+/* v5.3 — camera timeline, sensor viewfinders and dual-view lighting plan */
+.lighting-plan-view,.lighting-camera-view{bottom:122px}
+.lighting-plan-canvas-wrap{isolation:isolate}
+.lighting-plan-views{position:absolute;inset:0;display:grid;grid-template-columns:minmax(0,1.75fr) minmax(250px,.75fr);gap:1px;background:#263039}
+.lighting-plan-pane{position:relative;min-width:0;min-height:0;overflow:hidden;background:#080a0c}
+.lighting-plan-pane svg{display:block;width:100%;height:100%;touch-action:none;user-select:none}
+.lighting-view-label{position:absolute;z-index:3;left:12px;top:74px;padding:5px 7px;border:1px solid rgba(116,221,245,.18);border-radius:6px;background:rgba(7,11,13,.72);color:#73909a;font-size:7px;font-weight:900;letter-spacing:.16em;pointer-events:none}
+.lighting-plan-tools{position:absolute;z-index:8;left:50%;top:72px;transform:translateX(-50%);display:flex;gap:4px;padding:4px;border:1px solid rgba(255,255,255,.1);border-radius:9px;background:rgba(8,12,14,.82);backdrop-filter:blur(10px)}
+.lighting-plan-tools button{min-width:28px;height:27px;padding:0 7px;border:1px solid #304149;border-radius:6px;background:#10171b;color:#c5d7de;font:800 9px/1 inherit;cursor:pointer}
+#lightingZoomValue{min-width:47px;color:#75e4fb}.lighting-plan-tools button:hover{border-color:#3a8297;color:#f1fbff}
+.lighting-beam,.lighting-fov,.lighting-elevation-ray{pointer-events:none}
+
+.lighting-camera-timeline{position:absolute;z-index:24;left:14px;right:354px;bottom:12px;min-height:98px;padding:9px 11px;border:1px solid rgba(255,255,255,.12);border-radius:13px;background:rgba(9,13,15,.95);box-shadow:0 12px 34px rgba(0,0,0,.4);backdrop-filter:blur(16px)}
+.lighting-camera-timeline header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px}.lighting-camera-timeline header>div{display:grid;gap:2px}.lighting-camera-timeline header strong{font-size:9px;letter-spacing:.14em;color:#83e9ff}.lighting-camera-timeline header small{font-size:8px;color:#708087}.lighting-camera-timeline header label,.lighting-timeline-time{display:flex;align-items:center;gap:5px;color:#829097;font-size:8px}.lighting-camera-timeline input[type=number]{width:58px;padding:4px 5px;border:1px solid #334047;border-radius:6px;background:#0f1518;color:#e6f2f6;font:700 9px/1 inherit}
+.lighting-timeline-track-wrap{position:relative;height:23px;padding:0 7px}.lighting-timeline-track-wrap input[type=range]{position:absolute;z-index:3;inset:0;width:100%;height:23px;margin:0;background:transparent;accent-color:#43d9fb}.lighting-timeline-markers{position:absolute;z-index:4;left:13px;right:13px;top:2px;height:12px;pointer-events:none}.lighting-timeline-marker{position:absolute;top:0;width:13px;height:13px;margin-left:-6px;padding:0;transform:rotate(45deg);border:2px solid #0b1114;border-radius:3px;background:#ffc05a;box-shadow:0 0 0 1px #7f5f2b;pointer-events:auto;cursor:pointer}.lighting-timeline-marker.active{background:#52e0ff;box-shadow:0 0 0 2px rgba(82,224,255,.32)}
+.lighting-timeline-actions{display:flex;align-items:center;gap:5px;min-width:0}.lighting-timeline-actions button{height:26px;padding:0 8px;border:1px solid #314047;border-radius:7px;background:#12191d;color:#bfccd1;font:800 8px/1 inherit;cursor:pointer}.lighting-timeline-actions button:hover{border-color:#3d8194;color:#effcff}.lighting-timeline-actions .primary{border-color:#2b899f;background:#12313a;color:#91ebff}.lighting-timeline-actions .export{border-color:#69522f;color:#ffd48d}.lighting-timeline-actions button:disabled{opacity:.38;cursor:not-allowed}.lighting-timeline-spacer{flex:1}.lighting-playback-status{min-width:150px;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#6f8088;font-size:8px}
+
+.lighting-viewfinder{position:absolute;z-index:3;inset:0;--vf-left:8%;--vf-right:8%;--vf-top:10%;--vf-bottom:10%;pointer-events:none;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.viewfinder-mask{position:absolute;background:rgba(0,0,0,.57);backdrop-filter:blur(5px) saturate(.55)}.viewfinder-mask-top{left:0;right:0;top:0;height:var(--vf-top)}.viewfinder-mask-bottom{left:0;right:0;bottom:0;height:var(--vf-bottom)}.viewfinder-mask-left{left:0;top:var(--vf-top);bottom:var(--vf-bottom);width:var(--vf-left)}.viewfinder-mask-right{right:0;top:var(--vf-top);bottom:var(--vf-bottom);width:var(--vf-right)}
+.viewfinder-gate{position:absolute;left:var(--vf-left);right:var(--vf-right);top:var(--vf-top);bottom:var(--vf-bottom);border:2px solid rgba(235,247,250,.82);box-shadow:0 0 0 1px rgba(0,0,0,.7) inset;color:#ecf9fb;text-shadow:0 1px 2px #000}.viewfinder-topline,.viewfinder-bottomline{position:absolute;left:6px;right:6px;display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:9px;font-weight:850}.viewfinder-topline{top:6px}.viewfinder-bottomline{bottom:6px}.viewfinder-rec{color:#ff5e61}.viewfinder-center-mark{position:absolute;left:50%;top:50%;width:34px;height:34px;transform:translate(-50%,-50%);opacity:.75}.viewfinder-center-mark:before,.viewfinder-center-mark:after{content:"";position:absolute;background:currentColor}.viewfinder-center-mark:before{left:16px;top:0;width:1px;height:34px}.viewfinder-center-mark:after{left:0;top:16px;width:34px;height:1px}.viewfinder-center-mark i{position:absolute;inset:9px;border:1px solid currentColor;border-radius:50%}.viewfinder-center-mark b{position:absolute;left:15px;top:15px;width:4px;height:4px;border-radius:50%;background:currentColor}
+.vf-arri .viewfinder-gate{border-color:#d7ecf0}.vf-arri .viewfinder-topline{color:#8ff0ff}.vf-red .viewfinder-gate{border-color:#f0d8c0}.vf-red .viewfinder-topline{color:#ffb54f}.vf-red .viewfinder-bottomline{color:#f6e0ca}.vf-sony .viewfinder-gate{border-color:#eef2f4}.vf-sony .viewfinder-topline{color:#fbef72}.vf-sony .viewfinder-bottomline{color:#d8f6ff}.vf-canon .viewfinder-gate{border-color:#f4f4f4}.vf-canon .viewfinder-topline{color:#ff7979}.vf-canon .viewfinder-bottomline{color:#e8ebed}
+.lighting-camera-view.exploring .viewfinder-gate{border-color:#66e6ff}.lighting-camera-view.exploring .viewfinder-rec{color:#7bf1ff}.lighting-camera-model-specs{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;padding:7px;border:1px solid #2d3c43;border-radius:9px;background:#0b1114}.lighting-camera-model-specs span{padding:4px 6px;border-radius:999px;background:#172126;color:#91a5ad;font-size:7px}.lighting-camera-model-specs strong{color:#d7f4fa}
+
+.lighting-restart-diagram{height:32px;border:1px solid #75383d;border-radius:8px;background:#36171a;color:#ff9da4;font:850 9px/1 inherit;cursor:pointer}.lighting-restart-diagram:hover{background:#4b1d21;border-color:#a44a51;color:#ffd3d6}.lighting-folder{padding:0}.lighting-folder>summary{list-style:none;padding:11px 0;margin:0;cursor:pointer;user-select:none}.lighting-folder>summary::-webkit-details-marker{display:none}.lighting-folder>summary:before{content:"▸";color:#5d7882;margin-right:7px;transition:transform .15s}.lighting-folder[open]>summary:before{transform:rotate(90deg)}.lighting-folder>summary>div:first-of-type{flex:1}.lighting-folder>summary .lighting-section-title{margin-bottom:3px}.lighting-folder>.lighting-object-list,.lighting-folder>.lighting-camera-list{padding-bottom:11px}.lighting-folder .lighting-section-add{position:relative;z-index:2}
+
+.sheet-lighting-shortcut{display:inline-flex;align-items:center;justify-content:center;gap:5px;width:100%;margin-top:8px;padding:6px 8px;border:1px solid #2c7082;border-radius:7px;background:#10242b;color:#7fe4fa;font:850 8px/1 inherit;cursor:pointer}.sheet-lighting-shortcut:hover{background:#163640;border-color:#43a7bf}
+
+.lighting-studio-stage.camera-companion .lighting-plan-view{resize:both}.lighting-studio-stage.camera-companion .lighting-plan-views{grid-template-columns:1fr;grid-template-rows:minmax(0,1.8fr) minmax(82px,.72fr)}.lighting-studio-stage.camera-companion .lighting-view-label{top:8px}.lighting-studio-stage.camera-companion .lighting-plan-tools{top:45px}.lighting-studio-stage.camera-companion .lighting-plan-top-pane{min-height:115px}.lighting-studio-stage.camera-companion .lighting-plan-elevation-pane{min-height:72px}
+
+@media(max-width:760px){
+  .lighting-plan-view,.lighting-camera-view{bottom:126px}
+  .lighting-plan-views{grid-template-columns:1fr;grid-template-rows:minmax(0,1.65fr) minmax(96px,.7fr)}
+  .lighting-plan-tools{top:57px}.lighting-view-label{top:58px}
+  .lighting-camera-timeline{left:8px;right:8px;bottom:7px;min-height:112px;padding:7px 8px;overflow-x:auto}.lighting-camera-timeline header small{display:none}.lighting-camera-timeline header{position:sticky;left:0}.lighting-timeline-actions{min-width:720px}.lighting-playback-status{max-width:190px}
+  .lighting-studio-stage.camera-companion{height:calc(100% - 126px)}
+  .lighting-studio-stage.camera-companion .lighting-plan-view,.lighting-studio-stage.camera-companion .lighting-camera-view{bottom:auto}
+  .lighting-studio-stage.camera-companion .lighting-plan-views{grid-template-columns:1fr;grid-template-rows:minmax(0,1.55fr) minmax(72px,.65fr)}
+  .lighting-studio-stage.camera-companion .lighting-plan-tools{top:8px}
+  .lighting-studio-stage.camera-companion .lighting-view-label{top:8px}
+  .viewfinder-topline,.viewfinder-bottomline{font-size:7px}.lighting-camera-hud{display:none}
+}
+
 /* v4.6 — compact desktop controls, unified image viewer/crop, rich Script and folders */
 .project-card{min-width:0;overflow:hidden}
 .project-card>*{max-width:100%}
@@ -1043,3 +1084,9 @@ html[data-layout-mode="mobile"] .account-modal-card{width:100%;max-width:none}
   .lighting-studio-stage.camera-companion .virtual-location-badge{top:60px}.lighting-studio-stage.camera-companion .lighting-camera-playback{display:none}.lighting-studio-stage.camera-companion .lighting-camera-hud{left:8px;bottom:8px}.lighting-studio-stage.camera-companion .virtual-explore-controls{bottom:8px;max-width:calc(100% - 16px)}
   .lighting-catalog-items{grid-template-columns:repeat(2,minmax(0,1fr))}.lighting-modifier-grid{max-height:none}.spatial-bible-actions{grid-template-columns:1fr}
 }
+
+/* v5.3 final cascade: requested drawer order and mobile timeline clearance. */
+.lighting-drawer-body{display:flex;flex-direction:column}.lighting-drawer-body>*{flex:0 0 auto}
+.lighting-diagram-minihead{order:0}.lighting-cameras-section{order:1}
+#lightingCamerasSection{order:1}#lightingLightsSection{order:2}#lightingCharactersSection{order:3}#virtualLocationSection{order:4}#lightingPropertiesSection{order:5}.lighting-output-section{order:6}
+@media(max-width:760px){.lighting-save-float{bottom:132px}.lighting-studio-stage.camera-companion{height:auto;padding-bottom:126px}}
