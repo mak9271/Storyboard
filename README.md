@@ -1,6 +1,29 @@
-# FilmBoard v5.8.0 — Reliable Keyframe Timeline
+# FilmBoard v5.10.0 — Theme, Lighting Pose & Timeline Controls
 
-This build fixes the complete Lighting Diagram keyframe workflow: the selected time is preserved when Explore starts, every saved pose receives a visible marker, and Play works as soon as a keyframe exists.
+This build adds the requested selected-keyframe deletion, adaptive app themes, stable light settings, clearer project-open feedback and improved desktop/mobile controls.
+
+## v5.10.0 changes
+
+- Adds a red **Delete Keyframe** action for the currently selected camera or character marker, with a confirmation step.
+- Changes the FilmBoard mark and installed-app icons from `FB` to `F`.
+- Enlarges the desktop header actions to the same comfortable size as the app's main buttons.
+- Fixes light-setting edits so Kelvin, intensity, beam or fixture/modifier changes preserve the light's plan position, height, rotation and tilt—including an exact `0°` tilt.
+- Shows an immediate sending state when a project card is opened, then confirms the first successful database response while the rest of the project loads.
+- Adds **System**, **Light** and **Dark** theme preferences in Account. System follows the device color scheme and reacts when it changes.
+- Makes the Lighting Diagram top toolbar a reliable horizontal touch scroller on mobile, including forced Mobile Version mode.
+- Uses unique v5.10 asset filenames: `filmboard-app-v510.js`, `filmboard-styles-v510.css`, `filmboard-i18n-v510.js` and `filmboard-config-v510.js`.
+- No new SQL migration is required for v5.10.0.
+
+## v5.9.0 changes
+
+- Replaces query-string cache busting with unique v5.9 asset filenames: `filmboard-app-v590.js`, `filmboard-styles-v590.css`, `filmboard-i18n-v590.js` and `filmboard-config-v590.js`.
+- Adds Cloudflare `_headers` rules that keep `index.html` out of the browser cache while safely treating the uniquely named assets as immutable.
+- Removes any dependency on the old v5.5–v5.7 Play warning. One saved camera or character pose can play; two points on the same track create movement.
+- Verifies that the exact camera/character id, playhead time and pose were inserted before reporting success.
+- Verifies that the matching DOM marker exists after Add Keyframe and retries the timeline render if necessary.
+- Renders every marker as a large numbered pin with its saved time below it. The marker DOM also carries the saved X/Y position, height and rotation.
+- Adds the visible `KF 5.9` badge to the Shot Timeline so the deployed build can be confirmed immediately.
+- No new SQL migration is required for v5.9.0; keyframes remain in the existing `lighting_diagrams.data.timeline` JSON.
 
 ## v5.8.0 changes
 
@@ -153,7 +176,7 @@ This build fixes the complete Lighting Diagram keyframe workflow: the selected t
 
 ## Existing installation: deployment
 
-v5.8.0 does not add database fields. If the v5.0 and v5.1 migrations already succeeded, do not run another SQL query. Existing hidden Subject fields remain in saved shot data for backward compatibility and are not deleted.
+v5.10.0 does not add database fields. If the v5.0 and v5.1 migrations already succeeded, do not run another SQL query. Existing hidden Subject fields remain in saved shot data for backward compatibility and are not deleted.
 
 1. If `Storyboard v4.8 - Lighting Access Repair` has not already succeeded, run the packaged v4.8 query once using the saved-query instructions from the prior release. Otherwise leave SQL Editor unchanged.
 2. Run `supabase-v5.0-virtual-locations.sql` once if it has not already been run.
@@ -166,8 +189,8 @@ v5.8.0 does not add database fields. If the v5.0 and v5.1 migrations already suc
    ```
 
 6. No Supabase Edge Function redeploy is required.
-7. Hard-refresh the app. Page source should show `styles.css?v=580`, `config.js?v=580`, `i18n.js?v=580`, `app.js?v=580` and build `v5.8.0-keyframe-timeline-fix`.
-8. Open Lighting Diagram, add a camera keyframe at 0 seconds, move the playhead to a later time, enter Explore, change the camera pose and add another keyframe. The time must stay unchanged, both numbered markers must remain visible, and Play must animate between them.
+7. Reload the app. Page source must show `filmboard-styles-v510.css`, `filmboard-config-v510.js`, `filmboard-i18n-v510.js`, `filmboard-app-v510.js` and build `v5.10.0-ui-theme-lighting`. The timeline itself shows a `KF 5.10` badge.
+8. Open Lighting Diagram, add a camera keyframe at 0 seconds, move the playhead to a later time, enter Explore, change the camera pose and add another keyframe. The time must stay unchanged, both numbered and time-labelled markers must remain visible, and Play must animate between them.
 
 ## Fresh Supabase installation
 

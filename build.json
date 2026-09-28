@@ -1,0 +1,6 @@
+{
+  "name": "FilmBoard",
+  "version": "5.10.0",
+  "build": "v5.10.0-ui-theme-lighting",
+  "keyframeEngine": "5.10"
+}

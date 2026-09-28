@@ -1,11 +1,11 @@
 {
-  "name": "filmboard-v5-8-keyframe-timeline-fix",
+  "name": "filmboard-v5-10-ui-theme-lighting",
   "private": true,
-  "version": "5.8.0",
+  "version": "5.10.0",
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
-    "check": "node --check app.js && node --check worker.js && npm test",
+    "check": "node --check app.js && node --check filmboard-app-v510.js && node --check worker.js && npm test",
     "deploy": "wrangler deploy"
   },
   "devDependencies": {

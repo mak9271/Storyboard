@@ -1,6 +1,6 @@
 {
   "name": "FilmBoard",
-  "short_name": "FB",
+  "short_name": "F",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#050607",

@@ -1,4 +1,4 @@
-// FilmBoard v5.8.0 AI gateway: FLUX generation + spatial Bible references.
+// FilmBoard v5.10.0 AI gateway: FLUX generation + spatial Bible references.
 const DEFAULT_MODEL = "@cf/black-forest-labs/flux-2-klein-4b";
 const ALLOWED_MODEL = new Set([DEFAULT_MODEL]);
 const DEFAULT_SCRIPT_MODEL = "@cf/zai-org/glm-4.7-flash";
