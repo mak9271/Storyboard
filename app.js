@@ -1,4 +1,4 @@
-// FilmBoard v5.5.0 — shared camera and character motion timeline
+// FilmBoard v5.6.0 — inline toggle settings and streamlined Lighting Studio
 const OPTIONS = {
   shotSize:["ECU · Extreme Close Up","CU · Close Up","MCU · Medium Close Up","MS · Medium Shot","MLS · Medium Long Shot","WS · Wide Shot","EWS · Extreme Wide Shot","OTS · Over The Shoulder","POV · Point of View","Insert","Top Shot"],
   angle:["Eye Level","High Angle","Low Angle","Top / Bird's Eye","Dutch Angle","Ground Level","Overhead","Custom"],
@@ -165,6 +165,7 @@ let app = {
     diagrams: [],
     current: null,
     selectedId: null,
+    inspectorOpen: true,
     dragging: null,
     pointers: {},
     playback: {playing:false,elapsed:0,duration:4,baseCamera:null,baseSubjects:null,movement:"Static",selectedKeyframeId:null,selectedCharacterKeyframeId:null,activeCharacterId:null,selectedTrack:"camera",exporting:false,exportResolve:null},
@@ -2868,7 +2869,7 @@ async function importJSONOnline(file){
 
 
 
-/* ---------- LIGHTING STUDIO v5.5 ---------- */
+/* ---------- LIGHTING STUDIO v5.6 ---------- */
 /* Manufacturer-published sensor and recording-area data. Dimensions are millimetres. */
 const CINEMA_CAMERAS = Object.freeze({
   "ARRI ALEXA XT":{brand:"ARRI",model:"ALEXA XT",sensorWidth:28.25,sensorHeight:18.17,activeWidth:28.25,activeHeight:18.17,resolution:"3424 × 2202",format:"ALEV III Open Gate",hud:"arri",display:"EVF-1 / MON OUT",bitDepth:"12-bit ARRIRAW",dynamicRange:"14.5 stops",source:"https://www.arri.com/resource/blob/279392/13ef3e45b45c888c6f7eeb0b7a4825c4/alexa-xt-user-manual-sup-9-1-data.pdf"},
@@ -3606,7 +3607,7 @@ function lightingFolderForType(type){
 }
 function mountLightingInspector(){
   const section=$("lightingPropertiesSection"),o=lightingSelected();if(!section)return;
-  if(!o){parkLightingInspector();section.hidden=true;return}
+  if(!o||!app.lighting.inspectorOpen){parkLightingInspector();section.hidden=true;return}
   const attribute=o.type==="camera"?"lightingCameraSelect":"lightingSelect";
   const row=[...document.querySelectorAll("[data-lighting-select],[data-lighting-camera-select]")].find(node=>node.dataset[attribute]===o.id);
   const folder=lightingFolderForType(o.type);if(folder)folder.open=true;
@@ -3623,24 +3624,24 @@ function renderLightingObjectList(){
     el.innerHTML=`<div class="lighting-object-group">
       <div class="lighting-object-group-title">${title}<span>${items.length}</span></div>
       ${items.length?items.map(o=>`
-        <button type="button" class="lighting-object-row ${o.id===app.lighting.selectedId?"active":""}" data-lighting-select="${o.id}">
+        <button type="button" class="lighting-object-row ${o.id===app.lighting.selectedId?"active":""}" data-lighting-select="${o.id}" aria-expanded="${o.id===app.lighting.selectedId&&app.lighting.inspectorOpen?"true":"false"}">
           <span class="lighting-object-row-icon">${type==="light"?lightingFixtureIcon(lightingFixtureProps(o.fixture).iconType):lightingEntityIcon(type)}</span>
           <span><strong>${escapeHtml(o.label||o.fixture||type)}</strong><small>${type==="light"?`${escapeHtml(lightingFixtureProps(o.fixture).brand)} · ${Math.round(lightingEffectiveBeam(o))}° · ${o.kelvin}K`:`${Number(o.height3d||1.75).toFixed(2)} m${o.characterId?" · Bible face":" · mannequin"}`}</small></span>
         </button>`).join(""):`<div class="lighting-object-empty">No ${title.toLowerCase()}</div>`}
     </div>`;
-    el.querySelectorAll("[data-lighting-select]").forEach(b=>b.onclick=()=>selectLightingObject(b.dataset.lightingSelect,false))
+    el.querySelectorAll("[data-lighting-select]").forEach(b=>b.onclick=()=>selectLightingObject(b.dataset.lightingSelect,false,true))
   };
   renderType("lightingLightList","light","LIGHTS");renderType("lightingCharacterList","subject","CHARACTERS");renderLightingCameraList();mountLightingInspector()
 }
 function renderLightingCameraList(){
   const el=$("lightingCameraList");if(!el||!app.lighting.current)return;const items=app.lighting.current.data.objects.filter(o=>o.type==="camera");
   el.innerHTML=items.length?items.map(o=>`
-    <button type="button" class="lighting-object-row ${o.id===app.lighting.selectedId?"active":""}" data-lighting-camera-select="${o.id}">
+    <button type="button" class="lighting-object-row ${o.id===app.lighting.selectedId?"active":""}" data-lighting-camera-select="${o.id}" aria-expanded="${o.id===app.lighting.selectedId&&app.lighting.inspectorOpen?"true":"false"}">
       <span class="lighting-object-row-icon">${lightingEntityIcon("camera")}</span>
       <span><strong>${escapeHtml(o.label||"Camera")}</strong><small>${escapeHtml(cinemaCameraSpec(o).model)} · ${escapeHtml(o.lens||"")} · ${escapeHtml(shortValue(o.shotSize))}</small></span>
       <span class="lighting-camera-live" ${o.id===app.lighting.activeCameraId?"":"hidden"}>LIVE</span>
     </button>`).join(""):'<div class="lighting-object-empty">No cameras</div>';
-  el.querySelectorAll("[data-lighting-camera-select]").forEach(button=>button.onclick=()=>selectLightingObject(button.dataset.lightingCameraSelect,false))
+  el.querySelectorAll("[data-lighting-camera-select]").forEach(button=>button.onclick=()=>selectLightingObject(button.dataset.lightingCameraSelect,false,true))
 }
 function renderFixtureCatalog(){
   const el=$("lightingFixtureCatalog"),o=lightingSelected();if(!el||!o||o.type!=="light")return;
@@ -3692,6 +3693,7 @@ function setLightingCurrent(diagram){
   const firstCharacter=app.lighting.current.data.objects.find(o=>o.type==="subject");
   app.lighting.activeCameraId=firstCam?.id||null;
   app.lighting.selectedId=firstCam?.id||app.lighting.current.data.objects[0]?.id||null;
+  app.lighting.inspectorOpen=true;
   app.lighting.playback.selectedKeyframeId=app.lighting.current.data.timeline.keyframes[0]?.id||null;
   app.lighting.playback.activeCharacterId=firstCharacter?.id||null;
   app.lighting.playback.selectedCharacterKeyframeId=app.lighting.current.data.timeline.characterKeyframes.find(frame=>frame.objectId===firstCharacter?.id)?.id||null;
@@ -3735,6 +3737,7 @@ async function loadLightingDiagrams(preferredId=null){
 }
 async function openLightingWorkspace(options={}){
   if(!app.current)return;
+  document.documentElement.classList.add("lighting-workspace-open");
   const dialog=$("lightingDiagramModal");if(!dialog.open)dialog.showModal();
   setMsg("lightingDiagramNotice","Loading Lighting Diagram…");
   try{
@@ -3746,7 +3749,7 @@ async function openLightingWorkspace(options={}){
 function closeLightingWorkspace(){
   if(app.lighting.upload){setVirtualLocationNotice("Wait for the 3D scan upload to finish before closing Lighting Diagram.","warning");return}
   if(app.lighting.dirty&&!uiConfirm("Close Lighting Diagram without saving the latest changes?"))return;
-  stopVirtualExplore();stopLightingPlayback(true);stopLighting3D();unsubscribeLightingRealtime();$("lightingDiagramModal").close()
+  stopVirtualExplore();stopLightingPlayback(true);stopLighting3D();unsubscribeLightingRealtime();$("lightingDiagramModal").close();document.documentElement.classList.remove("lighting-workspace-open")
 }
 function toggleLightingDrawer(force){
   app.lighting.drawerCollapsed=typeof force==="boolean"?force:!app.lighting.drawerCollapsed;
@@ -3754,12 +3757,15 @@ function toggleLightingDrawer(force){
   $("lightingDrawerBody").hidden=app.lighting.drawerCollapsed;
   $("lightingDrawerArrow").textContent=app.lighting.drawerCollapsed?"▸":"▾"
 }
-function selectLightingObject(id,openDrawer=false){
+function selectLightingObject(id,openDrawer=false,toggleInspector=false){
+  const isCurrent=app.lighting.selectedId===id;
+  app.lighting.inspectorOpen=toggleInspector?(isCurrent?!app.lighting.inspectorOpen:true):true;
   app.lighting.selectedId=id;
   const o=lightingSelected();
   if(o?.type==="camera"&&!app.lighting.activeCameraId)app.lighting.activeCameraId=o.id;
   if(o?.type==="subject")app.lighting.playback.activeCharacterId=o.id;
   const folder=lightingFolderForType(o?.type);if(folder)folder.open=true;
+  if(openDrawer&&app.lighting.drawerCollapsed)toggleLightingDrawer(false);
   renderLightingObjectList();renderLightingInspector();renderLightingCanvas();renderLightingTimeline();syncLighting3D()
 }
 function markLightingDirty(){app.lighting.dirty=true;$("saveLightingDiagramBtn").textContent="Save •"}
@@ -3810,7 +3816,7 @@ function restartLightingDiagram(){
   if(!uiConfirm("Restart this diagram? All lights, camera points and unsaved layout work in this diagram will be cleared."))return;
   stopVirtualExplore();stopLightingPlayback(false);
   d.data.objects=[defaultLightingCamera(),defaultLightingSubject()];d.data.notes="";d.data.timeline=defaultLightingTimeline();
-  app.lighting.activeCameraId=d.data.objects[0].id;app.lighting.selectedId=d.data.objects[0].id;app.lighting.playback.selectedKeyframeId=null;app.lighting.playback.activeCharacterId=d.data.objects.find(o=>o.type==="subject")?.id||null;app.lighting.playback.selectedCharacterKeyframeId=null;app.lighting.playback.baseSubjects=null;app.lighting.panDrag=null;app.lighting.planPane="top";app.lighting.planView={zoom:1,centerX:600,centerY:400};app.lighting.elevationView={zoom:1,centerX:600,centerY:250};
+  app.lighting.activeCameraId=d.data.objects[0].id;app.lighting.selectedId=d.data.objects[0].id;app.lighting.inspectorOpen=true;app.lighting.playback.selectedKeyframeId=null;app.lighting.playback.activeCharacterId=d.data.objects.find(o=>o.type==="subject")?.id||null;app.lighting.playback.selectedCharacterKeyframeId=null;app.lighting.playback.baseSubjects=null;app.lighting.panDrag=null;app.lighting.planPane="top";app.lighting.planView={zoom:1,centerX:600,centerY:400};app.lighting.elevationView={zoom:1,centerX:600,centerY:250};
   $("lightingDiagramNotes").value="";markLightingDirty();renderLightingObjectList();renderLightingInspector();renderLightingCanvas();renderLightingTimeline();syncLighting3D();setMsg("lightingDiagramNotice","Diagram restarted. Save when ready.","warning")
 }
 function applyLightingPermissions(){
@@ -3832,7 +3838,7 @@ function applyLightingPermissions(){
 }
 function addLightingObject(o){
   const d=app.lighting.current;if(!d||!lightingCanEdit())return;
-  d.data.objects.push(normalizeLightingObject(o));app.lighting.selectedId=o.id;
+  d.data.objects.push(normalizeLightingObject(o));app.lighting.selectedId=o.id;app.lighting.inspectorOpen=true;
   if(o.type==="camera"){
     app.lighting.activeCameraId=o.id;
     const subject=findLightingSubject(o);
@@ -3877,7 +3883,7 @@ function applyCurrentShotToCamera(){
     applyCameraAnglePreset(c,c.angle||"Eye Level");
     reframeCameraDistance(c,{force:true})
   }
-  app.lighting.selectedId=c.id;app.lighting.activeCameraId=c.id;
+  app.lighting.selectedId=c.id;app.lighting.inspectorOpen=true;app.lighting.activeCameraId=c.id;
   markLightingDirty();renderLightingObjectList();renderLightingInspector();renderLightingCanvas();syncLighting3D()
 }
 function useSelectedCameraView(){
@@ -3948,8 +3954,9 @@ function selectedLightingChange(sourceId=""){
 function renderLightingInspector(updateInputs=true){
   const o=lightingSelected();
   mountLightingInspector();
-  $("lightingInspectorEmpty").hidden=!!o;$("lightingInspector").hidden=!o;
-  if(!o)return;
+  const show=!!o&&app.lighting.inspectorOpen;
+  $("lightingInspectorEmpty").hidden=!!o;$("lightingInspector").hidden=!show;
+  if(!show)return;
   $("lightingLightFields").hidden=o.type!=="light";
   $("lightingCameraFields").hidden=o.type!=="camera";
   $("lightingSubjectFields").hidden=o.type!=="subject";
@@ -4020,7 +4027,7 @@ function deleteSelectedLightingObject(){
     if(app.lighting.playback.activeCharacterId===o.id)app.lighting.playback.activeCharacterId=d.data.objects.find(x=>x.type==="subject")?.id||null;
     app.lighting.playback.selectedCharacterKeyframeId=null
   }
-  app.lighting.selectedId=d.data.objects[0]?.id||null;
+  app.lighting.selectedId=d.data.objects[0]?.id||null;app.lighting.inspectorOpen=!!app.lighting.selectedId;
   markLightingDirty();renderLightingObjectList();renderLightingInspector();renderLightingCanvas();renderLightingTimeline();syncLighting3D()
 }
 
@@ -5235,11 +5242,11 @@ function bind(){
   $("cropCanvas").addEventListener("wheel",event=>{if(!cropState.drawable||cropState.saving)return;event.preventDefault();const zoom=$("cropZoom"),next=Math.max(Number(zoom.min),Math.min(Number(zoom.max),Number(zoom.value)+(event.deltaY<0?5:-5)));zoom.value=String(next);updateCropZoom()},{passive:false});
   $("imageViewerModal").addEventListener("close",()=>{clearCropDrawable();cropState.active=false;cropState.target=null;cropState.saving=false;$("cropCanvas").hidden=true;$("cropLoading").hidden=true;setMsg("cropNotice","")});
 
-  // Lighting Studio v5.5
+  // Lighting Studio v5.6
   $("openLightingDiagramBtn").onclick=()=>openLightingWorkspace();
   $("closeLightingDiagramBtn").onclick=closeLightingWorkspace;
   $("lightingDiagramModal").addEventListener("cancel",e=>{e.preventDefault();closeLightingWorkspace()});
-  $("lightingDiagramModal").addEventListener("close",()=>{stopVirtualExplore();stopLighting3D();unsubscribeLightingRealtime()});
+  $("lightingDiagramModal").addEventListener("close",()=>{document.documentElement.classList.remove("lighting-workspace-open");stopVirtualExplore();stopLighting3D();unsubscribeLightingRealtime()});
 
   $("lightingPlanModeBtn").onclick=()=>setLightingViewMode("plan");
   $("lightingCameraModeBtn").onclick=()=>setLightingViewMode("camera");

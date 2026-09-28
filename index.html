@@ -12,10 +12,10 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="styles.css?v=550" />
+  <link rel="stylesheet" href="styles.css?v=560" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0"></script>
-  <script src="config.js?v=550"></script>
-  <meta name="storyboard-build" content="v5.5.0-shared-motion-timeline" />
+  <script src="config.js?v=560"></script>
+  <meta name="storyboard-build" content="v5.6.0-inline-toggle-settings" />
 </head>
 <body>
 
@@ -812,7 +812,7 @@
 
 
 
-  <!-- LIGHTING STUDIO v5.5 -->
+  <!-- LIGHTING STUDIO v5.6 -->
   <dialog id="lightingDiagramModal" class="lighting-studio-modal">
     <div class="lighting-studio-shell">
 
@@ -826,14 +826,14 @@
         </div>
 
         <div class="lighting-add-actions">
-          <button id="addLightingCameraBtn" type="button" class="lighting-add-btn">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="7" width="12" height="10" rx="2"></rect><path d="m15 10 6-3v10l-6-3z"></path></svg><span>Add Camera</span>
+          <button id="addLightingCameraBtn" type="button" class="lighting-add-btn icon-only" aria-label="Add Camera" title="Add Camera">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="7" width="12" height="10" rx="2"></rect><path d="m15 10 6-3v10l-6-3z"></path></svg>
           </button>
-          <button id="addLightingCharacterBtn" type="button" class="lighting-add-btn">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="6" r="3"></circle><path d="M7 21v-5l2-5h6l2 5v5M9 14l-4 3M15 14l4 3"></path></svg><span>Add Character</span>
+          <button id="addLightingCharacterBtn" type="button" class="lighting-add-btn icon-only" aria-label="Add Character" title="Add Character">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="6" r="3"></circle><path d="M7 21v-5l2-5h6l2 5v5M9 14l-4 3M15 14l4 3"></path></svg>
           </button>
-          <button id="addLightingFixtureBtn" type="button" class="lighting-add-btn">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h10l4 4-4 4H4z"></path><circle cx="18" cy="12" r="3"></circle><path d="M9 16v4M6 20h6"></path></svg><span>Add Light</span>
+          <button id="addLightingFixtureBtn" type="button" class="lighting-add-btn icon-only" aria-label="Add Light" title="Add Light">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h10l4 4-4 4H4z"></path><circle cx="18" cy="12" r="3"></circle><path d="M9 16v4M6 20h6"></path></svg>
           </button>
           <button id="addShotLightingBtn" type="button" class="lighting-add-btn subtle">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m13 2-8 12h7l-1 8 8-12h-7z"></path></svg><span>Shot Light</span>
@@ -965,7 +965,6 @@
         <div id="lightingDrawerBody" class="lighting-drawer-body">
           <div class="lighting-diagram-minihead">
             <input id="lightingDiagramName" placeholder="Diagram name" />
-            <button id="restartLightingDiagramBtn" type="button" class="lighting-restart-diagram">Restart Diagram</button>
           </div>
 
           <section id="virtualLocationSection" class="lighting-drawer-section virtual-location-section">
@@ -1035,7 +1034,7 @@
           <details id="lightingCamerasSection" class="lighting-drawer-section lighting-folder lighting-camera-rack" open>
             <summary class="lighting-section-heading">
               <div><div class="lighting-section-title">CAMERAS</div><small>Camera controls are separate from scene objects.</small></div>
-              <button id="drawerAddLightingCameraBtn" type="button" class="lighting-section-add"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="7" width="12" height="10" rx="2"></rect><path d="m15 10 6-3v10l-6-3z"></path></svg><span>Camera</span></button>
+              <button id="drawerAddLightingCameraBtn" type="button" class="lighting-section-add icon-only" aria-label="Add Camera" title="Add Camera"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="7" width="12" height="10" rx="2"></rect><path d="m15 10 6-3v10l-6-3z"></path></svg></button>
             </summary>
             <div id="lightingCameraList" class="lighting-camera-list"></div>
           </details>
@@ -1043,7 +1042,7 @@
           <details id="lightingLightsSection" class="lighting-drawer-section lighting-folder" open>
             <summary class="lighting-section-heading">
               <div><div class="lighting-section-title">LIGHTS</div><small>Fixtures and physical modifiers.</small></div>
-              <button id="drawerAddLightingFixtureBtn" type="button" class="lighting-section-add"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h10l4 4-4 4H4z"></path><circle cx="18" cy="12" r="3"></circle><path d="M9 16v4M6 20h6"></path></svg><span>Light</span></button>
+              <button id="drawerAddLightingFixtureBtn" type="button" class="lighting-section-add icon-only" aria-label="Add Light" title="Add Light"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h10l4 4-4 4H4z"></path><circle cx="18" cy="12" r="3"></circle><path d="M9 16v4M6 20h6"></path></svg></button>
             </summary>
             <div id="lightingLightList" class="lighting-object-list"></div>
           </details>
@@ -1051,7 +1050,7 @@
           <details id="lightingCharactersSection" class="lighting-drawer-section lighting-folder" open>
             <summary class="lighting-section-heading">
               <div><div class="lighting-section-title">CHARACTERS</div><small>Mannequins and linked Bible faces.</small></div>
-              <button id="drawerAddLightingCharacterBtn" type="button" class="lighting-section-add"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="6" r="3"></circle><path d="M7 21v-5l2-5h6l2 5v5M9 14l-4 3M15 14l4 3"></path></svg><span>Character</span></button>
+              <button id="drawerAddLightingCharacterBtn" type="button" class="lighting-section-add icon-only" aria-label="Add Character" title="Add Character"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="6" r="3"></circle><path d="M7 21v-5l2-5h6l2 5v5M9 14l-4 3M15 14l4 3"></path></svg></button>
             </summary>
             <div id="lightingCharacterList" class="lighting-object-list"></div>
           </details>
@@ -1195,6 +1194,8 @@
               <button id="shareLightingDiagramBtn" type="button">Share Link</button>
             </div>
           </section>
+
+          <button id="restartLightingDiagramBtn" type="button" class="lighting-restart-diagram">Restart Diagram</button>
         </div>
       </aside>
 
@@ -1334,7 +1335,7 @@
     </div>
   </dialog>
 
-  <script src="i18n.js?v=550"></script>
-  <script src="app.js?v=550"></script>
+  <script src="i18n.js?v=560"></script>
+  <script src="app.js?v=560"></script>
 </body>
 </html>

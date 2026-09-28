@@ -1159,3 +1159,76 @@ html[data-layout-mode="mobile"] .account-modal-card{width:100%;max-width:none}
   .lighting-studio-stage.camera-companion .lighting-plan-view .lighting-plan-canvas-wrap{inset:40px 0 0}
   .lighting-camera-model-specs{grid-template-columns:1fr}.lighting-camera-spec-primary,.lighting-camera-spec-source{grid-column:auto}
 }
+
+/* v5.6 — per-item toggle settings, icon-only add actions and desktop scroll cleanup. */
+html.lighting-workspace-open,
+html.lighting-workspace-open body{height:100%;overflow:hidden!important;overscroll-behavior:none}
+.lighting-studio-modal{overflow:hidden!important;overscroll-behavior:none}
+.lighting-add-btn.icon-only{width:40px;min-width:40px;padding:0;gap:0}
+.lighting-section-add.icon-only{display:grid!important;place-items:center;width:30px;height:30px;padding:0;gap:0}
+.lighting-section-add.icon-only svg{width:16px;height:16px}
+#lightingPropertiesSection.lighting-inline-properties{
+  width:100%;max-width:100%;box-sizing:border-box;grid-column:1/-1;margin:4px 0 11px;padding:11px
+}
+.lighting-object-row[aria-expanded="true"]{border-color:#39829a;background:#142933}
+#restartLightingDiagramBtn{order:99;flex:0 0 auto;align-self:stretch;width:100%;min-height:38px;margin:12px 0 2px}
+
+@media(min-width:761px){
+  .lighting-studio-toolbar{overflow:hidden;scrollbar-width:none;padding-bottom:0}
+  .lighting-studio-toolbar::-webkit-scrollbar{display:none}
+
+  .lighting-drawer-header{font-size:11px}
+  .lighting-diagram-minihead input,
+  .lighting-object-inspector input,
+  .lighting-object-inspector select,
+  .lighting-output-section textarea{font-size:12px}
+  .lighting-output-grid button,
+  .lighting-camera-from-shot button,
+  .lighting-wide-action,
+  .lighting-delete-object{font-size:12px}
+  .lighting-section-title{font-size:11px}
+  .lighting-section-heading small{font-size:10px}
+  .lighting-object-group-title{font-size:10px}
+  .lighting-object-row strong{font-size:12px}
+  .lighting-object-row small{font-size:10px}
+  .lighting-object-empty{font-size:11px}
+  .lighting-inspector-empty{font-size:12px}
+  .lighting-object-inspector label{font-size:11px}
+  .lighting-catalog-group-title{font-size:10px}
+  .lighting-catalog-chip .fixture-copy strong{font-size:10px}
+  .lighting-catalog-chip .fixture-copy small{font-size:9px}
+  .lighting-modifier-chip{font-size:10px}
+  .lighting-modifier-chip strong{font-size:10px}
+  .lighting-modifier-chip small{font-size:9px}
+  .lighting-fixture-specs span,
+  .lighting-modifier-specs span{font-size:9px}
+  .lighting-camera-live{font-size:9px}
+  .lighting-camera-from-shot strong{font-size:15px}
+  .lighting-camera-from-shot span{font-size:10px}
+  .lighting-subject-help{font-size:11px}
+  .lighting-inline-properties>.lighting-section-title{font-size:12px}
+  .lighting-camera-spec-card small{font-size:10px}
+  .lighting-camera-spec-card strong{font-size:13px}
+  .lighting-camera-spec-card em{font-size:11px}
+  .lighting-camera-spec-primary strong{font-size:16px}
+  .lighting-camera-spec-source{font-size:11px}
+  .virtual-location-copy{font-size:11px}
+  .virtual-location-section select,
+  .virtual-location-transform input{font-size:12px}
+  .virtual-location-actions button,
+  .virtual-location-transform .lighting-wide-action{font-size:11px}
+  .virtual-location-progress>div,
+  .virtual-location-notice,
+  .virtual-location-transform label{font-size:11px}
+  .virtual-scan-apps>strong{font-size:10px}
+  .virtual-scan-apps>a span{font-size:9px}
+  .virtual-scan-apps>a b{font-size:11px}
+  .virtual-scan-apps>a small{font-size:9px}
+  .virtual-scan-apps p{font-size:10px}
+  .spatial-bible-link>label{font-size:11px}
+  .spatial-bible-actions button{font-size:10px}
+  .spatial-bible-link>small{font-size:10px}
+  .lighting-face-status span{font-size:9px}
+  .lighting-face-status strong{font-size:11px}
+  .lighting-restart-diagram{font-size:11px}
+}

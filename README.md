@@ -1,6 +1,16 @@
-# FilmBoard v5.5.0 — Shared Camera & Character Timeline
+# FilmBoard v5.6.0 — Inline Setup Controls
 
-This build adds synchronized camera and character animation to Lighting Diagram, keeps shot duration tied to the shared timeline and simplifies the Setup and scan-import workflow.
+This build makes Lighting Diagram setup faster to scan and edit: each camera, light and character owns a full-width, collapsible settings panel directly below its row, while desktop navigation stays locked to the workspace.
+
+## v5.6.0 changes
+
+- Camera, light and character settings open directly below the selected item at exactly the same width as its row.
+- Clicking the same item a second time closes its settings; choosing another item opens that item's settings without changing canvas-selection behavior.
+- Moves the confirmed red **Restart Diagram** action to the end of the Setup drawer.
+- Replaces the Camera, Light and Character add labels in both the top toolbar and Setup folders with accessible monochrome line-icon buttons and tooltips.
+- Removes the unused desktop Lighting Studio page/toolbar scrolling while preserving the phone toolbar's horizontal swipe behavior and the Setup drawer's own content scroll.
+- Increases desktop Setup text by 2 px for clearer camera, light, character and Virtual Location controls.
+- No new SQL migration is required for v5.6.0; these changes are entirely in the interface and client-side interaction state.
 
 ## v5.5.0 changes
 
@@ -114,7 +124,7 @@ This build adds synchronized camera and character animation to Lighting Diagram,
 
 ## Existing installation: deployment
 
-v5.5.0 does not add database fields. If the v5.0 and v5.1 migrations already succeeded, do not run another SQL query. Existing hidden Subject fields remain in saved shot data for backward compatibility and are not deleted.
+v5.6.0 does not add database fields. If the v5.0 and v5.1 migrations already succeeded, do not run another SQL query. Existing hidden Subject fields remain in saved shot data for backward compatibility and are not deleted.
 
 1. If `Storyboard v4.8 - Lighting Access Repair` has not already succeeded, run the packaged v4.8 query once using the saved-query instructions from the prior release. Otherwise leave SQL Editor unchanged.
 2. Run `supabase-v5.0-virtual-locations.sql` once if it has not already been run.
@@ -127,8 +137,8 @@ v5.5.0 does not add database fields. If the v5.0 and v5.1 migrations already suc
    ```
 
 6. No Supabase Edge Function redeploy is required.
-7. Hard-refresh the app. Page source should show `styles.css?v=550`, `config.js?v=550`, `i18n.js?v=550`, `app.js?v=550` and build `v5.5.0-shared-motion-timeline`.
-8. Open Lighting Diagram, add camera and character keyframes on the shared timeline, then verify Play moves both tracks and Duration updates the linked shot.
+7. Hard-refresh the app. Page source should show `styles.css?v=560`, `config.js?v=560`, `i18n.js?v=560`, `app.js?v=560` and build `v5.6.0-inline-toggle-settings`.
+8. Open Lighting Diagram and verify that clicking a camera, light or character opens its full-width settings below it, while a second click closes the settings.
 
 ## Fresh Supabase installation
 

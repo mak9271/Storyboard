@@ -1,7 +1,7 @@
 {
-  "name": "filmboard-v5-5-shared-motion-timeline",
+  "name": "filmboard-v5-6-inline-toggle-settings",
   "private": true,
-  "version": "5.5.0",
+  "version": "5.6.0",
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
