@@ -1,8 +1,33 @@
-# FilmBoard v5.10.0 — Theme, Lighting Pose & Timeline Controls
+# FilmBoard v5.11.0 — Lighting AI Video Studio
+
+This build adds a shared asynchronous video-generation pipeline to Lighting Diagram with selectable **Runway** and **Veo** engines.
+
+## v5.11.0 changes
+
+- Adds **AI Video Studio** to the Lighting Diagram Setup drawer with Runway/Veo provider tabs, model and resolution controls, compiled direction editing, consent confirmation and visible job progress.
+- Captures the actual Camera View timeline as a 24 fps 3D control render and captures the exact first frame before submission.
+- Freezes an immutable `filmboard-lighting-video-v1` snapshot containing camera, lens, lighting fixtures/modifiers, characters, camera and character keyframes, shot context, virtual location and Bible reference manifest.
+- Uses Runway Gen-4 Aleph for control-video guidance and supports Runway Gen-4.5; supports Veo 3.1 Quality and Fast with its 4/6/8-second segment limits.
+- Keeps provider keys in the Cloudflare Worker, never in browser code or the GitHub repository.
+- Adds queued/submitted/processing/succeeded/failed/canceled job states, polling, provider cancellation where supported, result playback, 3D Guide/AI Result switching, download and **Save to Shot**.
+- Stores private inputs and completed MP4 output in the existing project-scoped `storyboards` bucket under `project_id/ai-video/…`.
+- Uses unique v5.11 asset filenames: `filmboard-app-v511.js`, `filmboard-styles-v511.css`, `filmboard-i18n-v511.js` and `filmboard-config-v511.js`.
+- Requires `supabase-v5.11-ai-video-studio.sql` once after the v5.1 migration.
+
+## Provider secrets
+
+Set these as encrypted Cloudflare Worker secrets; do not put their values in `wrangler.toml`:
+
+```bash
+npx wrangler secret put RUNWAY_API_KEY
+npx wrangler secret put GOOGLE_AI_API_KEY
+```
+
+Optional environment overrides: `RUNWAY_API_BASE`, `RUNWAY_API_VERSION`, and `GOOGLE_AI_API_BASE`.
+
+## Previous v5.10.0 changes
 
 This build adds the requested selected-keyframe deletion, adaptive app themes, stable light settings, clearer project-open feedback and improved desktop/mobile controls.
-
-## v5.10.0 changes
 
 - Adds a red **Delete Keyframe** action for the currently selected camera or character marker, with a confirmation step.
 - Changes the FilmBoard mark and installed-app icons from `FB` to `F`.

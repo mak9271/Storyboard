@@ -8,17 +8,17 @@
   <meta id="viewportMeta" name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="theme-color" content="#050607" />
   <meta name="description" content="FilmBoard — collaborative pre-production planning." />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://xpqhsnyyjpfxpxvvrvsz.supabase.co; connect-src 'self' blob: https://xpqhsnyyjpfxpxvvrvsz.supabase.co https://xpqhsnyyjpfxpxvvrvsz.storage.supabase.co wss://xpqhsnyyjpfxpxvvrvsz.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none';" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://xpqhsnyyjpfxpxvvrvsz.supabase.co; media-src 'self' blob: https://xpqhsnyyjpfxpxvvrvsz.supabase.co https://xpqhsnyyjpfxpxvvrvsz.storage.supabase.co; connect-src 'self' blob: https://xpqhsnyyjpfxpxvvrvsz.supabase.co https://xpqhsnyyjpfxpxvvrvsz.storage.supabase.co wss://xpqhsnyyjpfxpxvvrvsz.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none';" />
   <title>FilmBoard</title>
 
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="filmboard-styles-v510.css" />
+  <link rel="stylesheet" href="filmboard-styles-v511.css" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0"></script>
-  <script src="filmboard-config-v510.js"></script>
-  <meta name="storyboard-build" content="v5.10.0-ui-theme-lighting" />
+  <script src="filmboard-config-v511.js"></script>
+  <meta name="storyboard-build" content="v5.11.0-ai-video-studio" />
 </head>
 <body>
 
@@ -821,7 +821,7 @@
 
 
 
-  <!-- LIGHTING STUDIO v5.10 -->
+  <!-- LIGHTING STUDIO v5.11 -->
   <dialog id="lightingDiagramModal" class="lighting-studio-modal">
     <div class="lighting-studio-shell">
 
@@ -925,7 +925,7 @@
 
         <section id="lightingCameraTimeline" class="lighting-camera-timeline" aria-label="Shot movement timeline">
           <header>
-            <div><strong>SHOT TIMELINE <span class="lighting-engine-version">KF 5.10</span></strong><small>Camera and character keyframes share one playhead and shot duration.</small></div>
+            <div><strong>SHOT TIMELINE <span class="lighting-engine-version">KF 5.11</span></strong><small>Camera and character keyframes share one playhead and shot duration.</small></div>
             <label>Duration <input id="lightingTimelineDuration" type="number" min="0.25" max="120" step="0.25" value="4" /> s</label>
           </header>
           <div class="lighting-timeline-timebar">
@@ -1210,6 +1210,35 @@
             </div>
           </section>
 
+          <section id="lightingAiVideoSection" class="lighting-drawer-section lighting-ai-video-section">
+            <div class="lighting-section-title">AI VIDEO STUDIO</div>
+            <p class="lighting-ai-video-copy">Turn this diagram, its keyframes, lights and Bible references into a cinematic video.</p>
+            <div class="lighting-ai-provider-tabs" role="radiogroup" aria-label="AI video engine">
+              <button id="lightingVideoRunwayBtn" type="button" class="active" role="radio" aria-checked="true"><strong>Runway</strong><small>Control-video guided</small></button>
+              <button id="lightingVideoVeoBtn" type="button" role="radio" aria-checked="false"><strong>Veo</strong><small>Reference-frame guided</small></button>
+            </div>
+            <div class="lighting-property-pair">
+              <div><label>Model</label><select id="lightingVideoModel"></select></div>
+              <div><label>Resolution</label><select id="lightingVideoResolution"><option value="720p">720p</option><option value="1080p">1080p</option></select></div>
+            </div>
+            <label>Compiled Direction</label>
+            <textarea id="lightingVideoPrompt" rows="5" maxlength="6000" placeholder="The diagram will be compiled into a production prompt."></textarea>
+            <details class="lighting-ai-snapshot-details"><summary>Generation inputs</summary><div id="lightingVideoInputSummary"></div></details>
+            <label class="lighting-ai-consent"><input id="lightingVideoConsent" type="checkbox" /> I have permission to use the selected face and location references.</label>
+            <button id="generateLightingAiVideoBtn" type="button" class="lighting-wide-action primary">Generate AI Video</button>
+            <div id="lightingVideoJob" class="lighting-video-job" hidden>
+              <div><strong id="lightingVideoStage">Preparing control render…</strong><span id="lightingVideoProgressValue">0%</span></div>
+              <progress id="lightingVideoProgress" max="100" value="0"></progress>
+              <p id="lightingVideoStatus" aria-live="polite"></p>
+              <button id="cancelLightingAiVideoBtn" type="button">Cancel</button>
+            </div>
+            <div id="lightingAiVideoResult" class="lighting-ai-video-result" hidden>
+              <div class="lighting-video-result-tabs"><button id="lightingVideoGuideTab" type="button">3D Guide</button><button id="lightingVideoResultTab" type="button" class="active">AI Result</button></div>
+              <video id="lightingAiVideoPlayer" controls playsinline preload="metadata"></video>
+              <div class="lighting-output-grid"><button id="saveLightingAiVideoBtn" type="button">Save to Shot</button><a id="downloadLightingAiVideoBtn" role="button" download>Download</a></div>
+            </div>
+          </section>
+
           <button id="restartLightingDiagramBtn" type="button" class="lighting-restart-diagram">Restart Diagram</button>
         </div>
       </aside>
@@ -1358,7 +1387,7 @@
     </div>
   </dialog>
 
-  <script src="filmboard-i18n-v510.js"></script>
-  <script src="filmboard-app-v510.js"></script>
+  <script src="filmboard-i18n-v511.js"></script>
+  <script src="filmboard-app-v511.js"></script>
 </body>
 </html>

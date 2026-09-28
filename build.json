@@ -1,6 +1,7 @@
 {
   "name": "FilmBoard",
-  "version": "5.10.0",
-  "build": "v5.10.0-ui-theme-lighting",
-  "keyframeEngine": "5.10"
+  "version": "5.11.0",
+  "build": "v5.11.0-ai-video-studio",
+  "keyframeEngine": "5.11",
+  "videoProviders": ["runway", "veo"]
 }
