@@ -1,6 +1,35 @@
-# FilmBoard v5.6.0 — Inline Setup Controls
+# FilmBoard v5.8.0 — Reliable Keyframe Timeline
 
-This build makes Lighting Diagram setup faster to scan and edit: each camera, light and character owns a full-width, collapsible settings panel directly below its row, while desktop navigation stays locked to the workspace.
+This build fixes the complete Lighting Diagram keyframe workflow: the selected time is preserved when Explore starts, every saved pose receives a visible marker, and Play works as soon as a keyframe exists.
+
+## v5.8.0 changes
+
+- Fixes the main timeline bug: starting **Explore Location** no longer resets the playhead to 0 seconds. A second pose at a later time is therefore created as a new keyframe instead of overwriting the first one.
+- Scrubbing or clicking a marker while Explore is active now loads the saved/interpolated camera and character poses at that exact time.
+- A single saved camera or character keyframe is now playable as a held pose; adding a second point on the same track creates visible movement between them.
+- Adds a saved-pose panel below the marker lanes showing the exact time, plan X/Z position, height, rotation and camera tilt/lens or character scale.
+- Keeps large numbered markers at their exact percentage on the timeline and shows full pose coordinates in each marker tooltip.
+- Uses one tested upsert path for camera and character frames so an existing time updates its pose while a different time always creates a new marker.
+- The Play button is disabled only when there are no keyframes and becomes available immediately after the first successful save.
+- No new SQL migration is required for v5.8.0; the fix uses the existing `lighting_diagrams.data.timeline` JSON.
+
+## v5.7.0 changes
+
+- Fixes the Add Keyframe data-loss bug caused by replacing the timeline object while a pose was being captured.
+- Adds larger, numbered Camera and Character markers, per-track keyframe counts, a visible lane playhead and a short save animation.
+- Stores the complete camera pose and setup at each point: plan position, height, rotation, tilt, roll, lens, camera model, shot size, angle, movement, focus and height mode.
+- Stores the complete character pose at each point: plan position, height, rotation, scale, mannequin/character link and face-placement controls.
+- Moving or editing a camera or character exactly at an existing keyframe updates that keyframe. Moving at a new playhead time remains a new pose until **Add Keyframe** is pressed.
+- Interpolates camera position, height, orientation and focal length, plus character position, height, orientation, body scale and face controls, during scrub, Play and video export.
+- Keeps camera tracks isolated per camera while retaining legacy timeline points for older saved diagrams.
+- No new SQL migration is required for v5.7.0; keyframes continue to live in the existing `lighting_diagrams.data.timeline` JSON.
+
+### Keyframe workflow
+
+1. Put the playhead at the first time, pose the camera or character, then press **Add Keyframe**.
+2. Drag the shared playhead to a later time and move/rotate/change the height of that camera or character.
+3. Press **Add Keyframe** again. A numbered marker appears at the new time.
+4. Drag the playhead between markers or press **Play** to preview the interpolated movement.
 
 ## v5.6.0 changes
 
@@ -124,7 +153,7 @@ This build makes Lighting Diagram setup faster to scan and edit: each camera, li
 
 ## Existing installation: deployment
 
-v5.6.0 does not add database fields. If the v5.0 and v5.1 migrations already succeeded, do not run another SQL query. Existing hidden Subject fields remain in saved shot data for backward compatibility and are not deleted.
+v5.8.0 does not add database fields. If the v5.0 and v5.1 migrations already succeeded, do not run another SQL query. Existing hidden Subject fields remain in saved shot data for backward compatibility and are not deleted.
 
 1. If `Storyboard v4.8 - Lighting Access Repair` has not already succeeded, run the packaged v4.8 query once using the saved-query instructions from the prior release. Otherwise leave SQL Editor unchanged.
 2. Run `supabase-v5.0-virtual-locations.sql` once if it has not already been run.
@@ -137,8 +166,8 @@ v5.6.0 does not add database fields. If the v5.0 and v5.1 migrations already suc
    ```
 
 6. No Supabase Edge Function redeploy is required.
-7. Hard-refresh the app. Page source should show `styles.css?v=560`, `config.js?v=560`, `i18n.js?v=560`, `app.js?v=560` and build `v5.6.0-inline-toggle-settings`.
-8. Open Lighting Diagram and verify that clicking a camera, light or character opens its full-width settings below it, while a second click closes the settings.
+7. Hard-refresh the app. Page source should show `styles.css?v=580`, `config.js?v=580`, `i18n.js?v=580`, `app.js?v=580` and build `v5.8.0-keyframe-timeline-fix`.
+8. Open Lighting Diagram, add a camera keyframe at 0 seconds, move the playhead to a later time, enter Explore, change the camera pose and add another keyframe. The time must stay unchanged, both numbered markers must remain visible, and Play must animate between them.
 
 ## Fresh Supabase installation
 

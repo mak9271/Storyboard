@@ -1,4 +1,4 @@
-// FilmBoard v5.6.0 — English / Persian interface
+// FilmBoard v5.8.0 — English / Persian interface
 (() => {
   "use strict";
 

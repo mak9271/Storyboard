@@ -1,4 +1,4 @@
-// FilmBoard v5.6.0 — inline toggle settings and streamlined Lighting Studio
+// FilmBoard v5.8.0 — reliable playhead, pose markers and keyframe playback
 const OPTIONS = {
   shotSize:["ECU · Extreme Close Up","CU · Close Up","MCU · Medium Close Up","MS · Medium Shot","MLS · Medium Long Shot","WS · Wide Shot","EWS · Extreme Wide Shot","OTS · Over The Shoulder","POV · Point of View","Insert","Top Shot"],
   angle:["Eye Level","High Angle","Low Angle","Top / Bird's Eye","Dutch Angle","Ground Level","Overhead","Custom"],
@@ -2869,7 +2869,7 @@ async function importJSONOnline(file){
 
 
 
-/* ---------- LIGHTING STUDIO v5.6 ---------- */
+/* ---------- LIGHTING STUDIO v5.8 ---------- */
 /* Manufacturer-published sensor and recording-area data. Dimensions are millimetres. */
 const CINEMA_CAMERAS = Object.freeze({
   "ARRI ALEXA XT":{brand:"ARRI",model:"ALEXA XT",sensorWidth:28.25,sensorHeight:18.17,activeWidth:28.25,activeHeight:18.17,resolution:"3424 × 2202",format:"ALEV III Open Gate",hud:"arri",display:"EVF-1 / MON OUT",bitDepth:"12-bit ARRIRAW",dynamicRange:"14.5 stops",source:"https://www.arri.com/resource/blob/279392/13ef3e45b45c888c6f7eeb0b7a4825c4/alexa-xt-user-manual-sup-9-1-data.pdf"},
@@ -3517,11 +3517,13 @@ function defaultLightingTimeline(){
 function normalizeCameraKeyframe(frame,duration){
   const finite=(value,fallback)=>Number.isFinite(Number(value))?Number(value):fallback;
   return {
-    id:frame?.id||uid(),time:Math.max(0,Math.min(duration,finite(frame?.time,0))),
+    id:frame?.id||uid(),objectId:String(frame?.objectId||frame?.cameraId||""),time:Math.max(0,Math.min(duration,finite(frame?.time,0))),
     x:Math.max(0,Math.min(1200,finite(frame?.x,600))),y:Math.max(0,Math.min(800,finite(frame?.y,400))),
     height3d:Math.max(.1,Math.min(6,finite(frame?.height3d,1.65))),rotation:finite(frame?.rotation,0),
     tilt:Math.max(-89,Math.min(89,finite(frame?.tilt,0))),roll:finite(frame?.roll,0),
     lens:frame?.lens||"50mm",cameraModel:CINEMA_CAMERAS[frame?.cameraModel]?frame.cameraModel:"ARRI ALEXA Mini",
+    shotSize:frame?.shotSize||"CU · Close Up",angle:frame?.angle||"Eye Level",movement:frame?.movement||"Static",
+    focus:frame?.focus||"Shallow Focus",cameraHeight:frame?.cameraHeight||"Custom",
     easing:frame?.easing||"smooth"
   }
 }
@@ -3531,7 +3533,9 @@ function normalizeCharacterKeyframe(frame,duration){
     id:frame?.id||uid(),objectId:String(frame?.objectId||frame?.subjectId||""),time:Math.max(0,Math.min(duration,finite(frame?.time,0))),
     x:Math.max(0,Math.min(1200,finite(frame?.x,600))),y:Math.max(0,Math.min(800,finite(frame?.y,400))),
     height3d:Math.max(.1,Math.min(2.5,finite(frame?.height3d,1.75))),rotation:finite(frame?.rotation,0),
-    scale:Math.max(40,Math.min(180,finite(frame?.scale,100))),easing:frame?.easing||"smooth"
+    scale:Math.max(40,Math.min(180,finite(frame?.scale,100))),gender:frame?.gender||"female",characterId:String(frame?.characterId||""),
+    faceScale:Math.max(50,Math.min(180,finite(frame?.faceScale,100))),faceYaw:finite(frame?.faceYaw,0),faceOffset:finite(frame?.faceOffset,0),
+    easing:frame?.easing||"smooth"
   }
 }
 function normalizeLightingTimeline(value){
@@ -3694,7 +3698,7 @@ function setLightingCurrent(diagram){
   app.lighting.activeCameraId=firstCam?.id||null;
   app.lighting.selectedId=firstCam?.id||app.lighting.current.data.objects[0]?.id||null;
   app.lighting.inspectorOpen=true;
-  app.lighting.playback.selectedKeyframeId=app.lighting.current.data.timeline.keyframes[0]?.id||null;
+  app.lighting.playback.selectedKeyframeId=activeCameraTimelineFrames(app.lighting.current.data.timeline,firstCam)[0]?.id||null;
   app.lighting.playback.activeCharacterId=firstCharacter?.id||null;
   app.lighting.playback.selectedCharacterKeyframeId=app.lighting.current.data.timeline.characterKeyframes.find(frame=>frame.objectId===firstCharacter?.id)?.id||null;
   app.lighting.playback.selectedTrack="camera";
@@ -3762,7 +3766,16 @@ function selectLightingObject(id,openDrawer=false,toggleInspector=false){
   app.lighting.inspectorOpen=toggleInspector?(isCurrent?!app.lighting.inspectorOpen:true):true;
   app.lighting.selectedId=id;
   const o=lightingSelected();
-  if(o?.type==="camera"&&!app.lighting.activeCameraId)app.lighting.activeCameraId=o.id;
+  if(o?.type==="camera"){
+    const changedCamera=app.lighting.activeCameraId!==o.id;
+    if(changedCamera){
+      const previous=activeLightingCameraObject();
+      if(previous&&app.lighting.playback.baseCamera)Object.assign(previous,deepClone(app.lighting.playback.baseCamera));
+      app.lighting.playback.playing=false;app.lighting.playback.baseCamera=null
+    }
+    app.lighting.activeCameraId=o.id;
+    app.lighting.playback.selectedKeyframeId=activeCameraTimelineFrames(currentLightingTimeline(),o)[0]?.id||null
+  }
   if(o?.type==="subject")app.lighting.playback.activeCharacterId=o.id;
   const folder=lightingFolderForType(o?.type);if(folder)folder.open=true;
   if(openDrawer&&app.lighting.drawerCollapsed)toggleLightingDrawer(false);
@@ -3949,6 +3962,8 @@ function selectedLightingChange(sourceId=""){
     }
   }
 
+  syncCurrentObjectToTimelineKeyframe(o);
+  if(o.type==="subject")syncCurrentObjectToTimelineKeyframe(activeLightingCameraObject());
   markLightingDirty();renderLightingObjectList();renderLightingInspector(false);renderLightingCanvas();syncLighting3D()
 }
 function renderLightingInspector(updateInputs=true){
@@ -4167,10 +4182,10 @@ function lightingElevationObjectSvg(o,selected){
   return `<g><path class="lighting-elevation-ray" d="M${x} ${y}L${x+210} ${rayY}" stroke="${color}" stroke-width="10" opacity=".12"/><g data-lighting-elevation-id="${o.id}"><rect x="${x-20}" y="${y-13}" width="40" height="26" rx="5" fill="#0b1013" stroke="${stroke}" stroke-width="${selected?3:1.6}"/><circle cx="${x+20}" cy="${y}" r="7" fill="${color}"/><line x1="${x}" y1="${y+14}" x2="${x}" y2="${floor}" stroke="#59666c"/><text x="${x+33}" y="${y+4}" fill="#dce8ec" font-size="14">${label} · ${height.toFixed(2)} m</text></g></g>`
 }
 function lightingCameraPathPlanSvg(){
-  const frames=app.lighting.current?.data?.timeline?.keyframes||[];if(!frames.length)return "";const points=frames.map(frame=>`${frame.x},${frame.y}`).join(" ");return `<g class="lighting-camera-path" pointer-events="none">${frames.length>1?`<polyline points="${points}" fill="none" stroke="#ffbd59" stroke-width="3" stroke-dasharray="9 7" vector-effect="non-scaling-stroke"/>`:""}${frames.map((frame,index)=>`<circle cx="${frame.x}" cy="${frame.y}" r="12" fill="#19130a" stroke="#ffbd59" stroke-width="3" vector-effect="non-scaling-stroke"/><text x="${frame.x}" y="${frame.y+4}" text-anchor="middle" fill="#ffe0a5" font-size="11" font-weight="900">${index+1}</text>`).join("")}</g>`
+  const frames=activeCameraTimelineFrames();if(!frames.length)return "";const points=frames.map(frame=>`${frame.x},${frame.y}`).join(" ");return `<g class="lighting-camera-path" pointer-events="none">${frames.length>1?`<polyline points="${points}" fill="none" stroke="#ffbd59" stroke-width="3" stroke-dasharray="9 7" vector-effect="non-scaling-stroke"/>`:""}${frames.map((frame,index)=>`<circle cx="${frame.x}" cy="${frame.y}" r="12" fill="#19130a" stroke="#ffbd59" stroke-width="3" vector-effect="non-scaling-stroke"/><text x="${frame.x}" y="${frame.y+4}" text-anchor="middle" fill="#ffe0a5" font-size="11" font-weight="900">${index+1}</text>`).join("")}</g>`
 }
 function lightingCameraPathElevationSvg(){
-  const frames=app.lighting.current?.data?.timeline?.keyframes||[];if(!frames.length)return "";const points=frames.map(frame=>`${55+Number(frame.x||0)*.9},${440-Number(frame.height3d||1.65)*62}`).join(" ");return `<g class="lighting-camera-path" pointer-events="none">${frames.length>1?`<polyline points="${points}" fill="none" stroke="#ffbd59" stroke-width="3" stroke-dasharray="9 7"/>`:""}${frames.map((frame,index)=>{const x=55+Number(frame.x||0)*.9,y=440-Number(frame.height3d||1.65)*62;return `<circle cx="${x}" cy="${y}" r="11" fill="#19130a" stroke="#ffbd59" stroke-width="3"/><text x="${x}" y="${y+4}" text-anchor="middle" fill="#ffe0a5" font-size="10" font-weight="900">${index+1}</text>`}).join("")}</g>`
+  const frames=activeCameraTimelineFrames();if(!frames.length)return "";const points=frames.map(frame=>`${55+Number(frame.x||0)*.9},${440-Number(frame.height3d||1.65)*62}`).join(" ");return `<g class="lighting-camera-path" pointer-events="none">${frames.length>1?`<polyline points="${points}" fill="none" stroke="#ffbd59" stroke-width="3" stroke-dasharray="9 7"/>`:""}${frames.map((frame,index)=>{const x=55+Number(frame.x||0)*.9,y=440-Number(frame.height3d||1.65)*62;return `<circle cx="${x}" cy="${y}" r="11" fill="#19130a" stroke="#ffbd59" stroke-width="3"/><text x="${x}" y="${y+4}" text-anchor="middle" fill="#ffe0a5" font-size="10" font-weight="900">${index+1}</text>`}).join("")}</g>`
 }
 function lightingCharacterPathPlanSvg(){
   const timeline=app.lighting.current?.data?.timeline,frames=timeline?.characterKeyframes||[];if(!frames.length)return "";
@@ -4273,21 +4288,21 @@ function moveLightingDrag(e){
     const currentAngle=angleBetween2d(pts[0],pts[1]);
     o.rotation=normalizeDegrees(d.startRotation+(currentAngle-d.startTwoFingerAngle));
     if(o.type==="camera")o.autoFrame=false;
-    markLightingDirty();renderLightingInspector(false);renderLightingCanvas();syncLighting3D();return
+    syncCurrentObjectToTimelineKeyframe(o);markLightingDirty();renderLightingInspector(false);renderLightingCanvas();syncLighting3D();return
   }
 
   if(d.mode==="rotate"){
     const a=angleBetween2d({x:o.x,y:o.y},p);
     o.rotation=normalizeDegrees(d.startRotation+(a-d.startPointerAngle));
     if(o.type==="camera")o.autoFrame=false;
-    markLightingDirty();renderLightingInspector(false);renderLightingCanvas();syncLighting3D();return
+    syncCurrentObjectToTimelineKeyframe(o);markLightingDirty();renderLightingInspector(false);renderLightingCanvas();syncLighting3D();return
   }
 
   if(d.pointerId!==e.pointerId)return;
   o.x=Math.max(25,Math.min(1175,d.objectX+p.x-d.startX));
   o.y=Math.max(25,Math.min(775,d.objectY+p.y-d.startY));
   if(o.type==="camera")o.autoFrame=false;
-  markLightingDirty();renderLightingCanvas();syncLighting3D()
+  syncCurrentObjectToTimelineKeyframe(o);markLightingDirty();renderLightingCanvas();syncLighting3D()
 }
 function endLightingDrag(e){
   if(e?.pointerId!=null)delete app.lighting.pointers[e.pointerId];
@@ -4300,7 +4315,7 @@ function startLightingElevationDrag(event,id){
   app.lighting.planPane="elevation";applyLightingPlanViewBox();selectLightingObject(id,false);if(!lightingCanEdit())return;const o=lightingSelected();if(!o)return;event.preventDefault();event.stopPropagation();const p=lightingElevationPoint(event);app.lighting.dragging={id,mode:"elevation",pointerId:event.pointerId,startX:p.x,startY:p.y,objectX:Number(o.x||600),height3d:Number(o.height3d||(o.type==="light"?2.2:o.type==="subject"?1.75:1.65))};$("lightingElevationCanvas").setPointerCapture?.(event.pointerId)
 }
 function moveLightingElevationDrag(event){
-  const drag=app.lighting.dragging;if(!drag||drag.mode!=="elevation"||drag.pointerId!==event.pointerId||!lightingCanEdit())return;const o=app.lighting.current?.data?.objects?.find(item=>item.id===drag.id);if(!o)return;const p=lightingElevationPoint(event);o.x=Math.max(0,Math.min(1200,drag.objectX+(p.x-drag.startX)/.9));o.height3d=Math.max(.1,Math.min(o.type==="subject"?2.5:o.type==="camera"?12:8,drag.height3d-(p.y-drag.startY)/62));if(o.type==="camera"){o.cameraHeight="Custom";o.autoFrame=false}markLightingDirty();renderLightingInspector(false);renderLightingCanvas();syncLighting3D()
+  const drag=app.lighting.dragging;if(!drag||drag.mode!=="elevation"||drag.pointerId!==event.pointerId||!lightingCanEdit())return;const o=app.lighting.current?.data?.objects?.find(item=>item.id===drag.id);if(!o)return;const p=lightingElevationPoint(event);o.x=Math.max(0,Math.min(1200,drag.objectX+(p.x-drag.startX)/.9));o.height3d=Math.max(.1,Math.min(o.type==="subject"?2.5:o.type==="camera"?12:8,drag.height3d-(p.y-drag.startY)/62));if(o.type==="camera"){o.cameraHeight="Custom";o.autoFrame=false}syncCurrentObjectToTimelineKeyframe(o);markLightingDirty();renderLightingInspector(false);renderLightingCanvas();syncLighting3D()
 }
 
 
@@ -4329,21 +4344,39 @@ function parseDurationSeconds(v){
 }
 function currentLightingTimeline(){
   const data=app.lighting.current?.data;if(!data)return defaultLightingTimeline();
-  data.timeline=normalizeLightingTimeline(data.timeline);return data.timeline
+  if(!data.timeline||typeof data.timeline!=="object"||!Array.isArray(data.timeline.keyframes)||!Array.isArray(data.timeline.characterKeyframes))data.timeline=normalizeLightingTimeline(data.timeline);
+  return data.timeline
 }
 function lightingTimelineCharacters(){return (app.lighting.current?.data?.objects||[]).filter(object=>object.type==="subject")}
+function activeCameraTimelineFrames(timeline=currentLightingTimeline(),camera=activeLightingCameraObject()){
+  const cameraId=camera?.id||"";
+  return timeline.keyframes.filter(frame=>!frame.objectId||frame.objectId===cameraId).sort((a,b)=>a.time-b.time)
+}
+function lightingPlayheadTime(timeline=currentLightingTimeline()){
+  const input=Number($("lightingTimelineTime")?.value),elapsed=Number(app.lighting.playback.elapsed),value=Number.isFinite(input)?input:Number.isFinite(elapsed)?elapsed:0;
+  return Math.max(0,Math.min(timeline.duration,value))
+}
+function timelineFrameAt(frames,time,tolerance=.035){return frames.find(frame=>Math.abs(Number(frame.time)-time)<tolerance)||null}
+function upsertLightingKeyframe(frames,pose,time,objectId){
+  const existing=timelineFrameAt(frames.filter(frame=>!frame.objectId||frame.objectId===objectId),time);pose.time=time;pose.objectId=objectId;
+  if(existing){pose.id=existing.id;Object.assign(existing,pose);return {frame:existing,created:false}}
+  frames.push(pose);frames.sort((a,b)=>a.time-b.time);return {frame:pose,created:true}
+}
 function activeLightingTimelineCharacter(){
   const characters=lightingTimelineCharacters(),pb=app.lighting.playback,selected=lightingSelected();
   const character=(selected?.type==="subject"?selected:null)||characters.find(object=>object.id===pb.activeCharacterId)||characters[0]||null;
   if(character)pb.activeCharacterId=character.id;return character
 }
-function characterPoseFromCurrentSubject(subject=activeLightingTimelineCharacter()){
-  if(!subject)return null;return normalizeCharacterKeyframe({...subject,id:uid(),objectId:subject.id},currentLightingTimeline().duration)
+function characterPoseFromCurrentSubject(subject=activeLightingTimelineCharacter(),duration=currentLightingTimeline().duration){
+  if(!subject)return null;return normalizeCharacterKeyframe({...subject,id:uid(),objectId:subject.id},duration)
 }
-function lightingTimelinePlayable(){
-  const timeline=currentLightingTimeline();if(timeline.keyframes.length>=2)return true;
+function lightingTimelineHasMotion(){
+  const timeline=currentLightingTimeline();if(activeCameraTimelineFrames(timeline).length>=2)return true;
   const counts=new Map();for(const frame of timeline.characterKeyframes)counts.set(frame.objectId,(counts.get(frame.objectId)||0)+1);
   return [...counts.values()].some(count=>count>=2)
+}
+function lightingTimelinePlayable(){
+  const timeline=currentLightingTimeline();return activeCameraTimelineFrames(timeline).length>0||timeline.characterKeyframes.length>0
 }
 function formatTimelineShotDuration(duration){return `${Number(Number(duration).toFixed(2))} s`}
 async function syncTimelineDurationToShot(duration){
@@ -4362,32 +4395,46 @@ function lightingPlaybackConfig(camObj){
   const sh=linkedLightingShot(),timeline=currentLightingTimeline();
   return {duration:timeline.duration||Math.max(.25,parseDurationSeconds(sh?.duration||"4")),movement:camObj?.movement||sh?.movement||"Static"}
 }
-function timelinePoseFromCurrentCamera(){
+function timelinePoseFromCurrentCamera(duration=currentLightingTimeline().duration){
   const cam=activeLightingCameraObject();if(!cam)return null;const pose=app.lighting.explorer.active&&app.lighting.explorer.pose;
   return normalizeCameraKeyframe(pose?{id:uid(),
     x:600+Number(pose.x||0)*100,y:400+Number(pose.z||0)*100,height3d:pose.y,
-    rotation:pose.rotation,tilt:pose.tilt,roll:pose.roll,lens:pose.lens||cam.lens,cameraModel:cam.cameraModel
-  }:{...cam,id:uid()},currentLightingTimeline().duration)
+    rotation:pose.rotation,tilt:pose.tilt,roll:pose.roll,lens:pose.lens||cam.lens,cameraModel:cam.cameraModel,
+    shotSize:cam.shotSize,angle:cam.angle,movement:cam.movement,focus:cam.focus,cameraHeight:cam.cameraHeight,objectId:cam.id
+  }:{...cam,id:uid(),objectId:cam.id},duration)
+}
+function syncCurrentObjectToTimelineKeyframe(object=lightingSelected()){
+  if(!object||!app.lighting.current)return false;const timeline=currentLightingTimeline(),time=lightingPlayheadTime(timeline),pb=app.lighting.playback;
+  if(object.type==="camera"&&object.id===activeLightingCameraObject()?.id){
+    const existing=timelineFrameAt(activeCameraTimelineFrames(timeline,object),time);if(!existing)return false;
+    const pose=timelinePoseFromCurrentCamera(timeline.duration);if(!pose)return false;
+    pose.id=existing.id;pose.time=existing.time;pose.objectId=object.id;Object.assign(existing,pose);pb.selectedTrack="camera";pb.selectedKeyframeId=existing.id;return true
+  }
+  if(object.type==="subject"){
+    const frames=timeline.characterKeyframes.filter(frame=>frame.objectId===object.id),existing=timelineFrameAt(frames,time);if(!existing)return false;
+    const pose=characterPoseFromCurrentSubject(object,timeline.duration);if(!pose)return false;
+    pose.id=existing.id;pose.time=existing.time;pose.objectId=object.id;Object.assign(existing,pose);pb.selectedTrack="character";pb.activeCharacterId=object.id;pb.selectedCharacterKeyframeId=existing.id;return true
+  }
+  return false
+}
+function pulseLightingKeyframeMarker(attribute,id){
+  requestAnimationFrame(()=>{const marker=document.querySelector(`[${attribute}="${id}"]`);if(!marker)return;marker.classList.remove("just-saved");requestAnimationFrame(()=>marker.classList.add("just-saved"))})
 }
 function addLightingCameraKeyframe(){
-  const d=app.lighting.current,cam=activeLightingCameraObject();if(!d||!cam||!lightingCanEdit())return;const timeline=currentLightingTimeline(),time=Math.max(0,Math.min(timeline.duration,Number($("lightingTimelineTime").value)||0)),pose=timelinePoseFromCurrentCamera();if(!pose)return;
-  const existing=timeline.keyframes.find(frame=>Math.abs(frame.time-time)<.035);pose.time=time;
-  if(existing){pose.id=existing.id;Object.assign(existing,pose);app.lighting.playback.selectedKeyframeId=existing.id}
-  else{timeline.keyframes.push(pose);timeline.keyframes.sort((a,b)=>a.time-b.time);app.lighting.playback.selectedKeyframeId=pose.id}
+  const d=app.lighting.current,cam=activeLightingCameraObject();if(!d||!cam||!lightingCanEdit())return;const timeline=currentLightingTimeline(),time=lightingPlayheadTime(timeline),pose=timelinePoseFromCurrentCamera(timeline.duration);if(!pose)return;
+  const result=upsertLightingKeyframe(timeline.keyframes,pose,time,cam.id);app.lighting.playback.selectedKeyframeId=result.frame.id;
   app.lighting.playback.selectedTrack="camera";
-  app.lighting.playback.elapsed=time;markLightingDirty();renderLightingTimeline();renderLightingCanvas();updateLightingPlaybackStatus(`Camera point saved at ${time.toFixed(2)}s`);void syncTimelineDurationToShot(timeline.duration)
+  app.lighting.playback.elapsed=time;markLightingDirty();renderLightingTimeline();renderLightingCanvas();pulseLightingKeyframeMarker("data-keyframe-id",result.frame.id);updateLightingPlaybackStatus(`Camera keyframe ${result.created?"added":"updated"} at ${time.toFixed(2)}s${lightingTimelineHasMotion()?" · Ready to play":" · Add one more camera keyframe for movement"}`);void syncTimelineDurationToShot(timeline.duration)
 }
 function deleteLightingCameraKeyframe(){
-  const timeline=currentLightingTimeline(),id=app.lighting.playback.selectedKeyframeId;if(!id||!lightingCanEdit())return;timeline.keyframes=timeline.keyframes.filter(frame=>frame.id!==id);app.lighting.playback.selectedKeyframeId=timeline.keyframes[0]?.id||null;markLightingDirty();renderLightingTimeline();updateLightingPlaybackStatus()
+  const timeline=currentLightingTimeline(),id=app.lighting.playback.selectedKeyframeId;if(!id||!lightingCanEdit())return;timeline.keyframes=timeline.keyframes.filter(frame=>frame.id!==id);app.lighting.playback.selectedKeyframeId=activeCameraTimelineFrames(timeline)[0]?.id||null;markLightingDirty();renderLightingTimeline();renderLightingCanvas();updateLightingPlaybackStatus()
 }
 function addLightingCharacterKeyframe(){
   const d=app.lighting.current,subject=activeLightingTimelineCharacter();if(!d||!subject||!lightingCanEdit())return;
-  const timeline=currentLightingTimeline(),time=Math.max(0,Math.min(timeline.duration,Number($("lightingTimelineTime").value)||0)),pose=characterPoseFromCurrentSubject(subject);if(!pose)return;pose.time=time;pose.objectId=subject.id;
-  const existing=timeline.characterKeyframes.find(frame=>frame.objectId===subject.id&&Math.abs(frame.time-time)<.035);
-  if(existing){pose.id=existing.id;Object.assign(existing,pose);app.lighting.playback.selectedCharacterKeyframeId=existing.id}
-  else{timeline.characterKeyframes.push(pose);timeline.characterKeyframes.sort((a,b)=>a.time-b.time);app.lighting.playback.selectedCharacterKeyframeId=pose.id}
+  const timeline=currentLightingTimeline(),time=lightingPlayheadTime(timeline),pose=characterPoseFromCurrentSubject(subject,timeline.duration);if(!pose)return;pose.time=time;pose.objectId=subject.id;
+  const result=upsertLightingKeyframe(timeline.characterKeyframes,pose,time,subject.id);app.lighting.playback.selectedCharacterKeyframeId=result.frame.id;
   app.lighting.playback.activeCharacterId=subject.id;app.lighting.playback.selectedTrack="character";app.lighting.playback.elapsed=time;
-  markLightingDirty();renderLightingTimeline();renderLightingCanvas();updateLightingPlaybackStatus(`${subject.label||"Character"} point saved at ${time.toFixed(2)}s`);void syncTimelineDurationToShot(timeline.duration)
+  markLightingDirty();renderLightingTimeline();renderLightingCanvas();pulseLightingKeyframeMarker("data-character-keyframe-id",result.frame.id);updateLightingPlaybackStatus(`${subject.label||"Character"} keyframe ${result.created?"added":"updated"} at ${time.toFixed(2)}s${lightingTimelineHasMotion()?" · Ready to play":" · Add one more character keyframe for movement"}`);void syncTimelineDurationToShot(timeline.duration)
 }
 function deleteLightingCharacterKeyframe(){
   const timeline=currentLightingTimeline(),id=app.lighting.playback.selectedCharacterKeyframeId;if(!id||!lightingCanEdit())return;
@@ -4403,16 +4450,21 @@ function easeTimelineValue(t,mode="smooth"){
   const value=Math.max(0,Math.min(1,t));if(mode==="linear")return value;if(mode==="hold")return 0;return value*value*(3-2*value)
 }
 function cameraTimelineSample(time){
-  const timeline=currentLightingTimeline(),frames=timeline.keyframes;if(!frames.length)return null;if(frames.length===1||time<=frames[0].time)return deepClone(frames[0]);if(time>=frames[frames.length-1].time)return deepClone(frames[frames.length-1]);
+  const frames=activeCameraTimelineFrames();if(!frames.length)return null;if(frames.length===1||time<=frames[0].time)return deepClone(frames[0]);if(time>=frames[frames.length-1].time)return deepClone(frames[frames.length-1]);
   let left=frames[0],right=frames[frames.length-1];for(let i=1;i<frames.length;i++){if(time<=frames[i].time){left=frames[i-1];right=frames[i];break}}
   const raw=(time-left.time)/Math.max(.001,right.time-left.time),t=easeTimelineValue(raw,right.easing||"smooth"),mix=(a,b)=>Number(a||0)+(Number(b||0)-Number(a||0))*t;
-  return {...deepClone(left),time,x:mix(left.x,right.x),y:mix(left.y,right.y),height3d:mix(left.height3d,right.height3d),rotation:Number(left.rotation||0)+shortestAngleDelta(left.rotation,right.rotation)*t,tilt:mix(left.tilt,right.tilt),roll:Number(left.roll||0)+shortestAngleDelta(left.roll,right.roll)*t,lens:`${mix(parseLensMm(left.lens),parseLensMm(right.lens)).toFixed(1)}mm`,cameraModel:t<.5?left.cameraModel:right.cameraModel}
+  return {...deepClone(left),time,x:mix(left.x,right.x),y:mix(left.y,right.y),height3d:mix(left.height3d,right.height3d),rotation:Number(left.rotation||0)+shortestAngleDelta(left.rotation,right.rotation)*t,tilt:mix(left.tilt,right.tilt),roll:Number(left.roll||0)+shortestAngleDelta(left.roll,right.roll)*t,lens:`${mix(parseLensMm(left.lens),parseLensMm(right.lens)).toFixed(1)}mm`,cameraModel:t<.5?left.cameraModel:right.cameraModel,shotSize:t<.5?left.shotSize:right.shotSize,angle:t<.5?left.angle:right.angle,movement:t<.5?left.movement:right.movement,focus:t<.5?left.focus:right.focus,cameraHeight:t<.5?left.cameraHeight:right.cameraHeight}
 }
 function characterTimelineSample(objectId,time){
   const frames=currentLightingTimeline().characterKeyframes.filter(frame=>frame.objectId===objectId).sort((a,b)=>a.time-b.time);if(!frames.length)return null;if(frames.length===1||time<=frames[0].time)return deepClone(frames[0]);if(time>=frames[frames.length-1].time)return deepClone(frames[frames.length-1]);
   let left=frames[0],right=frames[frames.length-1];for(let i=1;i<frames.length;i++){if(time<=frames[i].time){left=frames[i-1];right=frames[i];break}}
   const raw=(time-left.time)/Math.max(.001,right.time-left.time),t=easeTimelineValue(raw,right.easing||"smooth"),mix=(a,b)=>Number(a||0)+(Number(b||0)-Number(a||0))*t;
-  return {...deepClone(left),time,x:mix(left.x,right.x),y:mix(left.y,right.y),height3d:mix(left.height3d,right.height3d),rotation:Number(left.rotation||0)+shortestAngleDelta(left.rotation,right.rotation)*t,scale:mix(left.scale,right.scale)}
+  return {...deepClone(left),time,x:mix(left.x,right.x),y:mix(left.y,right.y),height3d:mix(left.height3d,right.height3d),rotation:Number(left.rotation||0)+shortestAngleDelta(left.rotation,right.rotation)*t,scale:mix(left.scale,right.scale),faceScale:mix(left.faceScale,right.faceScale),faceYaw:mix(left.faceYaw,right.faceYaw),faceOffset:mix(left.faceOffset,right.faceOffset),gender:t<.5?left.gender:right.gender,characterId:t<.5?left.characterId:right.characterId}
+}
+function applyCameraTimelineSample(camera,sample){
+  if(!camera||!sample)return;const identity={id:camera.id,type:camera.type,label:camera.label};
+  for(const field of ["x","y","height3d","rotation","tilt","roll","lens","cameraModel","shotSize","angle","movement","focus","cameraHeight"])if(sample[field]!=null)camera[field]=sample[field];
+  Object.assign(camera,identity,{autoFrame:false})
 }
 function captureLightingTimelineSubjects(){return Object.fromEntries(lightingTimelineCharacters().map(subject=>[subject.id,deepClone(subject)]))}
 function applyCharacterTimelineTime(time){
@@ -4420,46 +4472,71 @@ function applyCharacterTimelineTime(time){
   if(!pb.baseSubjects)pb.baseSubjects=captureLightingTimelineSubjects();
   for(const objectId of new Set(timeline.characterKeyframes.map(frame=>frame.objectId))){
     const subject=lightingTimelineCharacters().find(object=>object.id===objectId),sample=characterTimelineSample(objectId,time);if(!subject||!sample)continue;
-    Object.assign(subject,{x:sample.x,y:sample.y,height3d:sample.height3d,rotation:sample.rotation,scale:sample.scale})
+    Object.assign(subject,{x:sample.x,y:sample.y,height3d:sample.height3d,rotation:sample.rotation,scale:sample.scale,gender:sample.gender,characterId:sample.characterId,faceScale:sample.faceScale,faceYaw:sample.faceYaw,faceOffset:sample.faceOffset})
   }
 }
 function applyLightingTimelineTime(time,{preview=true}={}){
   const timeline=currentLightingTimeline(),pb=app.lighting.playback,cam=activeLightingCameraObject(),next=Math.max(0,Math.min(timeline.duration,Number(time)||0));pb.elapsed=next;
-  if(preview&&cam&&timeline.keyframes.length){if(!pb.baseCamera)pb.baseCamera=deepClone(cam);const sample=cameraTimelineSample(next);if(sample)Object.assign(cam,sample,{id:cam.id,type:"camera",label:cam.label,autoFrame:false})}
+  if(preview&&cam&&activeCameraTimelineFrames(timeline,cam).length){if(!pb.baseCamera)pb.baseCamera=deepClone(cam);applyCameraTimelineSample(cam,cameraTimelineSample(next))}
   if(preview)applyCharacterTimelineTime(next);
   if($("lightingTimelineScrubber"))$("lightingTimelineScrubber").value=String(next);if($("lightingTimelineTime"))$("lightingTimelineTime").value=next.toFixed(2);updateThreeCameraFromObject();updateThreeSubjectsFromObjects();renderLightingCanvas();renderLightingInspector(false);renderLightingObjectList();updateCameraViewfinder()
 }
 function seekLightingTimeline(value){
   pauseLightingPlayback();const next=Math.max(0,Math.min(currentLightingTimeline().duration,Number(value)||0));
-  if(app.lighting.explorer.active){app.lighting.playback.elapsed=next;applyCharacterTimelineTime(next);updateThreeSubjectsFromObjects();renderLightingCanvas();renderLightingObjectList();renderLightingTimeline();updateLightingPlaybackStatus(`Playhead · ${next.toFixed(2)}s · Explore camera unchanged`);updateCameraViewfinder();return}
+  if(app.lighting.explorer.active){
+    const timeline=currentLightingTimeline(),pb=app.lighting.playback,cam=activeLightingCameraObject(),sample=cameraTimelineSample(next);pb.elapsed=next;
+    if(cam&&sample){if(!pb.baseCamera)pb.baseCamera=deepClone(cam);applyCameraTimelineSample(cam,sample);app.lighting.explorer.pose={...explorerPoseFromCamera(cam)}}
+    applyCharacterTimelineTime(next);updateThreeCameraFromObject();updateThreeSubjectsFromObjects();renderLightingCanvas();renderLightingInspector(false);renderLightingObjectList();renderLightingTimeline();updateLightingPlaybackStatus(`Playhead · ${next.toFixed(2)}s · saved poses loaded`);updateCameraViewfinder();return
+  }
   applyLightingTimelineTime(next);renderLightingTimeline();updateLightingPlaybackStatus()
+}
+function lightingTimelinePosition(frame){
+  const metersPer100=Math.max(.01,Number(app.lighting.current?.data?.canvas?.metersPer100px)||1);
+  return {x:(Number(frame?.x??600)-600)/100*metersPer100,z:(Number(frame?.y??400)-400)/100*metersPer100,height:Number(frame?.height3d??0)}
+}
+function lightingTimelinePoseText(frame,type){
+  const p=lightingTimelinePosition(frame),base=`X ${p.x.toFixed(2)} m · Z ${p.z.toFixed(2)} m · H ${p.height.toFixed(2)} m · ${Math.round(Number(frame?.rotation||0))}°`;
+  return type==="camera"?`${base} · Tilt ${Math.round(Number(frame?.tilt||0))}° · ${frame?.lens||"50mm"}`:`${base} · Scale ${Math.round(Number(frame?.scale||100))}%`
 }
 function renderLightingTimeline(){
   const timeline=currentLightingTimeline(),pb=app.lighting.playback,scrubber=$("lightingTimelineScrubber"),timeInput=$("lightingTimelineTime"),durationInput=$("lightingTimelineDuration"),markers=$("lightingTimelineMarkers"),characterMarkers=$("lightingCharacterTimelineMarkers"),characterSelect=$("lightingTimelineCharacter");if(!scrubber||!markers||!characterMarkers||!characterSelect)return;
   scrubber.max=String(timeline.duration);scrubber.value=String(Math.min(timeline.duration,pb.elapsed||0));timeInput.max=String(timeline.duration);timeInput.value=Number(pb.elapsed||0).toFixed(2);durationInput.value=String(Number(timeline.duration.toFixed(2)));
-  const characters=lightingTimelineCharacters(),activeCharacter=activeLightingTimelineCharacter();
+  const cameraFrames=activeCameraTimelineFrames(timeline),characters=lightingTimelineCharacters(),activeCharacter=activeLightingTimelineCharacter();
   characterSelect.innerHTML=characters.length?characters.map(character=>`<option value="${escapeHtml(character.id)}">${escapeHtml(character.label||"Character")}</option>`).join(""):`<option value="">No characters</option>`;
   characterSelect.value=activeCharacter?.id||"";characterSelect.disabled=!lightingCanEdit()||!characters.length;
   characterSelect.onchange=()=>{pb.activeCharacterId=characterSelect.value||null;pb.selectedCharacterKeyframeId=timeline.characterKeyframes.find(frame=>frame.objectId===pb.activeCharacterId)?.id||null;renderLightingTimeline();renderLightingCanvas()};
   const tickHost=$("lightingTimelineTicks");if(tickHost){const steps=timeline.duration<=5?5:timeline.duration<=20?10:12;tickHost.innerHTML=Array.from({length:steps+1},(_,index)=>{const value=timeline.duration*index/steps;return `<span style="left:${index/steps*100}%">${Number(value.toFixed(1))}</span>`}).join("")}
-  markers.innerHTML=timeline.keyframes.map(frame=>`<button type="button" class="lighting-timeline-marker ${frame.id===pb.selectedKeyframeId?"active":""}" style="left:${Math.max(0,Math.min(100,frame.time/timeline.duration*100))}%" data-keyframe-id="${frame.id}" title="${frame.time.toFixed(2)} s"></button>`).join("");
+  const playheadPercent=Math.max(0,Math.min(100,Number(pb.elapsed||0)/timeline.duration*100));
+  document.querySelectorAll(".lighting-keyframe-rail").forEach(rail=>rail.style.setProperty("--timeline-playhead",`${playheadPercent}%`));
+  markers.innerHTML=cameraFrames.map((frame,index)=>`<button type="button" class="lighting-timeline-marker ${frame.id===pb.selectedKeyframeId?"active":""}" style="left:${Math.max(0,Math.min(100,frame.time/timeline.duration*100))}%" data-keyframe-id="${escapeHtml(frame.id)}" title="Camera keyframe ${index+1} · ${frame.time.toFixed(2)} s · ${escapeHtml(lightingTimelinePoseText(frame,"camera"))}" aria-label="Camera keyframe ${index+1} at ${frame.time.toFixed(2)} seconds"><span>${index+1}</span></button>`).join("");
   const activeCharacterFrames=timeline.characterKeyframes.filter(frame=>frame.objectId===activeCharacter?.id);
-  characterMarkers.innerHTML=activeCharacterFrames.map(frame=>`<button type="button" class="lighting-timeline-marker ${frame.id===pb.selectedCharacterKeyframeId?"active":""}" style="left:${Math.max(0,Math.min(100,frame.time/timeline.duration*100))}%" data-character-keyframe-id="${frame.id}" title="${escapeHtml(activeCharacter?.label||"Character")} · ${frame.time.toFixed(2)} s"></button>`).join("");
-  markers.querySelectorAll("[data-keyframe-id]").forEach(button=>button.onclick=event=>{event.stopPropagation();const frame=timeline.keyframes.find(item=>item.id===button.dataset.keyframeId);if(!frame)return;pb.selectedTrack="camera";pb.selectedKeyframeId=frame.id;seekLightingTimeline(frame.time)});
+  characterMarkers.innerHTML=activeCharacterFrames.map((frame,index)=>`<button type="button" class="lighting-timeline-marker ${frame.id===pb.selectedCharacterKeyframeId?"active":""}" style="left:${Math.max(0,Math.min(100,frame.time/timeline.duration*100))}%" data-character-keyframe-id="${escapeHtml(frame.id)}" title="${escapeHtml(activeCharacter?.label||"Character")} keyframe ${index+1} · ${frame.time.toFixed(2)} s · ${escapeHtml(lightingTimelinePoseText(frame,"character"))}" aria-label="${escapeHtml(activeCharacter?.label||"Character")} keyframe ${index+1} at ${frame.time.toFixed(2)} seconds"><span>${index+1}</span></button>`).join("");
+  markers.querySelectorAll("[data-keyframe-id]").forEach(button=>button.onclick=event=>{event.stopPropagation();const frame=cameraFrames.find(item=>item.id===button.dataset.keyframeId);if(!frame)return;pb.selectedTrack="camera";pb.selectedKeyframeId=frame.id;seekLightingTimeline(frame.time)});
   characterMarkers.querySelectorAll("[data-character-keyframe-id]").forEach(button=>button.onclick=event=>{event.stopPropagation();const frame=timeline.characterKeyframes.find(item=>item.id===button.dataset.characterKeyframeId);if(!frame)return;pb.selectedTrack="character";pb.activeCharacterId=frame.objectId;pb.selectedCharacterKeyframeId=frame.id;seekLightingTimeline(frame.time)});
-  $("lightingDeleteKeyframeBtn").disabled=!pb.selectedKeyframeId||!lightingCanEdit();$("lightingAddKeyframeBtn").disabled=!activeLightingCameraObject()||!lightingCanEdit();
-  $("lightingDeleteCharacterKeyframeBtn").disabled=!pb.selectedCharacterKeyframeId||!lightingCanEdit();$("lightingAddCharacterKeyframeBtn").disabled=!activeCharacter||!lightingCanEdit();
+  const time=lightingPlayheadTime(timeline),cameraAtPlayhead=timelineFrameAt(cameraFrames,time),characterAtPlayhead=timelineFrameAt(activeCharacterFrames,time);
+  const snapshot=$("lightingKeyframeSnapshot");if(snapshot){
+    const cards=[];
+    if(cameraAtPlayhead)cards.push(`<div class="lighting-keyframe-pose camera"><strong>CAMERA · KF ${cameraFrames.indexOf(cameraAtPlayhead)+1}</strong><span>${cameraAtPlayhead.time.toFixed(2)} s</span><small>${escapeHtml(lightingTimelinePoseText(cameraAtPlayhead,"camera"))}</small></div>`);
+    if(characterAtPlayhead)cards.push(`<div class="lighting-keyframe-pose character"><strong>${escapeHtml(activeCharacter?.label||"CHARACTER")} · KF ${activeCharacterFrames.indexOf(characterAtPlayhead)+1}</strong><span>${characterAtPlayhead.time.toFixed(2)} s</span><small>${escapeHtml(lightingTimelinePoseText(characterAtPlayhead,"character"))}</small></div>`);
+    snapshot.innerHTML=cards.join("")||`<span class="lighting-keyframe-pose-empty">No saved pose at ${time.toFixed(2)} s · move the camera or character, then add a keyframe.</span>`
+  }
+  if($("lightingCameraKeyframeCount"))$("lightingCameraKeyframeCount").textContent=String(cameraFrames.length);if($("lightingCharacterKeyframeCount"))$("lightingCharacterKeyframeCount").textContent=String(activeCharacterFrames.length);
+  $("lightingAddKeyframeBtn").textContent=cameraAtPlayhead?"Update Keyframe":"Add Keyframe";$("lightingAddCharacterKeyframeBtn").textContent=characterAtPlayhead?"Update Keyframe":"Add Keyframe";
+  $("lightingDeleteKeyframeBtn").disabled=!cameraFrames.some(frame=>frame.id===pb.selectedKeyframeId)||!lightingCanEdit();$("lightingAddKeyframeBtn").disabled=!activeLightingCameraObject()||!lightingCanEdit();
+  $("lightingDeleteCharacterKeyframeBtn").disabled=!activeCharacterFrames.some(frame=>frame.id===pb.selectedCharacterKeyframeId)||!lightingCanEdit();$("lightingAddCharacterKeyframeBtn").disabled=!activeCharacter||!lightingCanEdit();
+  $("lightingPlaybackPlayBtn").disabled=!lightingTimelinePlayable();
   $("exportLightingVideoBtn").disabled=!lightingTimelinePlayable()||pb.exporting
 }
 function updateLightingPlaybackStatus(msg=""){
   const el=$("lightingPlaybackStatus");if(!el)return;
   const pb=app.lighting.playback,cam=activeLightingCameraObject(),cfg=lightingPlaybackConfig(cam);
   if(msg){el.textContent=msg;return}
-  const duration=pb.duration||cfg.duration||4,timeline=currentLightingTimeline(),cameraCount=timeline.keyframes.length,characterCount=timeline.characterKeyframes.length;
+  const duration=pb.duration||cfg.duration||4,timeline=currentLightingTimeline(),cameraCount=activeCameraTimelineFrames(timeline).length,characterCount=timeline.characterKeyframes.length;
   if(pb.exporting)el.textContent=`Recording Camera View · ${Math.min(pb.elapsed,duration).toFixed(1)} / ${duration.toFixed(1)}s`;
-  else if(pb.playing)el.textContent=`Playing shot motion · ${Math.min(pb.elapsed,duration).toFixed(1)} / ${duration.toFixed(1)}s`;
+  else if(pb.playing)el.textContent=`Playing ${lightingTimelineHasMotion()?"shot motion":"saved pose"} · ${Math.min(pb.elapsed,duration).toFixed(1)} / ${duration.toFixed(1)}s`;
   else if((pb.baseCamera||pb.baseSubjects)&&pb.elapsed>0)el.textContent=`Paused · ${Math.min(pb.elapsed,duration).toFixed(1)} / ${duration.toFixed(1)}s`;
-  else if(!lightingTimelinePlayable())el.textContent="Add two keyframes to any camera or character track.";
+  else if(!lightingTimelinePlayable())el.textContent="Add a camera or character keyframe to start.";
+  else if(!lightingTimelineHasMotion())el.textContent=`${cameraCount+characterCount} keyframe saved · add one more on the same track for movement.`;
   else el.textContent=`${cameraCount} camera · ${characterCount} character keyframes · ${duration.toFixed(1)}s`
 }
 function showLightingGodToast(){
@@ -4483,9 +4560,9 @@ function stopLightingPlayback(resetCamera=true){
   renderLightingTimeline();updateLightingPlaybackStatus();updateCameraViewfinder()
 }
 function playLightingPlayback(fromStart=false){
-  const cam=activeLightingCameraObject(),timeline=currentLightingTimeline();if(!cam)return;if(!lightingTimelinePlayable()){updateLightingPlaybackStatus("Add at least two keyframes to a camera or character track before playing.");return false}
+  const cam=activeLightingCameraObject(),timeline=currentLightingTimeline();if(!cam)return;if(!lightingTimelinePlayable()){updateLightingPlaybackStatus("Add a camera or character keyframe before playing.");return false}
   stopVirtualExplore();const cfg=lightingPlaybackConfig(cam),pb=app.lighting.playback;
-  if(timeline.keyframes.length&&!pb.baseCamera)pb.baseCamera=deepClone(cam);if(timeline.characterKeyframes.length&&!pb.baseSubjects)pb.baseSubjects=captureLightingTimelineSubjects();pb.duration=timeline.duration||cfg.duration;pb.movement="Keyframes";
+  if(activeCameraTimelineFrames(timeline,cam).length&&!pb.baseCamera)pb.baseCamera=deepClone(cam);if(timeline.characterKeyframes.length&&!pb.baseSubjects)pb.baseSubjects=captureLightingTimelineSubjects();pb.duration=timeline.duration||cfg.duration;pb.movement="Keyframes";
   if(fromStart||pb.elapsed>=pb.duration)pb.elapsed=0;pb.playing=true;applyLightingTimelineTime(pb.elapsed);renderLightingTimeline();updateLightingPlaybackStatus();return true
 }
 function movementPreviewSample(base,movement,t,duration,subject){
@@ -4535,15 +4612,15 @@ function updateLightingPlayback(dt){
   if(!pb.playing||!cam||(!pb.baseCamera&&!pb.baseSubjects))return;
   pb.elapsed=Math.min(pb.elapsed+dt,pb.duration);
   const t=Math.max(0,Math.min(1,pb.elapsed/Math.max(.001,pb.duration)));
-  const sample=cameraTimelineSample(pb.elapsed);if(sample)Object.assign(cam,sample,{id:cam.id,type:"camera",label:cam.label,autoFrame:false});
+  applyCameraTimelineSample(cam,cameraTimelineSample(pb.elapsed));
   applyCharacterTimelineTime(pb.elapsed);
   updateLightingPlaybackStatus();
   renderLightingTimeline();renderLightingCanvas();renderLightingInspector(false);renderLightingObjectList();updateThreeCameraFromObject();updateThreeSubjectsFromObjects();updateCameraViewfinder();
-  if(t>=1){pb.playing=false;updateLightingPlaybackStatus(`Complete · shot motion · ${pb.duration.toFixed(1)}s`);if(pb.exportResolve){const resolve=pb.exportResolve;pb.exportResolve=null;resolve()}}
+  if(t>=1){pb.playing=false;updateLightingPlaybackStatus(`Complete · ${lightingTimelineHasMotion()?"shot motion":"saved pose"} · ${pb.duration.toFixed(1)}s`);if(pb.exportResolve){const resolve=pb.exportResolve;pb.exportResolve=null;resolve()}}
 }
 
 async function exportLightingVideo(){
-  const timeline=currentLightingTimeline();if(!lightingTimelinePlayable())return updateLightingPlaybackStatus("Add at least two keyframes to a camera or character track before exporting.");
+  const timeline=currentLightingTimeline();if(!lightingTimelinePlayable())return updateLightingPlaybackStatus("Add a camera or character keyframe before exporting.");
   if(typeof MediaRecorder==="undefined")return updateLightingPlaybackStatus("Video export is not supported by this browser.");
   if(app.lighting.viewMode!=="camera"){app.lighting.viewMode="camera";await renderLightingViewMode()}
   const canvas=app.lighting.three?.renderer?.domElement;if(!canvas?.captureStream)return updateLightingPlaybackStatus("Camera View is not ready for video export.");
@@ -4798,14 +4875,19 @@ function renderVirtualExploreUi(){
 }
 function startVirtualExplore(){
   const cam=activeLightingCameraObject();if(!cam)return setVirtualLocationNotice("Add a camera before exploring the location.","warning");
-  stopLightingPlayback(true);const pose=explorerPoseFromCamera(cam);app.lighting.explorer.active=true;app.lighting.explorer.pose={...pose};app.lighting.explorer.startPose={...pose};renderVirtualExploreUi();updateThreeCameraFromObject();requestAnimationFrame(()=>app.lighting.three?.renderer?.domElement?.focus())
+  const playhead=lightingPlayheadTime();pauseLightingPlayback();app.lighting.playback.elapsed=playhead;const pose=explorerPoseFromCamera(cam);app.lighting.explorer.active=true;app.lighting.explorer.pose={...pose};app.lighting.explorer.startPose={...pose};renderVirtualExploreUi();renderLightingTimeline();updateThreeCameraFromObject();requestAnimationFrame(()=>app.lighting.three?.renderer?.domElement?.focus())
 }
 function stopVirtualExplore(){
   disablePhoneLook(false);const explorer=app.lighting.explorer;explorer.active=false;explorer.pose=null;explorer.startPose=null;if(app.lighting.three?.keys)app.lighting.three.keys.clear();renderVirtualExploreUi();if(app.lighting.three?.camera)updateThreeCameraFromObject()
 }
 function toggleVirtualExplore(){app.lighting.explorer.active?stopVirtualExplore():startVirtualExplore()}
+function syncExplorerPoseToTimelineKeyframe(){
+  if(!lightingCanEdit()||!syncCurrentObjectToTimelineKeyframe(activeLightingCameraObject()))return false;markLightingDirty();
+  if(!app.lighting.timelinePoseRenderQueued){app.lighting.timelinePoseRenderQueued=true;requestAnimationFrame(()=>{app.lighting.timelinePoseRenderQueued=false;renderLightingCanvas()})}
+  return true
+}
 function resetVirtualExplore(){
-  const explorer=app.lighting.explorer;if(!explorer.active||!explorer.startPose)return;disablePhoneLook(false);explorer.pose={...explorer.startPose};updateThreeCameraFromObject();renderVirtualExploreUi()
+  const explorer=app.lighting.explorer;if(!explorer.active||!explorer.startPose)return;disablePhoneLook(false);explorer.pose={...explorer.startPose};syncExplorerPoseToTimelineKeyframe();updateThreeCameraFromObject();renderVirtualExploreUi()
 }
 function orientationQuaternion(event,THREE){
   const toRad=THREE.MathUtils.degToRad,alpha=event.alpha==null?0:toRad(event.alpha),beta=event.beta==null?0:toRad(event.beta),gamma=event.gamma==null?0:toRad(event.gamma),orient=toRad(Number(window.screen?.orientation?.angle??window.orientation??0));
@@ -4847,11 +4929,11 @@ function updateThreeCameraFromExplorer(){
 function placeShotCameraFromExplorer(){
   const state=app.lighting.three,explorer=app.lighting.explorer,cam=activeLightingCameraObject();if(!state?.camera||!explorer.active||!explorer.pose||!cam||!lightingCanEdit())return;
   const dir=new state.THREE.Vector3(0,0,-1).applyQuaternion(state.camera.quaternion).normalize();cam.x=Math.max(0,Math.min(1200,600+explorer.pose.x*100));cam.y=Math.max(0,Math.min(800,400+explorer.pose.z*100));cam.height3d=Math.max(.1,Math.min(6,explorer.pose.y));cam.rotation=Math.atan2(dir.z,dir.x)*180/Math.PI;cam.tilt=Math.asin(Math.max(-1,Math.min(1,dir.y)))*180/Math.PI;cam.roll=0;cam.angle="Custom";cam.cameraHeight="Custom";cam.autoFrame=false;
-  markLightingDirty();renderLightingCanvas();renderLightingInspector();renderLightingObjectList();setVirtualLocationNotice("Shot camera placed at the explored viewpoint.")
+  syncExplorerPoseToTimelineKeyframe();markLightingDirty();renderLightingCanvas();renderLightingInspector();renderLightingObjectList();setVirtualLocationNotice("Shot camera placed at the explored viewpoint.")
 }
 window.storyboardVirtualLocationPose=payload=>{
   const explorer=app.lighting.explorer;if(!explorer.active||!explorer.startPose||!payload)return;const position=payload.position||payload;explorer.pose.x=explorer.startPose.x+(Number(position.x)||0);explorer.pose.y=explorer.startPose.y+(Number(position.y)||0);explorer.pose.z=explorer.startPose.z+(Number(position.z)||0);
-  if(payload.quaternion&&app.lighting.three?.THREE){const q=payload.quaternion,THREE=app.lighting.three.THREE;explorer.motionEnabled=true;explorer.motionQuaternion=new THREE.Quaternion(Number(q.x)||0,Number(q.y)||0,Number(q.z)||0,Number(q.w)||1)}updateThreeCameraFromObject()
+  if(payload.quaternion&&app.lighting.three?.THREE){const q=payload.quaternion,THREE=app.lighting.three.THREE;explorer.motionEnabled=true;explorer.motionQuaternion=new THREE.Quaternion(Number(q.x)||0,Number(q.y)||0,Number(q.z)||0,Number(q.w)||1)}syncExplorerPoseToTimelineKeyframe();updateThreeCameraFromObject()
 };
 
 function updateThreeCameraFromObject(){
@@ -4947,7 +5029,7 @@ function bindThreeControls(canvas){
     if(!drag||!camObj)return;
     const dx=e.clientX-drag.x,dy=e.clientY-drag.y;drag.x=e.clientX;drag.y=e.clientY;
     if(app.lighting.explorer.active&&app.lighting.explorer.pose){
-      const pose=app.lighting.explorer.pose;pose.rotation=Number(pose.rotation||0)+dx*.22;pose.tilt=Math.max(-89,Math.min(89,Number(pose.tilt||0)-dy*.18));pose.roll=0;updateThreeCameraFromObject();return
+      const pose=app.lighting.explorer.pose;pose.rotation=Number(pose.rotation||0)+dx*.22;pose.tilt=Math.max(-89,Math.min(89,Number(pose.tilt||0)-dy*.18));pose.roll=0;syncExplorerPoseToTimelineKeyframe();updateThreeCameraFromObject();return
     }
     if(!lightingCanEdit())return;
     camObj.rotation=(Number(camObj.rotation||0)+dx*.22);
@@ -4955,7 +5037,7 @@ function bindThreeControls(canvas){
     camObj.angle="Custom";
     camObj.roll=0;
     camObj.autoFrame=false;
-    markLightingDirty();updateThreeCameraFromObject();renderLightingInspector();renderLightingCanvas()
+    syncCurrentObjectToTimelineKeyframe(camObj);markLightingDirty();updateThreeCameraFromObject();renderLightingInspector();renderLightingCanvas()
   });
   canvas.addEventListener("pointerup",()=>{if(app.lighting.three)app.lighting.three.drag=null});
   canvas.addEventListener("pointercancel",()=>{if(app.lighting.three)app.lighting.three.drag=null});
@@ -4974,7 +5056,7 @@ function moveThreeCameraByKeys(dt){
   if(state.keys.has("e"))explorer.pose.rotation+=72*dt;if(state.keys.has("q"))explorer.pose.rotation-=72*dt;
   if(state.keys.has("r"))dy+=1;if(state.keys.has("f"))dy-=1;
   const len=Math.hypot(dx,dz)||1;dx/=len;dz/=len;
-  explorer.pose.x+=dx*speed*dt;explorer.pose.z+=dz*speed*dt;explorer.pose.y=Math.max(.1,Math.min(6,explorer.pose.y+dy*speed*dt));updateThreeCameraFromObject()
+  explorer.pose.x+=dx*speed*dt;explorer.pose.z+=dz*speed*dt;explorer.pose.y=Math.max(.1,Math.min(6,explorer.pose.y+dy*speed*dt));syncExplorerPoseToTimelineKeyframe();updateThreeCameraFromObject()
 }
 
 /* ----- export / share ----- */
@@ -5242,7 +5324,7 @@ function bind(){
   $("cropCanvas").addEventListener("wheel",event=>{if(!cropState.drawable||cropState.saving)return;event.preventDefault();const zoom=$("cropZoom"),next=Math.max(Number(zoom.min),Math.min(Number(zoom.max),Number(zoom.value)+(event.deltaY<0?5:-5)));zoom.value=String(next);updateCropZoom()},{passive:false});
   $("imageViewerModal").addEventListener("close",()=>{clearCropDrawable();cropState.active=false;cropState.target=null;cropState.saving=false;$("cropCanvas").hidden=true;$("cropLoading").hidden=true;setMsg("cropNotice","")});
 
-  // Lighting Studio v5.6
+  // Lighting Studio v5.8
   $("openLightingDiagramBtn").onclick=()=>openLightingWorkspace();
   $("closeLightingDiagramBtn").onclick=closeLightingWorkspace;
   $("lightingDiagramModal").addEventListener("cancel",e=>{e.preventDefault();closeLightingWorkspace()});
@@ -5307,7 +5389,7 @@ function bind(){
   $("lightingZoomInBtn").onclick=()=>{const pane=app.lighting.planPane||"top";setLightingPlanZoom((lightingViewState(pane).zoom||1)*1.2,pane)};
   $("lightingZoomValue").onclick=$("lightingZoomFitBtn").onclick=fitLightingPlanViews;
 
-  $("lightingPlaybackPlayBtn").onclick=playLightingPlayback;
+  $("lightingPlaybackPlayBtn").onclick=()=>playLightingPlayback(true);
   $("lightingPlaybackPauseBtn").onclick=pauseLightingPlayback;
   $("lightingPlaybackStopBtn").onclick=()=>stopLightingPlayback(true);
   $("lightingAddKeyframeBtn").onclick=addLightingCameraKeyframe;
