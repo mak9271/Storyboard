@@ -1,4 +1,4 @@
-// FilmBoard v5.4.0 — inline Lighting controls, canvas panning and verified camera latitude
+// FilmBoard v5.5.0 — shared camera and character motion timeline
 const OPTIONS = {
   shotSize:["ECU · Extreme Close Up","CU · Close Up","MCU · Medium Close Up","MS · Medium Shot","MLS · Medium Long Shot","WS · Wide Shot","EWS · Extreme Wide Shot","OTS · Over The Shoulder","POV · Point of View","Insert","Top Shot"],
   angle:["Eye Level","High Angle","Low Angle","Top / Bird's Eye","Dutch Angle","Ground Level","Overhead","Custom"],
@@ -167,7 +167,7 @@ let app = {
     selectedId: null,
     dragging: null,
     pointers: {},
-    playback: {playing:false,elapsed:0,duration:4,baseCamera:null,movement:"Static",selectedKeyframeId:null,exporting:false,exportResolve:null},
+    playback: {playing:false,elapsed:0,duration:4,baseCamera:null,baseSubjects:null,movement:"Static",selectedKeyframeId:null,selectedCharacterKeyframeId:null,activeCharacterId:null,selectedTrack:"camera",exporting:false,exportResolve:null},
     godToastTimer: null,
     channel: null,
     dirty: false,
@@ -2868,7 +2868,7 @@ async function importJSONOnline(file){
 
 
 
-/* ---------- LIGHTING STUDIO v5.4 ---------- */
+/* ---------- LIGHTING STUDIO v5.5 ---------- */
 /* Manufacturer-published sensor and recording-area data. Dimensions are millimetres. */
 const CINEMA_CAMERAS = Object.freeze({
   "ARRI ALEXA XT":{brand:"ARRI",model:"ALEXA XT",sensorWidth:28.25,sensorHeight:18.17,activeWidth:28.25,activeHeight:18.17,resolution:"3424 × 2202",format:"ALEV III Open Gate",hud:"arri",display:"EVF-1 / MON OUT",bitDepth:"12-bit ARRIRAW",dynamicRange:"14.5 stops",source:"https://www.arri.com/resource/blob/279392/13ef3e45b45c888c6f7eeb0b7a4825c4/alexa-xt-user-manual-sup-9-1-data.pdf"},
@@ -3062,7 +3062,9 @@ function renderVirtualLocationControls(){
   $("detachVirtualLocationBtn").disabled=!linked||!lightingCanEdit();
   $("deleteVirtualLocationBtn").disabled=!linked||!lightingCanEdit();
   $("importVirtualLocationBtn").disabled=!lightingCanEdit()||!!app.lighting.upload||(app.mode==="cloud"&&!app.lighting.virtualLocationsReady);
-  $("scanVirtualLocationBtn").disabled=!lightingCanEdit()||!!app.lighting.upload||(app.mode==="cloud"&&!app.lighting.virtualLocationsReady);
+  // Native RoomPlan capture is intentionally unavailable until FilmBoard's
+  // signed iOS/Android companion ships. Users can import a GLB from Scaniverse.
+  $("scanVirtualLocationBtn").disabled=true;$("scanVirtualLocationBtn").setAttribute("aria-disabled","true");
   select.disabled=!lightingCanEdit()||(app.mode==="cloud"&&!app.lighting.virtualLocationsReady);
   if(linked){
     $("virtualLocationScale").value=String(Math.round(transform.scale*100));$("virtualLocationRotation").value=String(transform.rotationY);
@@ -3231,6 +3233,10 @@ function lightingFixtureIcon(type="cob"){
     lantern:'<ellipse cx="12" cy="10" rx="7" ry="8"/><path d="M8 18h8M12 18v4"/>'
   };
   return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[type]||paths.cob}</svg>`
+}
+function lightingEntityIcon(type){
+  if(type==="camera")return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="7" width="12" height="10" rx="2"></rect><path d="m15 10 6-3v10l-6-3z"></path></svg>';
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="6" r="3"></circle><path d="M7 21v-5l2-5h6l2 5v5M9 14l-4 3M15 14l4 3"></path></svg>'
 }
 function safeSvgText(v){return escapeHtml(String(v??""))}
 function slugName(v){return String(v||"lighting-diagram").trim().toLowerCase().replace(/[^a-z0-9_-]+/g,"-").replace(/^-+|-+$/g,"")||"lighting-diagram"}
@@ -3505,7 +3511,7 @@ function shotLightPreset(s=currentShot()){
 }
 function defaultLightingTimeline(){
   const duration=Math.max(.25,Math.min(120,parseDurationSeconds(currentShot()?.duration||"4")));
-  return {duration,keyframes:[]}
+  return {duration,keyframes:[],characterKeyframes:[]}
 }
 function normalizeCameraKeyframe(frame,duration){
   const finite=(value,fallback)=>Number.isFinite(Number(value))?Number(value):fallback;
@@ -3518,10 +3524,21 @@ function normalizeCameraKeyframe(frame,duration){
     easing:frame?.easing||"smooth"
   }
 }
+function normalizeCharacterKeyframe(frame,duration){
+  const finite=(value,fallback)=>Number.isFinite(Number(value))?Number(value):fallback;
+  return {
+    id:frame?.id||uid(),objectId:String(frame?.objectId||frame?.subjectId||""),time:Math.max(0,Math.min(duration,finite(frame?.time,0))),
+    x:Math.max(0,Math.min(1200,finite(frame?.x,600))),y:Math.max(0,Math.min(800,finite(frame?.y,400))),
+    height3d:Math.max(.1,Math.min(2.5,finite(frame?.height3d,1.75))),rotation:finite(frame?.rotation,0),
+    scale:Math.max(40,Math.min(180,finite(frame?.scale,100))),easing:frame?.easing||"smooth"
+  }
+}
 function normalizeLightingTimeline(value){
   const fallback=defaultLightingTimeline(),duration=Math.max(.25,Math.min(120,Number(value?.duration)||fallback.duration));
-  const keyframes=(Array.isArray(value?.keyframes)?value.keyframes:[]).map(frame=>normalizeCameraKeyframe(frame,duration)).sort((a,b)=>a.time-b.time);
-  return {duration,keyframes}
+  const uniqueIds=frames=>{const seen=new Set();return frames.map(frame=>{if(seen.has(frame.id))frame.id=uid();seen.add(frame.id);return frame})};
+  const keyframes=uniqueIds((Array.isArray(value?.keyframes)?value.keyframes:[]).map(frame=>normalizeCameraKeyframe(frame,duration))).sort((a,b)=>a.time-b.time);
+  const characterKeyframes=uniqueIds((Array.isArray(value?.characterKeyframes)?value.characterKeyframes:[]).map(frame=>normalizeCharacterKeyframe(frame,duration)).filter(frame=>frame.objectId)).sort((a,b)=>a.time-b.time);
+  return {duration,keyframes,characterKeyframes}
 }
 function newLightingDiagramObject(){
   const link=lightingCurrentShotLink(),sn=link?.scene?.number||1,sh=link?.shot?.shotNo||1;
@@ -3607,7 +3624,7 @@ function renderLightingObjectList(){
       <div class="lighting-object-group-title">${title}<span>${items.length}</span></div>
       ${items.length?items.map(o=>`
         <button type="button" class="lighting-object-row ${o.id===app.lighting.selectedId?"active":""}" data-lighting-select="${o.id}">
-          <span class="lighting-object-row-icon">${type==="light"?lightingFixtureIcon(lightingFixtureProps(o.fixture).iconType):"●"}</span>
+          <span class="lighting-object-row-icon">${type==="light"?lightingFixtureIcon(lightingFixtureProps(o.fixture).iconType):lightingEntityIcon(type)}</span>
           <span><strong>${escapeHtml(o.label||o.fixture||type)}</strong><small>${type==="light"?`${escapeHtml(lightingFixtureProps(o.fixture).brand)} · ${Math.round(lightingEffectiveBeam(o))}° · ${o.kelvin}K`:`${Number(o.height3d||1.75).toFixed(2)} m${o.characterId?" · Bible face":" · mannequin"}`}</small></span>
         </button>`).join(""):`<div class="lighting-object-empty">No ${title.toLowerCase()}</div>`}
     </div>`;
@@ -3619,7 +3636,7 @@ function renderLightingCameraList(){
   const el=$("lightingCameraList");if(!el||!app.lighting.current)return;const items=app.lighting.current.data.objects.filter(o=>o.type==="camera");
   el.innerHTML=items.length?items.map(o=>`
     <button type="button" class="lighting-object-row ${o.id===app.lighting.selectedId?"active":""}" data-lighting-camera-select="${o.id}">
-      <span class="lighting-object-row-icon">⌁</span>
+      <span class="lighting-object-row-icon">${lightingEntityIcon("camera")}</span>
       <span><strong>${escapeHtml(o.label||"Camera")}</strong><small>${escapeHtml(cinemaCameraSpec(o).model)} · ${escapeHtml(o.lens||"")} · ${escapeHtml(shortValue(o.shotSize))}</small></span>
       <span class="lighting-camera-live" ${o.id===app.lighting.activeCameraId?"":"hidden"}>LIVE</span>
     </button>`).join(""):'<div class="lighting-object-empty">No cameras</div>';
@@ -3672,10 +3689,14 @@ function setLightingCurrent(diagram){
     }
   }
   const firstCam=app.lighting.current.data.objects.find(o=>o.type==="camera");
+  const firstCharacter=app.lighting.current.data.objects.find(o=>o.type==="subject");
   app.lighting.activeCameraId=firstCam?.id||null;
   app.lighting.selectedId=firstCam?.id||app.lighting.current.data.objects[0]?.id||null;
   app.lighting.playback.selectedKeyframeId=app.lighting.current.data.timeline.keyframes[0]?.id||null;
-  app.lighting.playback.elapsed=0;app.lighting.playback.baseCamera=null;app.lighting.playback.playing=false;
+  app.lighting.playback.activeCharacterId=firstCharacter?.id||null;
+  app.lighting.playback.selectedCharacterKeyframeId=app.lighting.current.data.timeline.characterKeyframes.find(frame=>frame.objectId===firstCharacter?.id)?.id||null;
+  app.lighting.playback.selectedTrack="camera";
+  app.lighting.playback.elapsed=0;app.lighting.playback.baseCamera=null;app.lighting.playback.baseSubjects=null;app.lighting.playback.playing=false;
   app.lighting.panDrag=null;app.lighting.planPane="top";
   app.lighting.planView={zoom:1,centerX:600,centerY:400};
   app.lighting.elevationView={zoom:1,centerX:600,centerY:250};
@@ -3737,18 +3758,20 @@ function selectLightingObject(id,openDrawer=false){
   app.lighting.selectedId=id;
   const o=lightingSelected();
   if(o?.type==="camera"&&!app.lighting.activeCameraId)app.lighting.activeCameraId=o.id;
+  if(o?.type==="subject")app.lighting.playback.activeCharacterId=o.id;
   const folder=lightingFolderForType(o?.type);if(folder)folder.open=true;
-  renderLightingObjectList();renderLightingInspector();renderLightingCanvas();syncLighting3D()
+  renderLightingObjectList();renderLightingInspector();renderLightingCanvas();renderLightingTimeline();syncLighting3D()
 }
 function markLightingDirty(){app.lighting.dirty=true;$("saveLightingDiagramBtn").textContent="Save •"}
 function clearLightingDirty(){app.lighting.dirty=false;$("saveLightingDiagramBtn").textContent="Save"}
 function persistLocalLightingList(){localStorage.setItem(lightingLocalKey(),JSON.stringify(app.lighting.diagrams))}
 async function saveLightingDiagram(){
   const d=app.lighting.current;if(!d||!lightingCanEdit())return;
-  if(app.lighting.playback.baseCamera)stopLightingPlayback(true);
+  if(app.lighting.playback.baseCamera||app.lighting.playback.baseSubjects)stopLightingPlayback(true);
   d.name=$("lightingDiagramName").value.trim()||"Lighting Diagram";
   d.data.notes=$("lightingDiagramNotes").value||"";
   d.data.virtualLocation=virtualLocationSettings();d.data.virtualLocation.scanId=d.location_scan_id||null;
+  await syncTimelineDurationToShot(currentLightingTimeline().duration);
   d.updated_at=new Date().toISOString();
   if(app.mode==="local"){
     d.persisted=true;
@@ -3787,23 +3810,24 @@ function restartLightingDiagram(){
   if(!uiConfirm("Restart this diagram? All lights, camera points and unsaved layout work in this diagram will be cleared."))return;
   stopVirtualExplore();stopLightingPlayback(false);
   d.data.objects=[defaultLightingCamera(),defaultLightingSubject()];d.data.notes="";d.data.timeline=defaultLightingTimeline();
-  app.lighting.activeCameraId=d.data.objects[0].id;app.lighting.selectedId=d.data.objects[0].id;app.lighting.playback.selectedKeyframeId=null;app.lighting.panDrag=null;app.lighting.planPane="top";app.lighting.planView={zoom:1,centerX:600,centerY:400};app.lighting.elevationView={zoom:1,centerX:600,centerY:250};
+  app.lighting.activeCameraId=d.data.objects[0].id;app.lighting.selectedId=d.data.objects[0].id;app.lighting.playback.selectedKeyframeId=null;app.lighting.playback.activeCharacterId=d.data.objects.find(o=>o.type==="subject")?.id||null;app.lighting.playback.selectedCharacterKeyframeId=null;app.lighting.playback.baseSubjects=null;app.lighting.panDrag=null;app.lighting.planPane="top";app.lighting.planView={zoom:1,centerX:600,centerY:400};app.lighting.elevationView={zoom:1,centerX:600,centerY:250};
   $("lightingDiagramNotes").value="";markLightingDirty();renderLightingObjectList();renderLightingInspector();renderLightingCanvas();renderLightingTimeline();syncLighting3D();setMsg("lightingDiagramNotice","Diagram restarted. Save when ready.","warning")
 }
 function applyLightingPermissions(){
   const edit=lightingCanEdit();
   [
     "lightingDiagramName","saveLightingDiagramBtn","restartLightingDiagramBtn",
-    "addLightingCameraBtn","addLightingSubjectBtn","addLightingFixtureBtn","addShotLightingBtn","lightingObjectLabel",
+    "addLightingCameraBtn","addLightingCharacterBtn","addLightingFixtureBtn","addShotLightingBtn","lightingObjectLabel",
     "lightingObjectKelvin","lightingObjectIntensity","lightingObjectBeam","lightingObjectHeight3d","lightingObjectTilt",
     "lightingObjectLens","lightingObjectShotSize","lightingObjectAngle","lightingObjectMovement","lightingCameraModel",
     "lightingObjectFocus","lightingCameraHeight3d","lightingCameraTilt","lightingSubjectHeight3d","lightingSubjectScale",
     "lightingSubjectGender","lightingSubjectCharacter","lightingSubjectFaceScale","lightingSubjectFaceYaw","lightingSubjectFaceOffset","lightingObjectRotation","deleteLightingObjectBtn","lightingDiagramNotes","virtualLocationSelect",
-    "importVirtualLocationBtn","scanVirtualLocationBtn","detachVirtualLocationBtn","deleteVirtualLocationBtn",
+    "importVirtualLocationBtn","detachVirtualLocationBtn","deleteVirtualLocationBtn",
     "virtualLocationScale","virtualLocationRotation","virtualLocationOffsetX","virtualLocationOffsetY","virtualLocationOffsetZ",
-    "resetVirtualLocationTransformBtn","placeCameraFromExplorerBtn","drawerAddLightingCameraBtn","drawerAddLightingFixtureBtn","drawerAddLightingSubjectBtn","linkVirtualLocationBibleBtn","captureVirtualLocationBibleBtn",
-    "lightingTimelineDuration","lightingTimelineTime","lightingAddKeyframeBtn","lightingDeleteKeyframeBtn"
+    "resetVirtualLocationTransformBtn","placeCameraFromExplorerBtn","drawerAddLightingCameraBtn","drawerAddLightingFixtureBtn","drawerAddLightingCharacterBtn","linkVirtualLocationBibleBtn","captureVirtualLocationBibleBtn",
+    "lightingTimelineDuration","lightingTimelineTime","lightingTimelineCharacter","lightingAddKeyframeBtn","lightingDeleteKeyframeBtn","lightingAddCharacterKeyframeBtn","lightingDeleteCharacterKeyframeBtn"
   ].forEach(id=>{if($(id))$(id).disabled=!edit})
+  if($("scanVirtualLocationBtn"))$("scanVirtualLocationBtn").disabled=true;
   renderVirtualLocationControls()
 }
 function addLightingObject(o){
@@ -3816,8 +3840,10 @@ function addLightingObject(o){
       if(o.cameraHeight!=="Custom")o.height3d=cameraHeightMeters(o.cameraHeight,subject);
       applyCameraAnglePreset(o,o.angle||"Eye Level")
     }
+  }else if(o.type==="subject"){
+    app.lighting.playback.activeCharacterId=o.id
   }
-  markLightingDirty();renderLightingObjectList();renderLightingInspector();renderLightingCanvas();syncLighting3D()
+  markLightingDirty();renderLightingObjectList();renderLightingInspector();renderLightingCanvas();renderLightingTimeline();syncLighting3D()
 }
 function addLightingFixture(){
   const n=app.lighting.current?.data?.objects?.filter(o=>o.type==="light").length||0;
@@ -3988,8 +4014,14 @@ function deleteSelectedLightingObject(){
   const d=app.lighting.current,o=lightingSelected();if(!d||!o||!lightingCanEdit())return;
   d.data.objects=d.data.objects.filter(x=>x.id!==o.id);
   if(app.lighting.activeCameraId===o.id)app.lighting.activeCameraId=d.data.objects.find(x=>x.type==="camera")?.id||null;
+  if(o.type==="subject"){
+    d.data.timeline=normalizeLightingTimeline(d.data.timeline);
+    d.data.timeline.characterKeyframes=d.data.timeline.characterKeyframes.filter(frame=>frame.objectId!==o.id);
+    if(app.lighting.playback.activeCharacterId===o.id)app.lighting.playback.activeCharacterId=d.data.objects.find(x=>x.type==="subject")?.id||null;
+    app.lighting.playback.selectedCharacterKeyframeId=null
+  }
   app.lighting.selectedId=d.data.objects[0]?.id||null;
-  markLightingDirty();renderLightingObjectList();renderLightingInspector();renderLightingCanvas();syncLighting3D()
+  markLightingDirty();renderLightingObjectList();renderLightingInspector();renderLightingCanvas();renderLightingTimeline();syncLighting3D()
 }
 
 function lightingFixturePlanSvg(fixture,stroke,color,selected){
@@ -4133,10 +4165,20 @@ function lightingCameraPathPlanSvg(){
 function lightingCameraPathElevationSvg(){
   const frames=app.lighting.current?.data?.timeline?.keyframes||[];if(!frames.length)return "";const points=frames.map(frame=>`${55+Number(frame.x||0)*.9},${440-Number(frame.height3d||1.65)*62}`).join(" ");return `<g class="lighting-camera-path" pointer-events="none">${frames.length>1?`<polyline points="${points}" fill="none" stroke="#ffbd59" stroke-width="3" stroke-dasharray="9 7"/>`:""}${frames.map((frame,index)=>{const x=55+Number(frame.x||0)*.9,y=440-Number(frame.height3d||1.65)*62;return `<circle cx="${x}" cy="${y}" r="11" fill="#19130a" stroke="#ffbd59" stroke-width="3"/><text x="${x}" y="${y+4}" text-anchor="middle" fill="#ffe0a5" font-size="10" font-weight="900">${index+1}</text>`}).join("")}</g>`
 }
+function lightingCharacterPathPlanSvg(){
+  const timeline=app.lighting.current?.data?.timeline,frames=timeline?.characterKeyframes||[];if(!frames.length)return "";
+  const groups=[...new Set(frames.map(frame=>frame.objectId))];
+  return groups.map(objectId=>{const path=frames.filter(frame=>frame.objectId===objectId).sort((a,b)=>a.time-b.time),points=path.map(frame=>`${frame.x},${frame.y}`).join(" ");return `<g class="lighting-character-path" pointer-events="none">${path.length>1?`<polyline points="${points}" fill="none" stroke="#d982ff" stroke-width="3" stroke-dasharray="7 7" vector-effect="non-scaling-stroke"/>`:""}${path.map((frame,index)=>`<circle cx="${frame.x}" cy="${frame.y}" r="10" fill="#1c1021" stroke="#d982ff" stroke-width="3" vector-effect="non-scaling-stroke"/><text x="${frame.x}" y="${frame.y+4}" text-anchor="middle" fill="#f1c6ff" font-size="10" font-weight="900">${index+1}</text>`).join("")}</g>`}).join("")
+}
+function lightingCharacterPathElevationSvg(){
+  const timeline=app.lighting.current?.data?.timeline,frames=timeline?.characterKeyframes||[];if(!frames.length)return "";
+  const groups=[...new Set(frames.map(frame=>frame.objectId))];
+  return groups.map(objectId=>{const path=frames.filter(frame=>frame.objectId===objectId).sort((a,b)=>a.time-b.time),points=path.map(frame=>`${55+Number(frame.x||0)*.9},${440-Number(frame.height3d||1.75)*62}`).join(" ");return `<g class="lighting-character-path" pointer-events="none">${path.length>1?`<polyline points="${points}" fill="none" stroke="#d982ff" stroke-width="3" stroke-dasharray="7 7"/>`:""}${path.map((frame,index)=>{const x=55+Number(frame.x||0)*.9,y=440-Number(frame.height3d||1.75)*62;return `<circle cx="${x}" cy="${y}" r="10" fill="#1c1021" stroke="#d982ff" stroke-width="3"/><text x="${x}" y="${y+4}" text-anchor="middle" fill="#f1c6ff" font-size="9" font-weight="900">${index+1}</text>`}).join("")}</g>`}).join("")
+}
 function renderLightingElevationCanvas(){
   const svg=$("lightingElevationCanvas"),d=app.lighting.current;if(!svg||!d)return;
   let content=`<defs><pattern id="elevationGrid" width="90" height="62" patternUnits="userSpaceOnUse"><path d="M90 0H0V62" fill="none" stroke="#222b30" stroke-width="1"/></pattern></defs><rect class="lighting-elevation-bg" width="1200" height="500" fill="#080a0c"/><rect class="lighting-elevation-bg" x="55" y="68" width="1080" height="372" fill="url(#elevationGrid)"/><line x1="45" y1="440" x2="1160" y2="440" stroke="#829097" stroke-width="2"/><text x="18" y="82" fill="#64747c" font-size="12">6 m</text><text x="21" y="444" fill="#64747c" font-size="12">0 m</text><text x="1060" y="475" fill="#64747c" font-size="12">Side elevation · drag vertically to set height</text>`;
-  content+=lightingCameraPathElevationSvg();content+=(d.data.objects||[]).map(o=>lightingElevationObjectSvg(o,o.id===app.lighting.selectedId)).join("");svg.innerHTML=content;
+  content+=lightingCameraPathElevationSvg();content+=lightingCharacterPathElevationSvg();content+=(d.data.objects||[]).map(o=>lightingElevationObjectSvg(o,o.id===app.lighting.selectedId)).join("");svg.innerHTML=content;
   applyLightingPlanViewBox();
   svg.querySelectorAll("[data-lighting-elevation-id]").forEach(node=>{node.style.cursor=lightingCanEdit()?"ns-resize":"pointer";node.addEventListener("pointerdown",event=>startLightingElevationDrag(event,node.dataset.lightingElevationId))})
 }
@@ -4152,6 +4194,7 @@ function renderLightingCanvas(){
   <text x="20" y="30" fill="#5f6d75" font-size="13">12 m × 8 m</text>`;
   content+=virtualLocationFootprintSvg();
   content+=lightingCameraPathPlanSvg();
+  content+=lightingCharacterPathPlanSvg();
   content+=(d.data.objects||[]).map(o=>lightingObjectSvg(o,o.id===app.lighting.selectedId)).join("");
   svg.innerHTML=content;
   applyLightingPlanViewBox();
@@ -4281,29 +4324,72 @@ function currentLightingTimeline(){
   const data=app.lighting.current?.data;if(!data)return defaultLightingTimeline();
   data.timeline=normalizeLightingTimeline(data.timeline);return data.timeline
 }
+function lightingTimelineCharacters(){return (app.lighting.current?.data?.objects||[]).filter(object=>object.type==="subject")}
+function activeLightingTimelineCharacter(){
+  const characters=lightingTimelineCharacters(),pb=app.lighting.playback,selected=lightingSelected();
+  const character=(selected?.type==="subject"?selected:null)||characters.find(object=>object.id===pb.activeCharacterId)||characters[0]||null;
+  if(character)pb.activeCharacterId=character.id;return character
+}
+function characterPoseFromCurrentSubject(subject=activeLightingTimelineCharacter()){
+  if(!subject)return null;return normalizeCharacterKeyframe({...subject,id:uid(),objectId:subject.id},currentLightingTimeline().duration)
+}
+function lightingTimelinePlayable(){
+  const timeline=currentLightingTimeline();if(timeline.keyframes.length>=2)return true;
+  const counts=new Map();for(const frame of timeline.characterKeyframes)counts.set(frame.objectId,(counts.get(frame.objectId)||0)+1);
+  return [...counts.values()].some(count=>count>=2)
+}
+function formatTimelineShotDuration(duration){return `${Number(Number(duration).toFixed(2))} s`}
+async function syncTimelineDurationToShot(duration){
+  const shot=linkedLightingShot();if(!shot||!can("shots"))return;
+  const value=formatTimelineShotDuration(duration);shot.duration=value;
+  if(shot===currentShot()){
+    if($("duration"))$("duration").value=value;
+    renderShot();renderSceneList();renderSheet();applyPermissionLocks();queueSave("shot");rememberWorkspace();return
+  }
+  if(app.mode==="local"){saveLocal();return}
+  app.ignoreRealtimeUntil=Date.now()+1400;
+  const {error}=await sb.from("shots").update({data:shotDbData(shot)}).eq("id",shot.id).eq("project_id",app.current.id);
+  if(error)setMsg("lightingDiagramNotice",error.message||"The diagram duration changed, but the linked shot duration could not be saved.","warning")
+}
 function lightingPlaybackConfig(camObj){
   const sh=linkedLightingShot(),timeline=currentLightingTimeline();
   return {duration:timeline.duration||Math.max(.25,parseDurationSeconds(sh?.duration||"4")),movement:camObj?.movement||sh?.movement||"Static"}
 }
 function timelinePoseFromCurrentCamera(){
   const cam=activeLightingCameraObject();if(!cam)return null;const pose=app.lighting.explorer.active&&app.lighting.explorer.pose;
-  return normalizeCameraKeyframe(pose?{
+  return normalizeCameraKeyframe(pose?{id:uid(),
     x:600+Number(pose.x||0)*100,y:400+Number(pose.z||0)*100,height3d:pose.y,
     rotation:pose.rotation,tilt:pose.tilt,roll:pose.roll,lens:pose.lens||cam.lens,cameraModel:cam.cameraModel
-  }:{...cam},currentLightingTimeline().duration)
+  }:{...cam,id:uid()},currentLightingTimeline().duration)
 }
 function addLightingCameraKeyframe(){
   const d=app.lighting.current,cam=activeLightingCameraObject();if(!d||!cam||!lightingCanEdit())return;const timeline=currentLightingTimeline(),time=Math.max(0,Math.min(timeline.duration,Number($("lightingTimelineTime").value)||0)),pose=timelinePoseFromCurrentCamera();if(!pose)return;
   const existing=timeline.keyframes.find(frame=>Math.abs(frame.time-time)<.035);pose.time=time;
   if(existing){pose.id=existing.id;Object.assign(existing,pose);app.lighting.playback.selectedKeyframeId=existing.id}
   else{timeline.keyframes.push(pose);timeline.keyframes.sort((a,b)=>a.time-b.time);app.lighting.playback.selectedKeyframeId=pose.id}
-  app.lighting.playback.elapsed=time;markLightingDirty();renderLightingTimeline();renderLightingCanvas();updateLightingPlaybackStatus(`Camera point saved at ${time.toFixed(2)}s`)
+  app.lighting.playback.selectedTrack="camera";
+  app.lighting.playback.elapsed=time;markLightingDirty();renderLightingTimeline();renderLightingCanvas();updateLightingPlaybackStatus(`Camera point saved at ${time.toFixed(2)}s`);void syncTimelineDurationToShot(timeline.duration)
 }
 function deleteLightingCameraKeyframe(){
   const timeline=currentLightingTimeline(),id=app.lighting.playback.selectedKeyframeId;if(!id||!lightingCanEdit())return;timeline.keyframes=timeline.keyframes.filter(frame=>frame.id!==id);app.lighting.playback.selectedKeyframeId=timeline.keyframes[0]?.id||null;markLightingDirty();renderLightingTimeline();updateLightingPlaybackStatus()
 }
-function updateLightingTimelineDuration(){
-  if(!lightingCanEdit())return;const timeline=currentLightingTimeline(),duration=Math.max(.25,Math.min(120,Number($("lightingTimelineDuration").value)||timeline.duration||4));timeline.duration=duration;timeline.keyframes.forEach(frame=>frame.time=Math.min(frame.time,duration));timeline.keyframes.sort((a,b)=>a.time-b.time);app.lighting.playback.duration=duration;app.lighting.playback.elapsed=Math.min(app.lighting.playback.elapsed,duration);markLightingDirty();renderLightingTimeline();updateLightingPlaybackStatus()
+function addLightingCharacterKeyframe(){
+  const d=app.lighting.current,subject=activeLightingTimelineCharacter();if(!d||!subject||!lightingCanEdit())return;
+  const timeline=currentLightingTimeline(),time=Math.max(0,Math.min(timeline.duration,Number($("lightingTimelineTime").value)||0)),pose=characterPoseFromCurrentSubject(subject);if(!pose)return;pose.time=time;pose.objectId=subject.id;
+  const existing=timeline.characterKeyframes.find(frame=>frame.objectId===subject.id&&Math.abs(frame.time-time)<.035);
+  if(existing){pose.id=existing.id;Object.assign(existing,pose);app.lighting.playback.selectedCharacterKeyframeId=existing.id}
+  else{timeline.characterKeyframes.push(pose);timeline.characterKeyframes.sort((a,b)=>a.time-b.time);app.lighting.playback.selectedCharacterKeyframeId=pose.id}
+  app.lighting.playback.activeCharacterId=subject.id;app.lighting.playback.selectedTrack="character";app.lighting.playback.elapsed=time;
+  markLightingDirty();renderLightingTimeline();renderLightingCanvas();updateLightingPlaybackStatus(`${subject.label||"Character"} point saved at ${time.toFixed(2)}s`);void syncTimelineDurationToShot(timeline.duration)
+}
+function deleteLightingCharacterKeyframe(){
+  const timeline=currentLightingTimeline(),id=app.lighting.playback.selectedCharacterKeyframeId;if(!id||!lightingCanEdit())return;
+  timeline.characterKeyframes=timeline.characterKeyframes.filter(frame=>frame.id!==id);
+  app.lighting.playback.selectedCharacterKeyframeId=timeline.characterKeyframes.find(frame=>frame.objectId===app.lighting.playback.activeCharacterId)?.id||null;
+  markLightingDirty();renderLightingTimeline();renderLightingCanvas();updateLightingPlaybackStatus()
+}
+async function updateLightingTimelineDuration(){
+  if(!lightingCanEdit())return;const timeline=currentLightingTimeline(),duration=Math.max(.25,Math.min(120,Number($("lightingTimelineDuration").value)||timeline.duration||4));timeline.duration=duration;timeline.keyframes.forEach(frame=>frame.time=Math.min(frame.time,duration));timeline.characterKeyframes.forEach(frame=>frame.time=Math.min(frame.time,duration));timeline.keyframes.sort((a,b)=>a.time-b.time);timeline.characterKeyframes.sort((a,b)=>a.time-b.time);app.lighting.playback.duration=duration;app.lighting.playback.elapsed=Math.min(app.lighting.playback.elapsed,duration);markLightingDirty();renderLightingTimeline();updateLightingPlaybackStatus();await syncTimelineDurationToShot(duration)
 }
 function shortestAngleDelta(a,b){return ((Number(b||0)-Number(a||0)+540)%360)-180}
 function easeTimelineValue(t,mode="smooth"){
@@ -4315,32 +4401,59 @@ function cameraTimelineSample(time){
   const raw=(time-left.time)/Math.max(.001,right.time-left.time),t=easeTimelineValue(raw,right.easing||"smooth"),mix=(a,b)=>Number(a||0)+(Number(b||0)-Number(a||0))*t;
   return {...deepClone(left),time,x:mix(left.x,right.x),y:mix(left.y,right.y),height3d:mix(left.height3d,right.height3d),rotation:Number(left.rotation||0)+shortestAngleDelta(left.rotation,right.rotation)*t,tilt:mix(left.tilt,right.tilt),roll:Number(left.roll||0)+shortestAngleDelta(left.roll,right.roll)*t,lens:`${mix(parseLensMm(left.lens),parseLensMm(right.lens)).toFixed(1)}mm`,cameraModel:t<.5?left.cameraModel:right.cameraModel}
 }
+function characterTimelineSample(objectId,time){
+  const frames=currentLightingTimeline().characterKeyframes.filter(frame=>frame.objectId===objectId).sort((a,b)=>a.time-b.time);if(!frames.length)return null;if(frames.length===1||time<=frames[0].time)return deepClone(frames[0]);if(time>=frames[frames.length-1].time)return deepClone(frames[frames.length-1]);
+  let left=frames[0],right=frames[frames.length-1];for(let i=1;i<frames.length;i++){if(time<=frames[i].time){left=frames[i-1];right=frames[i];break}}
+  const raw=(time-left.time)/Math.max(.001,right.time-left.time),t=easeTimelineValue(raw,right.easing||"smooth"),mix=(a,b)=>Number(a||0)+(Number(b||0)-Number(a||0))*t;
+  return {...deepClone(left),time,x:mix(left.x,right.x),y:mix(left.y,right.y),height3d:mix(left.height3d,right.height3d),rotation:Number(left.rotation||0)+shortestAngleDelta(left.rotation,right.rotation)*t,scale:mix(left.scale,right.scale)}
+}
+function captureLightingTimelineSubjects(){return Object.fromEntries(lightingTimelineCharacters().map(subject=>[subject.id,deepClone(subject)]))}
+function applyCharacterTimelineTime(time){
+  const timeline=currentLightingTimeline(),pb=app.lighting.playback;if(!timeline.characterKeyframes.length)return;
+  if(!pb.baseSubjects)pb.baseSubjects=captureLightingTimelineSubjects();
+  for(const objectId of new Set(timeline.characterKeyframes.map(frame=>frame.objectId))){
+    const subject=lightingTimelineCharacters().find(object=>object.id===objectId),sample=characterTimelineSample(objectId,time);if(!subject||!sample)continue;
+    Object.assign(subject,{x:sample.x,y:sample.y,height3d:sample.height3d,rotation:sample.rotation,scale:sample.scale})
+  }
+}
 function applyLightingTimelineTime(time,{preview=true}={}){
   const timeline=currentLightingTimeline(),pb=app.lighting.playback,cam=activeLightingCameraObject(),next=Math.max(0,Math.min(timeline.duration,Number(time)||0));pb.elapsed=next;
   if(preview&&cam&&timeline.keyframes.length){if(!pb.baseCamera)pb.baseCamera=deepClone(cam);const sample=cameraTimelineSample(next);if(sample)Object.assign(cam,sample,{id:cam.id,type:"camera",label:cam.label,autoFrame:false})}
-  if($("lightingTimelineScrubber"))$("lightingTimelineScrubber").value=String(next);if($("lightingTimelineTime"))$("lightingTimelineTime").value=next.toFixed(2);updateThreeCameraFromObject();renderLightingCanvas();renderLightingInspector(false);renderLightingObjectList();updateCameraViewfinder()
+  if(preview)applyCharacterTimelineTime(next);
+  if($("lightingTimelineScrubber"))$("lightingTimelineScrubber").value=String(next);if($("lightingTimelineTime"))$("lightingTimelineTime").value=next.toFixed(2);updateThreeCameraFromObject();updateThreeSubjectsFromObjects();renderLightingCanvas();renderLightingInspector(false);renderLightingObjectList();updateCameraViewfinder()
 }
 function seekLightingTimeline(value){
   pauseLightingPlayback();const next=Math.max(0,Math.min(currentLightingTimeline().duration,Number(value)||0));
-  if(app.lighting.explorer.active){app.lighting.playback.elapsed=next;renderLightingTimeline();updateLightingPlaybackStatus(`Playhead · ${next.toFixed(2)}s · Explore pose unchanged`);updateCameraViewfinder();return}
+  if(app.lighting.explorer.active){app.lighting.playback.elapsed=next;applyCharacterTimelineTime(next);updateThreeSubjectsFromObjects();renderLightingCanvas();renderLightingObjectList();renderLightingTimeline();updateLightingPlaybackStatus(`Playhead · ${next.toFixed(2)}s · Explore camera unchanged`);updateCameraViewfinder();return}
   applyLightingTimelineTime(next);renderLightingTimeline();updateLightingPlaybackStatus()
 }
 function renderLightingTimeline(){
-  const timeline=currentLightingTimeline(),pb=app.lighting.playback,scrubber=$("lightingTimelineScrubber"),timeInput=$("lightingTimelineTime"),durationInput=$("lightingTimelineDuration"),markers=$("lightingTimelineMarkers");if(!scrubber||!markers)return;
+  const timeline=currentLightingTimeline(),pb=app.lighting.playback,scrubber=$("lightingTimelineScrubber"),timeInput=$("lightingTimelineTime"),durationInput=$("lightingTimelineDuration"),markers=$("lightingTimelineMarkers"),characterMarkers=$("lightingCharacterTimelineMarkers"),characterSelect=$("lightingTimelineCharacter");if(!scrubber||!markers||!characterMarkers||!characterSelect)return;
   scrubber.max=String(timeline.duration);scrubber.value=String(Math.min(timeline.duration,pb.elapsed||0));timeInput.max=String(timeline.duration);timeInput.value=Number(pb.elapsed||0).toFixed(2);durationInput.value=String(Number(timeline.duration.toFixed(2)));
+  const characters=lightingTimelineCharacters(),activeCharacter=activeLightingTimelineCharacter();
+  characterSelect.innerHTML=characters.length?characters.map(character=>`<option value="${escapeHtml(character.id)}">${escapeHtml(character.label||"Character")}</option>`).join(""):`<option value="">No characters</option>`;
+  characterSelect.value=activeCharacter?.id||"";characterSelect.disabled=!lightingCanEdit()||!characters.length;
+  characterSelect.onchange=()=>{pb.activeCharacterId=characterSelect.value||null;pb.selectedCharacterKeyframeId=timeline.characterKeyframes.find(frame=>frame.objectId===pb.activeCharacterId)?.id||null;renderLightingTimeline();renderLightingCanvas()};
+  const tickHost=$("lightingTimelineTicks");if(tickHost){const steps=timeline.duration<=5?5:timeline.duration<=20?10:12;tickHost.innerHTML=Array.from({length:steps+1},(_,index)=>{const value=timeline.duration*index/steps;return `<span style="left:${index/steps*100}%">${Number(value.toFixed(1))}</span>`}).join("")}
   markers.innerHTML=timeline.keyframes.map(frame=>`<button type="button" class="lighting-timeline-marker ${frame.id===pb.selectedKeyframeId?"active":""}" style="left:${Math.max(0,Math.min(100,frame.time/timeline.duration*100))}%" data-keyframe-id="${frame.id}" title="${frame.time.toFixed(2)} s"></button>`).join("");
-  markers.querySelectorAll("[data-keyframe-id]").forEach(button=>button.onclick=event=>{event.stopPropagation();const frame=timeline.keyframes.find(item=>item.id===button.dataset.keyframeId);if(!frame)return;pb.selectedKeyframeId=frame.id;seekLightingTimeline(frame.time)});
-  $("lightingDeleteKeyframeBtn").disabled=!pb.selectedKeyframeId||!lightingCanEdit();$("lightingAddKeyframeBtn").disabled=!activeLightingCameraObject()||!lightingCanEdit();$("exportLightingVideoBtn").disabled=timeline.keyframes.length<2||pb.exporting
+  const activeCharacterFrames=timeline.characterKeyframes.filter(frame=>frame.objectId===activeCharacter?.id);
+  characterMarkers.innerHTML=activeCharacterFrames.map(frame=>`<button type="button" class="lighting-timeline-marker ${frame.id===pb.selectedCharacterKeyframeId?"active":""}" style="left:${Math.max(0,Math.min(100,frame.time/timeline.duration*100))}%" data-character-keyframe-id="${frame.id}" title="${escapeHtml(activeCharacter?.label||"Character")} · ${frame.time.toFixed(2)} s"></button>`).join("");
+  markers.querySelectorAll("[data-keyframe-id]").forEach(button=>button.onclick=event=>{event.stopPropagation();const frame=timeline.keyframes.find(item=>item.id===button.dataset.keyframeId);if(!frame)return;pb.selectedTrack="camera";pb.selectedKeyframeId=frame.id;seekLightingTimeline(frame.time)});
+  characterMarkers.querySelectorAll("[data-character-keyframe-id]").forEach(button=>button.onclick=event=>{event.stopPropagation();const frame=timeline.characterKeyframes.find(item=>item.id===button.dataset.characterKeyframeId);if(!frame)return;pb.selectedTrack="character";pb.activeCharacterId=frame.objectId;pb.selectedCharacterKeyframeId=frame.id;seekLightingTimeline(frame.time)});
+  $("lightingDeleteKeyframeBtn").disabled=!pb.selectedKeyframeId||!lightingCanEdit();$("lightingAddKeyframeBtn").disabled=!activeLightingCameraObject()||!lightingCanEdit();
+  $("lightingDeleteCharacterKeyframeBtn").disabled=!pb.selectedCharacterKeyframeId||!lightingCanEdit();$("lightingAddCharacterKeyframeBtn").disabled=!activeCharacter||!lightingCanEdit();
+  $("exportLightingVideoBtn").disabled=!lightingTimelinePlayable()||pb.exporting
 }
 function updateLightingPlaybackStatus(msg=""){
   const el=$("lightingPlaybackStatus");if(!el)return;
   const pb=app.lighting.playback,cam=activeLightingCameraObject(),cfg=lightingPlaybackConfig(cam);
   if(msg){el.textContent=msg;return}
-  const duration=pb.duration||cfg.duration||4,count=currentLightingTimeline().keyframes.length;
+  const duration=pb.duration||cfg.duration||4,timeline=currentLightingTimeline(),cameraCount=timeline.keyframes.length,characterCount=timeline.characterKeyframes.length;
   if(pb.exporting)el.textContent=`Recording Camera View · ${Math.min(pb.elapsed,duration).toFixed(1)} / ${duration.toFixed(1)}s`;
-  else if(pb.playing)el.textContent=`Playing camera path · ${Math.min(pb.elapsed,duration).toFixed(1)} / ${duration.toFixed(1)}s`;
-  else if(pb.baseCamera&&pb.elapsed>0)el.textContent=`Paused · ${Math.min(pb.elapsed,duration).toFixed(1)} / ${duration.toFixed(1)}s`;
-  else el.textContent=count<2?`Add ${2-count} more camera point${count===1?"":"s"}.`:`${count} camera points · ${duration.toFixed(1)}s path ready`
+  else if(pb.playing)el.textContent=`Playing shot motion · ${Math.min(pb.elapsed,duration).toFixed(1)} / ${duration.toFixed(1)}s`;
+  else if((pb.baseCamera||pb.baseSubjects)&&pb.elapsed>0)el.textContent=`Paused · ${Math.min(pb.elapsed,duration).toFixed(1)} / ${duration.toFixed(1)}s`;
+  else if(!lightingTimelinePlayable())el.textContent="Add two keyframes to any camera or character track.";
+  else el.textContent=`${cameraCount} camera · ${characterCount} character keyframes · ${duration.toFixed(1)}s`
 }
 function showLightingGodToast(){
   const el=$("lightingGodToast");if(!el)return;
@@ -4355,16 +4468,17 @@ function pauseLightingPlayback(){
 function stopLightingPlayback(resetCamera=true){
   const pb=app.lighting.playback,cam=activeLightingCameraObject();
   if(resetCamera&&cam&&pb.baseCamera){
-    Object.assign(cam,deepClone(pb.baseCamera));
-    renderLightingCanvas();renderLightingInspector(false);renderLightingObjectList();syncLighting3D()
+    Object.assign(cam,deepClone(pb.baseCamera))
   }
-  pb.playing=false;pb.elapsed=0;pb.baseCamera=null;if(pb.exportResolve){const resolve=pb.exportResolve;pb.exportResolve=null;resolve()}
+  if(resetCamera&&pb.baseSubjects){for(const subject of lightingTimelineCharacters()){const base=pb.baseSubjects[subject.id];if(base)Object.assign(subject,deepClone(base))}}
+  if(resetCamera&&(pb.baseCamera||pb.baseSubjects)){renderLightingCanvas();renderLightingInspector(false);renderLightingObjectList();syncLighting3D()}
+  pb.playing=false;pb.elapsed=0;pb.baseCamera=null;pb.baseSubjects=null;if(pb.exportResolve){const resolve=pb.exportResolve;pb.exportResolve=null;resolve()}
   renderLightingTimeline();updateLightingPlaybackStatus();updateCameraViewfinder()
 }
 function playLightingPlayback(fromStart=false){
-  const cam=activeLightingCameraObject(),timeline=currentLightingTimeline();if(!cam)return;if(timeline.keyframes.length<2){updateLightingPlaybackStatus("Add at least two camera points before playing.");return false}
+  const cam=activeLightingCameraObject(),timeline=currentLightingTimeline();if(!cam)return;if(!lightingTimelinePlayable()){updateLightingPlaybackStatus("Add at least two keyframes to a camera or character track before playing.");return false}
   stopVirtualExplore();const cfg=lightingPlaybackConfig(cam),pb=app.lighting.playback;
-  if(!pb.baseCamera)pb.baseCamera=deepClone(cam);pb.duration=timeline.duration||cfg.duration;pb.movement="Keyframes";
+  if(timeline.keyframes.length&&!pb.baseCamera)pb.baseCamera=deepClone(cam);if(timeline.characterKeyframes.length&&!pb.baseSubjects)pb.baseSubjects=captureLightingTimelineSubjects();pb.duration=timeline.duration||cfg.duration;pb.movement="Keyframes";
   if(fromStart||pb.elapsed>=pb.duration)pb.elapsed=0;pb.playing=true;applyLightingTimelineTime(pb.elapsed);renderLightingTimeline();updateLightingPlaybackStatus();return true
 }
 function movementPreviewSample(base,movement,t,duration,subject){
@@ -4411,17 +4525,18 @@ function movementPreviewSample(base,movement,t,duration,subject){
 }
 function updateLightingPlayback(dt){
   const pb=app.lighting.playback,cam=activeLightingCameraObject();
-  if(!pb.playing||!cam||!pb.baseCamera)return;
+  if(!pb.playing||!cam||(!pb.baseCamera&&!pb.baseSubjects))return;
   pb.elapsed=Math.min(pb.elapsed+dt,pb.duration);
   const t=Math.max(0,Math.min(1,pb.elapsed/Math.max(.001,pb.duration)));
   const sample=cameraTimelineSample(pb.elapsed);if(sample)Object.assign(cam,sample,{id:cam.id,type:"camera",label:cam.label,autoFrame:false});
+  applyCharacterTimelineTime(pb.elapsed);
   updateLightingPlaybackStatus();
-  renderLightingTimeline();renderLightingCanvas();renderLightingInspector(false);renderLightingObjectList();updateThreeCameraFromObject();updateCameraViewfinder();
-  if(t>=1){pb.playing=false;updateLightingPlaybackStatus(`Complete · camera path · ${pb.duration.toFixed(1)}s`);if(pb.exportResolve){const resolve=pb.exportResolve;pb.exportResolve=null;resolve()}}
+  renderLightingTimeline();renderLightingCanvas();renderLightingInspector(false);renderLightingObjectList();updateThreeCameraFromObject();updateThreeSubjectsFromObjects();updateCameraViewfinder();
+  if(t>=1){pb.playing=false;updateLightingPlaybackStatus(`Complete · shot motion · ${pb.duration.toFixed(1)}s`);if(pb.exportResolve){const resolve=pb.exportResolve;pb.exportResolve=null;resolve()}}
 }
 
 async function exportLightingVideo(){
-  const timeline=currentLightingTimeline();if(timeline.keyframes.length<2)return updateLightingPlaybackStatus("Add at least two camera points before exporting.");
+  const timeline=currentLightingTimeline();if(!lightingTimelinePlayable())return updateLightingPlaybackStatus("Add at least two keyframes to a camera or character track before exporting.");
   if(typeof MediaRecorder==="undefined")return updateLightingPlaybackStatus("Video export is not supported by this browser.");
   if(app.lighting.viewMode!=="camera"){app.lighting.viewMode="camera";await renderLightingViewMode()}
   const canvas=app.lighting.three?.renderer?.domElement;if(!canvas?.captureStream)return updateLightingPlaybackStatus("Camera View is not ready for video export.");
@@ -4629,7 +4744,7 @@ function createThreeScene(THREE){
     const p=planToWorld(o);
     if(o.type==="subject"){
       const faceAsset=(app.ai.characters||[]).find(asset=>asset.id===o.characterId&&asset.face_scan_path),faceEntry=faceAsset&&app.lighting.faceModelCache.get(faceAsset.id);if(faceAsset&&!faceEntry?.root)loadFaceModel(faceAsset).catch(()=>{});
-      const g=makeMannequin(THREE,o,faceEntry?.root||null);g.position.set(p.x,0,p.z);g.rotation.y=-Number(o.rotation||0)*Math.PI/180;state.scene.add(g)
+      const g=makeMannequin(THREE,o,faceEntry?.root||null);g.position.set(p.x,0,p.z);g.rotation.y=-Number(o.rotation||0)*Math.PI/180;g.userData.lightingObjectId=o.id;g.userData.baseCharacterSize=Math.max(.01,Number(o.height3d||1.75)*(Number(o.scale||100)/100));state.scene.add(g)
     }else if(o.type==="light"){
       const fp=lightingFixtureProps(o.fixture),mp=lightingModifierProps(o.diffusion),rgb=kelvinToRgb(o.kelvin);
       const color=new THREE.Color(rgb.r/255,rgb.g/255,rgb.b/255),height=Number(o.height3d||2.2);
@@ -4777,6 +4892,14 @@ function rebuildLighting3D(){
 }
 function syncLighting3D(){
   if(app.lighting.viewMode==="camera"&&app.lighting.three?.THREE)rebuildLighting3D()
+}
+function updateThreeSubjectsFromObjects(){
+  const state=app.lighting.three;if(app.lighting.viewMode!=="camera"||!state?.scene)return;
+  const subjects=new Map(lightingTimelineCharacters().map(subject=>[subject.id,subject]));
+  state.scene.traverse(node=>{
+    const subject=subjects.get(node.userData?.lightingObjectId);if(!subject)return;const point=planToWorld(subject),size=Math.max(.01,Number(subject.height3d||1.75)*(Number(subject.scale||100)/100)),base=Math.max(.01,Number(node.userData.baseCharacterSize)||size),ratio=size/base;
+    node.position.set(point.x,0,point.z);node.rotation.y=-Number(subject.rotation||0)*Math.PI/180;node.scale.setScalar(ratio)
+  })
 }
 async function startLighting3D(){
   const THREE=await loadThree();if(!THREE)return;
@@ -5112,7 +5235,7 @@ function bind(){
   $("cropCanvas").addEventListener("wheel",event=>{if(!cropState.drawable||cropState.saving)return;event.preventDefault();const zoom=$("cropZoom"),next=Math.max(Number(zoom.min),Math.min(Number(zoom.max),Number(zoom.value)+(event.deltaY<0?5:-5)));zoom.value=String(next);updateCropZoom()},{passive:false});
   $("imageViewerModal").addEventListener("close",()=>{clearCropDrawable();cropState.active=false;cropState.target=null;cropState.saving=false;$("cropCanvas").hidden=true;$("cropLoading").hidden=true;setMsg("cropNotice","")});
 
-  // Lighting Studio v5.3
+  // Lighting Studio v5.5
   $("openLightingDiagramBtn").onclick=()=>openLightingWorkspace();
   $("closeLightingDiagramBtn").onclick=closeLightingWorkspace;
   $("lightingDiagramModal").addEventListener("cancel",e=>{e.preventDefault();closeLightingWorkspace()});
@@ -5122,14 +5245,13 @@ function bind(){
   $("lightingCameraModeBtn").onclick=()=>setLightingViewMode("camera");
   $("lightingGodViewBtn").onclick=showLightingGodToast;
   $("lightingDrawerHeader").onclick=()=>toggleLightingDrawer();
-  $("openVirtualLocationBtn").onclick=focusVirtualLocationSection;
   $("lightingPlanPipHeader").addEventListener("pointerdown",startLightingPipDrag);$("lightingPlanPipHeader").addEventListener("pointermove",moveLightingPipDrag);$("lightingPlanPipHeader").addEventListener("pointerup",endLightingCompanionDrag);$("lightingPlanPipHeader").addEventListener("pointercancel",endLightingCompanionDrag);
   $("lightingSplitHandle").addEventListener("pointerdown",startLightingSplitDrag);$("lightingSplitHandle").addEventListener("pointermove",moveLightingSplitDrag);$("lightingSplitHandle").addEventListener("pointerup",endLightingCompanionDrag);$("lightingSplitHandle").addEventListener("pointercancel",endLightingCompanionDrag);
 
   $("virtualLocationSelect").onchange=e=>selectVirtualLocation(e.target.value);
   $("virtualLocationFileInput").onchange=handleVirtualLocationFileInput;
   $("importVirtualLocationBtn").onclick=()=>chooseVirtualLocationFile("import");
-  $("scanVirtualLocationBtn").onclick=startIPhoneLocationScan;
+  $("scanVirtualLocationBtn").onclick=event=>event.preventDefault();
   $("detachVirtualLocationBtn").onclick=detachVirtualLocation;
   $("deleteVirtualLocationBtn").onclick=deleteVirtualLocation;
   $("virtualLocationBibleSelect").onchange=renderVirtualLocationBibleControls;
@@ -5144,10 +5266,10 @@ function bind(){
   $("lightingDiagramNotes").oninput=e=>{if(!app.lighting.current)return;app.lighting.current.data.notes=e.target.value;markLightingDirty()};
 
   $("addLightingCameraBtn").onclick=()=>addLightingObject(defaultLightingCamera());
-  $("addLightingSubjectBtn").onclick=()=>addLightingObject(defaultLightingSubject());
+  $("addLightingCharacterBtn").onclick=()=>addLightingObject(defaultLightingSubject());
   $("addLightingFixtureBtn").onclick=addLightingFixture;
   $("drawerAddLightingCameraBtn").onclick=event=>{event.preventDefault();event.stopPropagation();addLightingObject(defaultLightingCamera())};
-  $("drawerAddLightingSubjectBtn").onclick=event=>{event.preventDefault();event.stopPropagation();addLightingObject(defaultLightingSubject())};
+  $("drawerAddLightingCharacterBtn").onclick=event=>{event.preventDefault();event.stopPropagation();addLightingObject(defaultLightingSubject())};
   $("drawerAddLightingFixtureBtn").onclick=event=>{event.preventDefault();event.stopPropagation();addLightingFixture()};
   $("addShotLightingBtn").onclick=addLightFromCurrentShot;
   $("applyShotCameraBtn").onclick=applyCurrentShotToCamera;
@@ -5183,6 +5305,8 @@ function bind(){
   $("lightingPlaybackStopBtn").onclick=()=>stopLightingPlayback(true);
   $("lightingAddKeyframeBtn").onclick=addLightingCameraKeyframe;
   $("lightingDeleteKeyframeBtn").onclick=deleteLightingCameraKeyframe;
+  $("lightingAddCharacterKeyframeBtn").onclick=addLightingCharacterKeyframe;
+  $("lightingDeleteCharacterKeyframeBtn").onclick=deleteLightingCharacterKeyframe;
   $("lightingTimelineDuration").onchange=updateLightingTimelineDuration;
   $("lightingTimelineScrubber").oninput=event=>seekLightingTimeline(event.target.value);
   $("lightingTimelineTime").onchange=event=>seekLightingTimeline(event.target.value);

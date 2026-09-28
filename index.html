@@ -12,10 +12,10 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="styles.css?v=540" />
+  <link rel="stylesheet" href="styles.css?v=550" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0"></script>
-  <script src="config.js?v=540"></script>
-  <meta name="storyboard-build" content="v5.4.0-lighting-inline-controls" />
+  <script src="config.js?v=550"></script>
+  <meta name="storyboard-build" content="v5.5.0-shared-motion-timeline" />
 </head>
 <body>
 
@@ -812,7 +812,7 @@
 
 
 
-  <!-- LIGHTING STUDIO v5.4 -->
+  <!-- LIGHTING STUDIO v5.5 -->
   <dialog id="lightingDiagramModal" class="lighting-studio-modal">
     <div class="lighting-studio-shell">
 
@@ -826,11 +826,18 @@
         </div>
 
         <div class="lighting-add-actions">
-          <button id="openVirtualLocationBtn" type="button" class="lighting-add-btn virtual-location-toolbar-btn"><span>⌂</span> Virtual Location</button>
-          <button id="addLightingCameraBtn" type="button" class="lighting-add-btn"><span>⌁</span> Add Camera</button>
-          <button id="addLightingSubjectBtn" type="button" class="lighting-add-btn"><span>●</span> Add Subject</button>
-          <button id="addLightingFixtureBtn" type="button" class="lighting-add-btn"><span>✦</span> Add Light</button>
-          <button id="addShotLightingBtn" type="button" class="lighting-add-btn subtle"><span>↗</span> Shot Light</button>
+          <button id="addLightingCameraBtn" type="button" class="lighting-add-btn">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="7" width="12" height="10" rx="2"></rect><path d="m15 10 6-3v10l-6-3z"></path></svg><span>Add Camera</span>
+          </button>
+          <button id="addLightingCharacterBtn" type="button" class="lighting-add-btn">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="6" r="3"></circle><path d="M7 21v-5l2-5h6l2 5v5M9 14l-4 3M15 14l4 3"></path></svg><span>Add Character</span>
+          </button>
+          <button id="addLightingFixtureBtn" type="button" class="lighting-add-btn">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h10l4 4-4 4H4z"></path><circle cx="18" cy="12" r="3"></circle><path d="M9 16v4M6 20h6"></path></svg><span>Add Light</span>
+          </button>
+          <button id="addShotLightingBtn" type="button" class="lighting-add-btn subtle">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m13 2-8 12h7l-1 8 8-12h-7z"></path></svg><span>Shot Light</span>
+          </button>
         </div>
 
         <button id="saveLightingDiagramBtn" type="button" class="lighting-save-float">Save</button>
@@ -907,25 +914,42 @@
           </div>
         </div>
 
-        <section id="lightingCameraTimeline" class="lighting-camera-timeline" aria-label="Camera movement timeline">
+        <section id="lightingCameraTimeline" class="lighting-camera-timeline" aria-label="Shot movement timeline">
           <header>
-            <div><strong>CAMERA TIMELINE</strong><small>Set the playhead, pose the camera, then add a keyframe.</small></div>
+            <div><strong>SHOT TIMELINE</strong><small>Camera and character keyframes share one playhead and shot duration.</small></div>
             <label>Duration <input id="lightingTimelineDuration" type="number" min="0.25" max="120" step="0.25" value="4" /> s</label>
           </header>
-          <div class="lighting-timeline-track-wrap">
-            <input id="lightingTimelineScrubber" type="range" min="0" max="4" step="0.01" value="0" aria-label="Timeline playhead" />
-            <div id="lightingTimelineMarkers" class="lighting-timeline-markers"></div>
+          <div class="lighting-timeline-timebar">
+            <label class="lighting-timeline-time">Time <input id="lightingTimelineTime" type="number" min="0" max="4" step="0.01" value="0" /> s</label>
+            <div class="lighting-timeline-track-wrap">
+              <input id="lightingTimelineScrubber" type="range" min="0" max="4" step="0.01" value="0" aria-label="Timeline playhead" />
+              <div id="lightingTimelineTicks" class="lighting-timeline-ticks" aria-hidden="true"></div>
+            </div>
+          </div>
+          <div class="lighting-keyframe-lanes" aria-label="Keyframe tracks">
+            <div class="lighting-keyframe-lane camera-lane">
+              <div class="lighting-keyframe-lane-head">
+                <span><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="7" width="12" height="10" rx="2"></rect><path d="m15 10 6-3v10l-6-3z"></path></svg> Camera</span>
+                <button id="lightingAddKeyframeBtn" type="button">Add Keyframe</button>
+                <button id="lightingDeleteKeyframeBtn" type="button">Delete</button>
+              </div>
+              <div class="lighting-keyframe-rail"><div id="lightingTimelineMarkers" class="lighting-timeline-markers"></div></div>
+            </div>
+            <div class="lighting-keyframe-lane character-lane">
+              <div class="lighting-keyframe-lane-head">
+                <label><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="6" r="3"></circle><path d="M7 21v-5l2-5h6l2 5v5M9 14l-4 3M15 14l4 3"></path></svg><select id="lightingTimelineCharacter" aria-label="Character timeline"></select></label>
+                <button id="lightingAddCharacterKeyframeBtn" type="button">Add Keyframe</button>
+                <button id="lightingDeleteCharacterKeyframeBtn" type="button">Delete</button>
+              </div>
+              <div class="lighting-keyframe-rail"><div id="lightingCharacterTimelineMarkers" class="lighting-timeline-markers character-markers"></div></div>
+            </div>
           </div>
           <div class="lighting-timeline-actions">
-            <button id="lightingAddKeyframeBtn" type="button">＋ Keyframe</button>
-            <button id="lightingDeleteKeyframeBtn" type="button">Delete Point</button>
-            <label class="lighting-timeline-time">Time <input id="lightingTimelineTime" type="number" min="0" max="4" step="0.01" value="0" /> s</label>
-            <span class="lighting-timeline-spacer"></span>
             <button id="lightingPlaybackPlayBtn" type="button" class="lighting-playback-btn primary">▶ Play</button>
             <button id="lightingPlaybackPauseBtn" type="button" class="lighting-playback-btn">Pause</button>
             <button id="lightingPlaybackStopBtn" type="button" class="lighting-playback-btn">Stop</button>
             <button id="exportLightingVideoBtn" type="button" class="lighting-playback-btn export">Export Video</button>
-            <span id="lightingPlaybackStatus" class="lighting-playback-status">Add two camera points to preview movement.</span>
+            <span id="lightingPlaybackStatus" class="lighting-playback-status">Add two camera or character keyframes to preview movement.</span>
           </div>
         </section>
       </main>
@@ -934,7 +958,7 @@
 
       <aside id="lightingDrawer" class="lighting-object-drawer">
         <button id="lightingDrawerHeader" type="button" class="lighting-drawer-header">
-          <span>OBJECTS &amp; PROPERTIES</span>
+          <span>SETUP</span>
           <span id="lightingDrawerArrow">▾</span>
         </button>
 
@@ -953,7 +977,13 @@
             <input id="virtualLocationFileInput" type="file" accept=".glb,.usdz,model/gltf-binary,model/vnd.usdz+zip" hidden />
             <div class="virtual-location-actions">
               <button id="importVirtualLocationBtn" type="button">Import Scan</button>
-              <button id="scanVirtualLocationBtn" type="button">Scan with iPhone</button>
+              <button id="scanVirtualLocationBtn" type="button" disabled aria-disabled="true" title="Available after the native FilmBoard scanner is released">Scan with iPhone · Coming Later</button>
+            </div>
+            <div class="virtual-scan-apps" aria-label="Recommended mobile scanning apps">
+              <strong>SCAN WITH A PHONE APP</strong>
+              <a href="https://scaniverse.com/" target="_blank" rel="noopener noreferrer"><span>iPhone</span><b>Scaniverse</b><small>Free · Export Mesh as GLB</small></a>
+              <a href="https://scaniverse.com/" target="_blank" rel="noopener noreferrer"><span>Android</span><b>Scaniverse</b><small>Free · Export Mesh as GLB</small></a>
+              <p>Alternative: <a href="https://www.realityscan.com/" target="_blank" rel="noopener noreferrer">RealityScan Mobile</a>. Import the exported GLB above.</p>
             </div>
             <div class="virtual-location-actions secondary">
               <button id="detachVirtualLocationBtn" type="button">Detach</button>
@@ -1005,7 +1035,7 @@
           <details id="lightingCamerasSection" class="lighting-drawer-section lighting-folder lighting-camera-rack" open>
             <summary class="lighting-section-heading">
               <div><div class="lighting-section-title">CAMERAS</div><small>Camera controls are separate from scene objects.</small></div>
-              <button id="drawerAddLightingCameraBtn" type="button" class="lighting-section-add">＋ Camera</button>
+              <button id="drawerAddLightingCameraBtn" type="button" class="lighting-section-add"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="7" width="12" height="10" rx="2"></rect><path d="m15 10 6-3v10l-6-3z"></path></svg><span>Camera</span></button>
             </summary>
             <div id="lightingCameraList" class="lighting-camera-list"></div>
           </details>
@@ -1013,7 +1043,7 @@
           <details id="lightingLightsSection" class="lighting-drawer-section lighting-folder" open>
             <summary class="lighting-section-heading">
               <div><div class="lighting-section-title">LIGHTS</div><small>Fixtures and physical modifiers.</small></div>
-              <button id="drawerAddLightingFixtureBtn" type="button" class="lighting-section-add">＋ Light</button>
+              <button id="drawerAddLightingFixtureBtn" type="button" class="lighting-section-add"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h10l4 4-4 4H4z"></path><circle cx="18" cy="12" r="3"></circle><path d="M9 16v4M6 20h6"></path></svg><span>Light</span></button>
             </summary>
             <div id="lightingLightList" class="lighting-object-list"></div>
           </details>
@@ -1021,7 +1051,7 @@
           <details id="lightingCharactersSection" class="lighting-drawer-section lighting-folder" open>
             <summary class="lighting-section-heading">
               <div><div class="lighting-section-title">CHARACTERS</div><small>Mannequins and linked Bible faces.</small></div>
-              <button id="drawerAddLightingSubjectBtn" type="button" class="lighting-section-add">＋ Character</button>
+              <button id="drawerAddLightingCharacterBtn" type="button" class="lighting-section-add"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="6" r="3"></circle><path d="M7 21v-5l2-5h6l2 5v5M9 14l-4 3M15 14l4 3"></path></svg><span>Character</span></button>
             </summary>
             <div id="lightingCharacterList" class="lighting-object-list"></div>
           </details>
@@ -1304,7 +1334,7 @@
     </div>
   </dialog>
 
-  <script src="i18n.js?v=540"></script>
-  <script src="app.js?v=540"></script>
+  <script src="i18n.js?v=550"></script>
+  <script src="app.js?v=550"></script>
 </body>
 </html>

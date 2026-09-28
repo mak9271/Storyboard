@@ -1,6 +1,16 @@
-# FilmBoard v5.4.0 — Inline Lighting Controls & Canvas Navigation
+# FilmBoard v5.5.0 — Shared Camera & Character Timeline
 
-This build makes both 2D diagram views easier to navigate, keeps each object's controls directly beneath that object and expands the manufacturer-based camera profiles while retaining the FilmBoard camera-path and Spatial Bible workflows.
+This build adds synchronized camera and character animation to Lighting Diagram, keeps shot duration tied to the shared timeline and simplifies the Setup and scan-import workflow.
+
+## v5.5.0 changes
+
+- Adds a visible keyframe area directly below the shared time/playhead bar, with separate Camera and Character lanes.
+- Characters can be selected, positioned and keyed at the same shared time as the camera. Playback and video export can contain camera motion, character motion or both.
+- Timeline Duration now updates the linked shot's Duration field and is saved with the shot.
+- Replaces the Lighting add-button symbols with line icons, renames Add Subject to **Add Character**, and removes Virtual Location from the top toolbar.
+- Renames the right drawer to **Setup**.
+- Keeps native **Scan with iPhone** disabled until the FilmBoard native scanner exists. Setup now recommends **Scaniverse** on iPhone and Android (export Mesh as GLB), with RealityScan Mobile as an alternative, then imports the exported GLB.
+- No new SQL migration is required for v5.5.0. Character keyframes are stored in the existing `lighting_diagrams.data.timeline` JSON.
 
 ## v5.4.0 changes
 
@@ -104,7 +114,7 @@ This build makes both 2D diagram views easier to navigate, keeps each object's c
 
 ## Existing installation: deployment
 
-v5.4.0 does not add database fields. If the v5.0 and v5.1 migrations already succeeded, do not run another SQL query. Existing hidden Subject fields remain in saved shot data for backward compatibility and are not deleted.
+v5.5.0 does not add database fields. If the v5.0 and v5.1 migrations already succeeded, do not run another SQL query. Existing hidden Subject fields remain in saved shot data for backward compatibility and are not deleted.
 
 1. If `Storyboard v4.8 - Lighting Access Repair` has not already succeeded, run the packaged v4.8 query once using the saved-query instructions from the prior release. Otherwise leave SQL Editor unchanged.
 2. Run `supabase-v5.0-virtual-locations.sql` once if it has not already been run.
@@ -117,8 +127,8 @@ v5.4.0 does not add database fields. If the v5.0 and v5.1 migrations already suc
    ```
 
 6. No Supabase Edge Function redeploy is required.
-7. Hard-refresh the app. Page source should show `styles.css?v=540`, `config.js?v=540`, `i18n.js?v=540`, `app.js?v=540` and build `v5.4.0-lighting-inline-controls`.
-8. Open Lighting Diagram, zoom either 2D pane and drag its empty canvas. Select a camera, light and character and verify each settings card opens directly beneath that selected item.
+7. Hard-refresh the app. Page source should show `styles.css?v=550`, `config.js?v=550`, `i18n.js?v=550`, `app.js?v=550` and build `v5.5.0-shared-motion-timeline`.
+8. Open Lighting Diagram, add camera and character keyframes on the shared timeline, then verify Play moves both tracks and Duration updates the linked shot.
 
 ## Fresh Supabase installation
 
@@ -148,20 +158,21 @@ For a fresh installation, deploy `supabase/functions/username-login/index.ts` fr
 
 ## Virtual Location workflow
 
-1. At the filming location, capture the space with an iPhone LiDAR scanner and export one self-contained `.glb` or `.usdz` file (maximum 250 MB).
-2. Open the project, choose **Lighting Diagram → Virtual Location**, and select **Import Scan** or **Scan with iPhone**.
+1. At the filming location, use **Scaniverse** on iPhone or Android, choose Mesh rather than Gaussian Splat, and export one self-contained `.glb` file (maximum 250 MB). RealityScan Mobile is also listed as an alternative.
+2. Open the project, choose **Lighting Diagram → Setup → Virtual Location**, and select **Import Scan**. **Scan with iPhone** remains disabled until the native FilmBoard scanner is released.
 3. Attach the scan to the current diagram, align its scale, rotation, floor and horizontal position, then save the diagram.
 4. Open **Camera View → Explore**. On desktop use W/A/S/D to move, Q/E to rotate and R/F to change height; on mobile use the touch arrows and **Phone Look**.
 5. Exploration does not move the shot camera. Select **Place Shot Camera Here** only when the explored viewpoint should become the diagram's active camera.
 6. In **Bible Connection**, choose the matching Bible location, select **Link Scan**, then frame the useful view and select **Capture Camera View for AI**.
 
-## Camera timeline workflow
+## Shared camera and character timeline workflow
 
-1. Set Duration to the shot length.
-2. Move the playhead to the first time, select **Explore**, pose the camera and choose **Keyframe**.
-3. Move the playhead to another time, change position, rotation, height or tilt, then add another keyframe. For example, save an overhead point at 0 seconds and an eye-level pull-back point at 7 seconds.
-4. Select **Play** to preview the interpolated path. Numbered path points appear in both top and side views.
-5. Select **Export Video** in Camera View to download a WebM or MP4 preview of the complete path, depending on browser support.
+1. Set Duration to the shot length; the same value is written to the linked shot.
+2. Move the shared playhead to the first time, pose the camera and choose **Add Keyframe** in the Camera lane.
+3. Choose a character in the Character lane, move it in the top or elevation view and add a character keyframe at that same shared time.
+4. Move the playhead, reposition either track and add more keyframes. For example, the camera can descend from overhead while the character crosses the set during the same seven seconds.
+5. Select **Play** to preview both interpolated paths. Numbered camera and character points appear in the top and side views.
+6. Select **Export Video** in Camera View to download a WebM or MP4 preview of the complete shot motion, depending on browser support.
 
 See [CAMERA-SPECS.md](CAMERA-SPECS.md) for the sensor areas and official manufacturer references used by the camera profiles.
 
@@ -237,7 +248,7 @@ Automated checks cover HTML identity, Admin access, repaired Lighting RLS/persis
 ## Current limits
 
 - Bible and AI features require a signed-in cloud project and the relevant project permission.
-- Browser-based Virtual Location supports phone rotation plus virtual walking. Direct RoomPlan capture and translation from the iPhone's physical movement require the native iOS wrapper.
+- Browser-based Virtual Location supports phone rotation plus virtual walking. Native RoomPlan capture is intentionally disabled until the FilmBoard mobile scanner ships; import GLB from Scaniverse or RealityScan Mobile in the meantime.
 - AI image models consume rendered 2D views of 3D scans, not raw GLB/USDZ geometry. The original 3D assets remain available to Camera View while the captured/rendered spatial image guides Bible generation.
 - Virtual Location walkthrough currently has no collision mesh, so the user can move through scanned walls when navigating manually.
 - Script analysis is evidence-based but still requires user review before applying.
