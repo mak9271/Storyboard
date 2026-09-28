@@ -1,6 +1,6 @@
 {
-  "name": "Storyboard Shot Builder",
-  "short_name": "Storyboard",
+  "name": "FilmBoard",
+  "short_name": "FB",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#050607",

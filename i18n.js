@@ -1,12 +1,12 @@
-// Storyboard Shot Builder v5.1.0 — English / Persian interface
+// FilmBoard v5.2.0 — English / Persian interface
 (() => {
   "use strict";
 
   const STORAGE_KEY = "storyboard-language";
   const ATTRIBUTE_NAMES = ["placeholder", "title", "aria-label", "alt", "data-placeholder"];
   const FA = {
-    "Storyboard Shot Builder":"سازنده شات‌های استوری‌بورد",
-    "STORYBOARD":"استوری‌بورد",
+    "FilmBoard":"FilmBoard",
+    "FILMBOARD":"FILMBOARD",
     "Build, save and collaborate on shot-by-shot storyboards.":"استوری‌بورد را شات‌به‌شات بسازید، ذخیره کنید و به‌صورت گروهی پیش ببرید.",
     "Sign In":"ورود",
     "Signing in…":"در حال ورود…",
@@ -29,7 +29,7 @@
     "Your name":"نام شما",
     "PASSWORD RECOVERY":"بازیابی رمز عبور",
     "Choose a new password":"یک رمز عبور جدید انتخاب کنید",
-    "Enter a new password for this Storyboard account.":"رمز عبور جدید این حساب استوری‌بورد را وارد کنید.",
+    "Enter a new password for this FilmBoard account.":"رمز عبور جدید حساب FilmBoard را وارد کنید.",
     "New Password":"رمز عبور جدید",
     "Confirm New Password":"تکرار رمز عبور جدید",
     "Update Password":"تغییر رمز عبور",
@@ -37,7 +37,7 @@
     "Back to Sign In":"بازگشت به ورود",
     "Cloud accounts are not configured yet. The editor can still run in offline mode.":"حساب‌های ابری هنوز تنظیم نشده‌اند. می‌توانید ویرایشگر را آفلاین اجرا کنید.",
     "Continue Offline":"ادامه به‌صورت آفلاین",
-    "MY STORYBOARDS":"استوری‌بوردهای من",
+    "PROJECTS":"پروژه‌ها",
     "Projects":"پروژه‌ها",
     "＋ New Project":"＋ پروژه جدید",
     "Admin Center":"مرکز مدیریت",
@@ -86,7 +86,6 @@
     "ADMIN SUPPORT MODE":"حالت پشتیبانی مدیر",
     "Viewing a customer project":"در حال مشاهده پروژه کاربر",
     "Exit Support Mode":"خروج از حالت پشتیبانی",
-    "PRE-PRODUCTION TOOL":"ابزار پیش‌تولید",
     "Storyboard Sheet":"شیت استوری‌بورد",
     "Collaborate · Chat":"همکاری · گفت‌وگو",
     "Chat & Collaborate":"گفت‌وگو و همکاری",
@@ -162,7 +161,7 @@
     "Choose project location…":"لوکیشن پروژه را انتخاب کنید…",
     "Characters · Optional":"شخصیت‌ها · اختیاری",
     "Selections belong only to this shot. References must first be generated and then locked in the Bible.":"این انتخاب‌ها فقط متعلق به همین شات‌اند. مرجع‌ها باید ابتدا ساخته و سپس در بایبل قفل شوند.",
-    "FRAME · Camera & Composition":"قاب · دوربین و ترکیب‌بندی",
+    "FRAME":"قاب",
     "Shot Number · Auto":"شماره شات · خودکار",
     "Duration":"مدت",
     "e.g. 2 sec":"مثلاً ۲ ثانیه",
@@ -171,13 +170,7 @@
     "Start Frame → End Frame":"قاب شروع ← قاب پایان",
     "e.g. ECU hand → Dolly Out → MS Shahrzad":"مثلاً نمای بسیار بسته دست ← دالی اوت ← نمای متوسط شهرزاد",
     "Composition":"ترکیب‌بندی",
-    "SUBJECT · Character & Action":"سوژه · شخصیت و کنش",
-    "Main Subject":"سوژه اصلی",
-    "Detailed Visual Description":"توضیح دقیق تصویری",
-    "Performance / Emotion":"بازی / احساس",
-    "Subject Movement":"حرکت سوژه",
-    "Costume / Appearance":"لباس / ظاهر",
-    "LIGHT & SPACE · Lighting, Time & Set":"نور و فضا · نورپردازی، زمان و صحنه",
+    "LIGHT":"نور",
     "Time of Day":"زمان روز",
     "Location Notes for This Shot":"یادداشت لوکیشن این شات",
     "Only details within the selected location":"فقط جزئیات درون لوکیشن انتخاب‌شده",
@@ -189,15 +182,16 @@
     "Lighting diagram":"دیاگرام نورپردازی",
     "Place the camera, subjects and fixtures on a plan. Kelvin controls light color; modifiers change the beam.":"دوربین، سوژه‌ها و چراغ‌ها را روی پلان بچینید. کلوین رنگ نور و اصلاح‌کننده‌ها شکل پرتو را کنترل می‌کنند.",
     "Open Lighting Diagram →":"بازکردن دیاگرام نورپردازی ←",
+    "PROPS":"لوازم صحنه",
     "Props / Set Elements":"وسایل صحنه / عناصر دکور",
-    "AUDIO · Dialogue & Sound":"صدا · دیالوگ و صوت",
+    "AUDIO":"صدا",
     "Dialogue":"دیالوگ",
     "Voice Over / Narration":"صدای روی تصویر / روایت",
     "Music":"موسیقی",
-    "EDIT & NOTES · Transition & Storyboard Notes":"تدوین و یادداشت · گذار و یادداشت‌های استوری‌بورد",
     "Transition In":"گذار ورودی",
     "Transition Out":"گذار خروجی",
-    "Important Storyboard Notes":"یادداشت‌های مهم استوری‌بورد",
+    "NOTE":"یادداشت",
+    "Action, continuity, performance or any important note for this shot…":"کنش، تداوم، بازی یا هر یادداشت مهم برای این شات…",
     "Prev":"قبلی",
     "Shot":"شات",
     "Sheet":"شیت",
@@ -248,7 +242,6 @@
     "Could not move project.":"انتقال پروژه ممکن نشد.",
     "PROJECT CONTINUITY":"تداوم پروژه",
     "Bible":"بایبل",
-    "Manage Bible":"مدیریت بایبل",
     "Visual":"بصری",
     "Project":"پروژه",
     "Bible sections":"بخش‌های بایبل",
@@ -871,7 +864,7 @@
     "You need the project media permission to generate images.":"برای ساخت تصویر به مجوز رسانه پروژه نیاز دارید.",
     "Choose a shot first.":"ابتدا یک شات انتخاب کنید.",
     "Choose a project location for this shot.":"یک لوکیشن پروژه را برای این شات انتخاب کنید.",
-    "Add a shot summary, subject or visual description first.":"ابتدا خلاصه شات، سوژه یا توضیح تصویری را وارد کنید.",
+    "Add a shot summary or NOTE first.":"ابتدا خلاصه شات یا بخش یادداشت را کامل کنید.",
     "Choose a location locked for the current project style before generating.":"پیش از ساخت، یک لوکیشن قفل‌شده برای سبک فعلی پروژه انتخاب کنید.",
     "Choose no more than 3 recurring characters for one generated shot.":"برای هر تصویر حداکثر ۳ شخصیت تکرارشونده انتخاب کنید.",
     "Every selected character needs an approved reference locked for the current project style.":"هر شخصیت انتخاب‌شده باید مرجع تأییدشده و قفل‌شده برای سبک فعلی پروژه داشته باشد.",
@@ -1110,7 +1103,7 @@
 
   function shouldSkipText(node) {
     const parent = node.parentElement;
-    if (!parent || parent.closest("script,style,template,[data-i18n='off'],.chat-body,.sheet-summary,.tag-chip,.scene-title-stack small,.project-open-area h3,.admin-project-row strong,#accountDisplayName,#accountIdentityName,#accountAvatarInitial,#accountUsername,#accountEmail,#mobileEditorTitle")) return true;
+    if (!parent || parent.closest("script,style,template,[data-i18n='off'],.chat-body,.sheet-summary,.tag-chip,.scene-title-stack small,.project-open-area h3,.admin-project-row strong,#accountDisplayName,#accountIdentityName,#accountAvatarInitial,#accountUsername,#accountEmail,#mobileEditorTitle,#editorProjectTitle")) return true;
     return false;
   }
 
@@ -1158,7 +1151,7 @@
     localStorage.setItem(STORAGE_KEY, language);
     document.documentElement.lang = language;
     document.documentElement.dir = language === "fa" ? "rtl" : "ltr";
-    document.title = language === "fa" ? "سازنده شات‌های استوری‌بورد" : "Storyboard Shot Builder";
+    document.title = "FilmBoard";
     translateTree(document.body);
     if (announce) window.dispatchEvent(new CustomEvent("storyboard:languagechange", {detail:{language}}));
   }

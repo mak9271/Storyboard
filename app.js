@@ -1,4 +1,4 @@
-// Storyboard Shot Builder v5.1.0 — Spatial Bible and live Lighting companion
+// FilmBoard v5.2.0 — streamlined shot workflow, Spatial Bible and live Lighting companion
 const OPTIONS = {
   shotSize:["ECU · Extreme Close Up","CU · Close Up","MCU · Medium Close Up","MS · Medium Shot","MLS · Medium Long Shot","WS · Wide Shot","EWS · Extreme Wide Shot","OTS · Over The Shoulder","POV · Point of View","Insert","Top Shot"],
   angle:["Eye Level","High Angle","Low Angle","Top / Bird's Eye","Dutch Angle","Ground Level","Overhead","Custom"],
@@ -219,9 +219,9 @@ function editorPermissions(){return {project_settings:false,scenes:true,shots:tr
 function normalizeProductionRole(value){return Object.hasOwn(PRODUCTION_ROLE_LABELS,value)?value:"general"}
 function inviteProductionRole(){return normalizeProductionRole($("inviteProductionRole")?.value||"general")}
 function permissionPreset(name){const base=name==="viewer"?blankPermissions():name==="editor"?editorPermissions():readPermissionUI();return {...base,production_role:inviteProductionRole()}}
-function blankShot(no=1){return {id:uid(),shotNo:no,duration:"",shotSize:"CU · Close Up",angle:"Eye Level",lens:"50mm",focus:"Shallow Focus",movement:"Static",startEnd:"",composition:"Centered / Symmetrical",summary:"",subject:"",description:"",performance:"",subjectMovement:"",costume:"",timeOfDay:"Night",location:"",lightSource:"Candle",lightDirection:"Camera Left",lightQuality:"Low Key",lighting:"",props:"",dialogue:"",voiceOver:"",sfx:"",music:"",transitionIn:"Cut",transitionOut:"Cut",notes:"",aiCharacterIds:[],aiLocationId:"",aiGeneration:null,image:null,imagePath:null,originalImage:null,originalImagePath:null,position:no}}
+function blankShot(no=1){return {id:uid(),shotNo:no,duration:"",shotSize:"CU · Close Up",angle:"Eye Level",lens:"50mm",focus:"Shallow Focus",movement:"Static",startEnd:"",composition:"Centered / Symmetrical",summary:"",subject:"",description:"",performance:"",subjectMovement:"",costume:"",timeOfDay:"Unspecified",location:"",lightSource:"Unspecified",lightDirection:"Unspecified",lightQuality:"Unspecified",lighting:"",props:"",dialogue:"",voiceOver:"",sfx:"",music:"",transitionIn:"Cut",transitionOut:"Cut",notes:"",aiCharacterIds:[],aiLocationId:"",aiGeneration:null,image:null,imagePath:null,originalImage:null,originalImagePath:null,position:no}}
 function blankScene(no=1){return {id:uid(),number:no,title:`Scene ${no}`,description:"",storyLocation:"",storyTime:"Unspecified",shootTime:"Unspecified",timeStrategy:"natural",aiLocationId:"",aiCharacterIds:[],scriptSceneKey:null,position:no,collapsed:false,shots:[blankShot(1)]}}
-function blankShotForScene(no,scene){const shot=blankShot(no);if(!scene)return shot;shot.aiLocationId=scene.aiLocationId||"";shot.aiCharacterIds=[...(scene.aiCharacterIds||[])];if(scene.storyTime&&scene.storyTime!=="Unspecified")shot.timeOfDay=scene.storyTime;if(scene.storyLocation)shot.location=scene.storyLocation;return shot}
+function blankShotForScene(no,scene){const shot=blankShot(no);if(!scene)return shot;shot.aiLocationId=scene.aiLocationId||"";shot.aiCharacterIds=[...(scene.aiCharacterIds||[])];return shot}
 function blankProject(name="Untitled Storyboard"){return {id:uid(),name,aspect:"3:4 Portrait",aspectWidth:3,aspectHeight:4,style:"Storyboard B&W",owner_id:null,role:"owner",position:0,isFavorite:false,folderId:null,folder:"General",tags:[],metadata:{director:"",cinematographer:"",writer:"",production:"",status:"Planning",notes:""},scenes:[blankScene(1)],updated_at:new Date().toISOString()}}
 function deepClone(x){return JSON.parse(JSON.stringify(x))}
 function normalizeTags(v){
@@ -572,7 +572,7 @@ function renderPasswordRecoveryUi(){
   $("authTabs").hidden=active;$("passwordRecoveryForm").hidden=!active;$("continueOfflineBtn").hidden=active;
   if(active){$("loginForm").hidden=true;$("signupForm").hidden=true}
   else{const login=$("loginTabBtn").classList.contains("active");$("loginForm").hidden=!login;$("signupForm").hidden=login}
-  $("recoveryAccountLabel").textContent=app.session?.user?.email?`Set a new password for ${app.session.user.email}.`:"Enter a new password for this Storyboard account.";
+  $("recoveryAccountLabel").textContent=app.session?.user?.email?`Set a new password for ${app.session.user.email}.`:"Enter a new password for this FilmBoard account.";
   $("recoveryPassword").disabled=active&&!ready;$("recoveryPasswordConfirm").disabled=active&&!ready;$("updatePasswordBtn").disabled=active&&!ready;
   $("updatePasswordBtn").textContent=app.passwordRecovery.updating?"Updating Password…":"Update Password"
 }
@@ -1331,6 +1331,7 @@ function remoteRefresh(){if(app.suppressRealtime>0||Date.now()<app.ignoreRealtim
 /* ---------- EDITOR RENDER ---------- */
 function renderEditor(){
   if(!app.current)return;
+  $("editorProjectTitle").textContent=app.current.name||"Untitled Project";
   $("projectName").value=app.current.name||"";
   $("projectAspect").value=(["3:4 Portrait","9:16 Portrait","4:3","16:9","2.39:1","Custom"].includes(app.current.aspect)?app.current.aspect:"Custom");
   $("projectStyle").value=app.current.style||"Storyboard B&W";
@@ -1496,7 +1497,7 @@ async function saveCloud(kind){
 function onProjectChange(){
   if(!can("project_settings"))return;
   app.current.name=$("projectName").value;app.current.aspect=$("projectAspect").value;app.current.style=$("projectStyle").value;app.current.aspectWidth=Number($("aspectWidth").value)||3;app.current.aspectHeight=Number($("aspectHeight").value)||4;
-  $("customAspectFields").hidden=app.current.aspect!=="Custom";renderShot();renderSheet();queueSave("project");rememberWorkspace()
+  $("editorProjectTitle").textContent=app.current.name||"Untitled Project";$("customAspectFields").hidden=app.current.aspect!=="Custom";renderShot();renderSheet();queueSave("project");rememberWorkspace()
 }
 function onSceneChange(){
   if(!can("scenes"))return;const s=currentScene();if(!s)return;s.title=$("sceneTitle").value;s.description=$("sceneDescription").value;s.storyLocation=$("sceneStoryLocation").value;s.storyTime=$("sceneStoryTime").value;s.shootTime=$("sceneShootTime").value;s.timeStrategy=$("sceneTimeStrategy").value;s.aiLocationId=$("sceneAiLocationId").value||"";s.aiCharacterIds=[...document.querySelectorAll('#sceneAiCharacterPicker input[type="checkbox"]:checked')].map(input=>input.value);renderSceneList();renderShot();renderSheet();queueSave("scene");rememberWorkspace()
@@ -2533,7 +2534,7 @@ function onAiShotLinksChange(){
 function aiShotReady(){
   const shot=currentShot();if(app.mode!=="cloud")return {ready:false,message:"Sign in to a cloud project to generate images."};
   if(!app.ai.ready)return {ready:false,message:app.ai.migrationMessage};if(!can("media"))return {ready:false,message:"You need the project media permission to generate images."};if(!shot)return {ready:false,message:"Choose a shot first."};
-  if(!String(shot.summary||shot.description||shot.subject||"").trim())return {ready:false,message:"Add a shot summary, subject or visual description first."};
+  if(!String(shot.summary||shot.notes||shot.description||shot.subject||"").trim())return {ready:false,message:"Add a shot summary or NOTE first."};
   const location=app.ai.locations.find(x=>x.id===shot.aiLocationId);if(!location)return {ready:false,message:"Choose a project location for this shot."};
   if(!location.reference_path)return {ready:false,message:`${location.name} needs a generated reference before this shot can be generated.`};
   if(!location.locked)return {ready:false,message:`Lock the ${location.name} reference before generating this shot.`};
@@ -2597,7 +2598,11 @@ function renderSheet(){
     const page=document.createElement("article");page.className="sheet-page";const chunk=flat.slice(i,i+per);
     page.innerHTML=`<div class="sheet-page-head"><h3>${escapeHtml(app.current.name)}</h3><span>Page ${Math.floor(i/per)+1} · ${escapeHtml(projectAspectText(app.current))}</span></div>`;
     const grid=document.createElement("div");grid.className=`sheet-grid ${sheetCols(per)}`;
-    chunk.forEach(({scene,shot})=>{
+    chunk.forEach(({scene,shot},chunkIndex)=>{
+      const globalIndex=i+chunkIndex,previous=flat[globalIndex-1];
+      if(globalIndex>0&&previous?.scene?.id!==scene.id){
+        const divider=document.createElement("div");divider.className="sheet-scene-divider";divider.innerHTML=`<span>Scene ${scene.number}</span><strong>${escapeHtml(scene.title||"")}</strong>`;grid.appendChild(divider)
+      }
       const card=document.createElement("div");card.className="sheet-shot";
       const image=shot.image?`<img src="${shot.image}" alt="" loading="lazy" decoding="async">`:`<div class="sheet-placeholder">Storyboard Frame<br>Shot ${shot.shotNo}</div>`;
       card.innerHTML=`<div class="sheet-image" style="aspect-ratio:${ar.w}/${ar.h}">${image}</div><div class="sheet-info"><div class="sheet-scene">Scene ${scene.number} · ${escapeHtml(scene.title||"")}</div><div class="sheet-info-top"><span>SHOT ${shot.shotNo}</span><span>${escapeHtml(shot.duration||"")}</span></div><div class="sheet-meta">${escapeHtml(shortValue(shot.shotSize))} · ${escapeHtml(shot.angle||"")} · ${escapeHtml(shot.lens||"")} · ${escapeHtml(shot.movement||"")}</div><div class="sheet-summary">${escapeHtml(shot.summary||shot.description||"")}</div></div>`;
@@ -2683,7 +2688,7 @@ function renderChatReferenceOptions(){
   opts.push('</optgroup>');
   const sh=currentShot(),sc=currentScene();
   if(sh&&sc){
-    const sections=[["shot_frame","Frame · Camera & Composition"],["shot_subject","Subject · Character & Action"],["shot_light","Light & Space"],["shot_audio","Audio"],["shot_edit","Edit & Notes"]];
+    const sections=[["shot_frame","Frame"],["shot_light","Light"],["shot_props","Props"],["shot_audio","Audio"],["shot_notes","Note"]];
     opts.push('<optgroup label="Current Shot Sections">');
     for(const [type,label] of sections)opts.push(`<option value="${type}|${sh.id}">Scene ${sc.number} · Shot ${sh.shotNo} · ${label}</option>`);
     opts.push('</optgroup>')
@@ -2731,8 +2736,8 @@ function jumpToChatReference(type,id){
   else{for(const s of app.current.scenes){const found=s.shots.find(x=>x.id===id);if(found){sc=s;sh=found;break}}}
   if(!sc)return;sc.collapsed=false;app.activeSceneId=sc.id;app.activeShotId=sh?.id||sc.shots[0]?.id||null;
   $("collabModal").close();unsubscribeChatRealtime();renderEditor();rememberWorkspace();
-  const sectionMap={shot_frame:"frameSection",shot_subject:"subjectSection",shot_light:"lightSection",shot_audio:"audioSection",shot_edit:"editSection"};
-  const sectionId=sectionMap[type];if(sectionId){const d=$(sectionId);if(d){d.open=true;setTimeout(()=>d.scrollIntoView({behavior:"smooth",block:"start"}),30)}}
+  const sectionMap={shot_frame:"frameSection",shot_subject:"shotNoteCard",shot_light:"lightSection",shot_props:"propsSection",shot_audio:"audioSection",shot_edit:"shotNoteCard",shot_notes:"shotNoteCard"};
+  const sectionId=sectionMap[type];if(sectionId){const d=$(sectionId);if(d){if(d.tagName==="DETAILS")d.open=true;setTimeout(()=>d.scrollIntoView({behavior:"smooth",block:"start"}),30)}}
 }
 function subscribeChatRealtime(){
   unsubscribeChatRealtime();if(!sb||app.mode!=="cloud"||!app.current)return;

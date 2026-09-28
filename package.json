@@ -1,7 +1,7 @@
 {
-  "name": "storyboard-v5-1-lighting-spatial-bible",
+  "name": "filmboard-v5-2-shot-workflow",
   "private": true,
-  "version": "5.1.0",
+  "version": "5.2.0",
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.mjs",

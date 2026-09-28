@@ -4,18 +4,18 @@
   <meta charset="utf-8" />
   <meta id="viewportMeta" name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="theme-color" content="#050607" />
-  <meta name="description" content="Storyboard Shot Builder — collaborative pre-production planning." />
+  <meta name="description" content="FilmBoard — collaborative pre-production planning." />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://xpqhsnyyjpfxpxvvrvsz.supabase.co; connect-src 'self' blob: https://xpqhsnyyjpfxpxvvrvsz.supabase.co https://xpqhsnyyjpfxpxvvrvsz.storage.supabase.co wss://xpqhsnyyjpfxpxvvrvsz.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none';" />
-  <title>Storyboard Shot Builder</title>
+  <title>FilmBoard</title>
 
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="styles.css?v=510" />
+  <link rel="stylesheet" href="styles.css?v=520" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0"></script>
-  <script src="config.js?v=510"></script>
-  <meta name="storyboard-build" content="v5.1.0-lighting-spatial-bible" />
+  <script src="config.js?v=520"></script>
+  <meta name="storyboard-build" content="v5.2.0-filmboard-shot-workflow" />
 </head>
 <body>
 
@@ -36,10 +36,10 @@
   <section id="authView" class="auth-view" hidden>
     <div class="auth-shell">
       <div class="auth-brand">
-        <div class="s-logo">S</div>
+        <div class="s-logo">FB</div>
         <div>
-          <div class="eyebrow">STORYBOARD</div>
-          <h1>Storyboard Shot Builder</h1>
+          <div class="eyebrow">FILMBOARD</div>
+          <h1>FilmBoard</h1>
           <p>Build, save and collaborate on shot-by-shot storyboards.</p>
         </div>
       </div>
@@ -81,7 +81,7 @@
           <div class="password-recovery-head">
             <div class="eyebrow">PASSWORD RECOVERY</div>
             <h2>Choose a new password</h2>
-            <p id="recoveryAccountLabel">Enter a new password for this Storyboard account.</p>
+            <p id="recoveryAccountLabel">Enter a new password for this FilmBoard account.</p>
           </div>
           <label>New Password</label>
           <input id="recoveryPassword" type="password" autocomplete="new-password" minlength="8" pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*[^A-Za-z0-9\s]).{8,}" required />
@@ -105,10 +105,10 @@
   <section id="projectsView" class="projects-view" hidden>
     <header class="dashboard-head">
       <div class="brand-row">
-        <div class="s-logo small-logo">S</div>
+        <div class="s-logo small-logo">FB</div>
         <div>
-          <div class="eyebrow">MY STORYBOARDS</div>
-          <h1>Projects</h1>
+          <div class="eyebrow">PROJECTS</div>
+          <h1>FilmBoard</h1>
         </div>
       </div>
       <div class="top-actions">
@@ -151,7 +151,7 @@
       <div class="dashboard-hint">Drag your own project cards to reorder them. Order is saved automatically.</div>
       <div id="projectsGrid" class="projects-grid"></div>
       <div id="projectsEmpty" class="empty-state" hidden>
-        <div class="s-logo empty-logo">S</div>
+        <div class="s-logo empty-logo">FB</div>
         <h2 id="projectsEmptyTitle">No projects yet</h2>
         <p id="projectsEmptyCopy">Create your first storyboard project.</p>
         <button id="emptyNewProjectBtn" class="btn">Create Project</button>
@@ -164,7 +164,7 @@
   <section id="adminView" class="admin-view" hidden>
     <header class="dashboard-head admin-dashboard-head">
       <div class="brand-row">
-        <div class="s-logo small-logo">S</div>
+        <div class="s-logo small-logo">FB</div>
         <div>
           <div class="eyebrow">SECURE SUPPORT CONSOLE</div>
           <h1>Admin Center</h1>
@@ -236,8 +236,8 @@
       <div class="editor-brand">
         <button id="backProjectsBtn" class="icon-btn back-btn" title="Projects">←</button>
         <div>
-          <div class="eyebrow">PRE-PRODUCTION TOOL</div>
-          <h1>Storyboard Shot Builder</h1>
+          <div class="eyebrow">FilmBoard</div>
+          <h1 id="editorProjectTitle">Project</h1>
         </div>
       </div>
 
@@ -300,7 +300,7 @@
           <div class="visual-bible-launch-card">
             <button id="aiBibleBtn" type="button" class="btn wide ai-bible-btn">
               <span class="bible-icon ai-bible-launch-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 4.8c2.7-.7 5.3-.2 8 1.5v13c-2.7-1.7-5.3-2.2-8-1.5zM20 4.8c-2.7-.7-5.3-.2-8 1.5v13c2.7-1.7 5.3-2.2 8-1.5z"/><path d="M12 6.3v13"/></svg></span>
-              <span class="ai-bible-launch-copy"><strong>Manage Bible</strong><small>Visual · Script · Project Details</small></span>
+              <span class="ai-bible-launch-copy"><strong>Bible</strong><small>Visual · Script · Project Details</small></span>
             </button>
             <div class="ai-usage-summary compact" data-ai-usage-summary aria-live="polite">
               <span class="ai-usage-message">Loading AI usage…</span>
@@ -401,7 +401,7 @@
             <div class="shot-ai-reference-panel">
               <div class="shot-ai-reference-head">
                 <div><span class="eyebrow">AI REFERENCES FOR THIS SHOT</span><strong>Select location and characters</strong></div>
-                <button id="manageAiCharactersBtn" type="button" class="btn bible-inline-btn"><span class="bible-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 4.8c2.7-.7 5.3-.2 8 1.5v13c-2.7-1.7-5.3-2.2-8-1.5zM20 4.8c-2.7-.7-5.3-.2-8 1.5v13c2.7-1.7 5.3-2.2 8-1.5z"/><path d="M12 6.3v13"/></svg></span><span>Manage Bible</span></button>
+                <button id="manageAiCharactersBtn" type="button" class="btn bible-inline-btn"><span class="bible-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 4.8c2.7-.7 5.3-.2 8 1.5v13c-2.7-1.7-5.3-2.2-8-1.5zM20 4.8c-2.7-.7-5.3-.2-8 1.5v13c2.7-1.7 5.3-2.2 8-1.5z"/><path d="M12 6.3v13"/></svg></span><span>Bible</span></button>
               </div>
               <label>Location · Required</label>
               <select id="aiLocationId"><option value="">Choose project location…</option></select>
@@ -414,7 +414,7 @@
 
         <div class="accordion">
           <details id="frameSection" open>
-            <summary>FRAME · Camera & Composition</summary>
+            <summary>FRAME</summary>
             <div class="form-grid">
               <div><label>Shot Number · Auto</label><input id="shotNo" type="number" min="1" readonly /></div>
               <div><label>Duration</label><input id="duration" placeholder="e.g. 2 sec" /></div>
@@ -425,22 +425,13 @@
               <div><label>Camera Movement</label><select id="movement"></select></div>
               <div class="span-2"><label>Start Frame → End Frame</label><input id="startEnd" placeholder="e.g. ECU hand → Dolly Out → MS Shahrzad" /></div>
               <div class="span-2"><label>Composition</label><select id="composition"></select></div>
-            </div>
-          </details>
-
-          <details id="subjectSection">
-            <summary>SUBJECT · Character & Action</summary>
-            <div class="form-grid">
-              <div class="span-2"><label>Main Subject</label><input id="subject" /></div>
-              <div class="span-2"><label>Detailed Visual Description</label><textarea id="description" rows="4"></textarea></div>
-              <div class="span-2"><label>Performance / Emotion</label><textarea id="performance" rows="3"></textarea></div>
-              <div class="span-2"><label>Subject Movement</label><textarea id="subjectMovement" rows="3"></textarea></div>
-              <div class="span-2"><label>Costume / Appearance</label><textarea id="costume" rows="3"></textarea></div>
+              <div><label>Transition In</label><select id="transitionIn"></select></div>
+              <div><label>Transition Out</label><select id="transitionOut"></select></div>
             </div>
           </details>
 
           <details id="lightSection">
-            <summary>LIGHT & SPACE · Lighting, Time & Set</summary>
+            <summary>LIGHT</summary>
             <div class="form-grid">
               <div><label>Time of Day</label><select id="timeOfDay"></select></div>
               <div class="span-2"><label>Location Notes for This Shot</label><input id="location" placeholder="Only details within the selected location" /></div>
@@ -455,12 +446,18 @@
                 </div>
                 <button id="openLightingDiagramBtn" type="button" class="btn lighting-diagram-btn">Open Lighting Diagram →</button>
               </div>
-              <div class="span-2"><label>Props / Set Elements</label><textarea id="props" rows="3"></textarea></div>
+            </div>
+          </details>
+
+          <details id="propsSection">
+            <summary>PROPS</summary>
+            <div class="form-grid">
+              <div class="span-2"><label>Props / Set Elements</label><textarea id="props" rows="4"></textarea></div>
             </div>
           </details>
 
           <details id="audioSection">
-            <summary>AUDIO · Dialogue & Sound</summary>
+            <summary>AUDIO</summary>
             <div class="form-grid">
               <div class="span-2"><label>Dialogue</label><textarea id="dialogue" rows="3"></textarea></div>
               <div class="span-2"><label>Voice Over / Narration</label><textarea id="voiceOver" rows="3"></textarea></div>
@@ -468,16 +465,12 @@
               <div><label>Music</label><input id="music" /></div>
             </div>
           </details>
-
-          <details id="editSection">
-            <summary>EDIT & NOTES · Transition & Storyboard Notes</summary>
-            <div class="form-grid">
-              <div><label>Transition In</label><select id="transitionIn"></select></div>
-              <div><label>Transition Out</label><select id="transitionOut"></select></div>
-              <div class="span-2"><label>Important Storyboard Notes</label><textarea id="notes" rows="5"></textarea></div>
-            </div>
-          </details>
         </div>
+
+        <section id="shotNoteCard" class="standalone-note-card" aria-labelledby="shotNoteLabel">
+          <label id="shotNoteLabel" for="notes">NOTE</label>
+          <textarea id="notes" rows="5" placeholder="Action, continuity, performance or any important note for this shot…"></textarea>
+        </section>
 
         <div class="creator-credit editor-credit">© 2026 <a href="https://aminkhorsandi.com" target="_blank" rel="noopener">Amin Khorsandi</a></div>
       </section>
@@ -1267,7 +1260,7 @@
     </div>
   </dialog>
 
-  <script src="i18n.js?v=510"></script>
-  <script src="app.js?v=510"></script>
+  <script src="i18n.js?v=520"></script>
+  <script src="app.js?v=520"></script>
 </body>
 </html>

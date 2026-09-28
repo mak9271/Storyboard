@@ -1,6 +1,19 @@
-# Storyboard Shot Builder v5.1.0 — Lighting Companion & Spatial Bible
+# FilmBoard v5.2.0 — Streamlined Shot Workflow
 
-This build extends the reusable 3D-location workflow with a live editable lighting companion, manufacturer-aware fixtures and modifiers, realistic mannequins, 3D face scans and Spatial Bible links.
+This build renames the app to FilmBoard and simplifies the shot editor while retaining the complete Lighting Companion and Spatial Bible workflow from v5.1.
+
+## v5.2.0 changes
+
+- Renames the app to **FilmBoard** and uses **FB** for the app, browser and installed-app icons.
+- Shows FilmBoard above the active project name in the project editor header.
+- Replaces the long shot-section names with **FRAME**, **LIGHT**, **PROPS** and **AUDIO**.
+- Removes the separate Subject section. Characters remain selected in Bible references; action can be written in the shot summary or NOTE.
+- Moves Transition In and Transition Out to the end of FRAME.
+- Moves Props / Set Elements into its own PROPS section.
+- Replaces Edit & Notes with a standalone NOTE field after all shot sections.
+- New shots start with Time of Day, Light Source, Light Direction and Light Quality set to **Unspecified**.
+- Adds a full-width line and spacing whenever the scene changes inside Storyboard Sheet.
+- No new SQL migration is required for v5.2.0.
 
 ## v5.1.0 changes
 
@@ -67,7 +80,7 @@ This build extends the reusable 3D-location workflow with a live editable lighti
 
 ## Existing installation: deployment
 
-v5.1.0 requires the v5.0 Virtual Location migration plus one new additive Spatial Bible migration. Existing shots, diagrams and media are not rewritten.
+v5.2.0 does not add database fields. If the v5.0 and v5.1 migrations already succeeded, do not run another SQL query. Existing hidden Subject fields remain in saved shot data for backward compatibility and are not deleted.
 
 1. If `Storyboard v4.8 - Lighting Access Repair` has not already succeeded, run the packaged v4.8 query once using the saved-query instructions from the prior release. Otherwise leave SQL Editor unchanged.
 2. Run `supabase-v5.0-virtual-locations.sql` once if it has not already been run.
@@ -80,7 +93,7 @@ v5.1.0 requires the v5.0 Virtual Location migration plus one new additive Spatia
    ```
 
 6. No Supabase Edge Function redeploy is required.
-7. Hard-refresh the app. Page source should show `styles.css?v=510`, `config.js?v=510`, `i18n.js?v=510`, `app.js?v=510` and build `v5.1.0-lighting-spatial-bible`.
+7. Hard-refresh the app. Page source should show `styles.css?v=520`, `config.js?v=520`, `i18n.js?v=520`, `app.js?v=520` and build `v5.2.0-filmboard-shot-workflow`.
 8. Open Lighting Diagram → Virtual Location, import one GLB/USDZ file, save the diagram, then open Camera View and test the live diagram companion and Explore Location.
 
 ## Fresh Supabase installation
