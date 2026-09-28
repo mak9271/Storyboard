@@ -1,4 +1,4 @@
-// Storyboard v5.0.0 AI gateway: FLUX generation + provider-independent Script analysis.
+// Storyboard v5.1.0 AI gateway: FLUX generation + spatial Bible references.
 const DEFAULT_MODEL = "@cf/black-forest-labs/flux-2-klein-4b";
 const ALLOWED_MODEL = new Set([DEFAULT_MODEL]);
 const DEFAULT_SCRIPT_MODEL = "@cf/zai-org/glm-4.7-flash";
@@ -98,11 +98,14 @@ function focusRule(value){
 }
 function buildReferencePrompt(type,project,asset){
   const hasSource=!!asset.source_path;
+  const hasSpatial=!!asset.spatial_reference_path;
   const sourceCharacter=hasSource?"An attached source image is the PRIMARY identity guide. Preserve its face, apparent age, hair, skin features, body proportions, distinguishing traits and base costume; the text only clarifies it. ":"";
   const sourceLocation=hasSource?"An attached source image is the PRIMARY location guide. Preserve its architecture, layout, entrances, materials, fixed objects and spatial relationships; the text only clarifies it. ":"";
+  const spatialCharacter=hasSpatial?"An attached rendered view comes directly from the character's 3D face scan. Treat its facial geometry, proportions and distinguishing structure as authoritative identity evidence; translate it faithfully into the project style. ":"";
+  const spatialLocation=hasSpatial?"An attached rendered Camera View comes directly from the linked 3D location scan. Treat its geometry, depth, openings, fixed surfaces and spatial relationships as authoritative; do not invent a different set. ":"";
   const common=`Project: ${clean(project.name,120)}. Global visual language: ${projectStyle(project)}. Create one continuous full-bleed image only—no collage, contact sheet, inset, split panel, border, captions, labels, watermarks or logos.`;
-  if(type==="character")return `Create a definitive visual-bible reference portrait for the recurring character ${clean(asset.name,80)}. ${sourceCharacter}Stable identity specification: ${clean(asset.description,1400)}. Show one clear full-body front three-quarter pose in a single portrait image, with the face large and readable enough to establish identity. Neutral unobtrusive background, even reference lighting, no other people. Keep this identity exact and reusable in later shots. ${common}`;
-  return `Create a definitive visual-bible environment plate for the recurring location ${clean(asset.name,80)}. ${sourceLocation}Stable location specification: ${clean(asset.description,1600)}. Show the architecture, floor layout, entrances, windows, fixed set dressing, materials, palette and spatial relationships clearly in one wide establishing image. No people and no unrelated place. This exact location must be reusable from different camera positions in later shots. ${common}`
+  if(type==="character")return `Create a definitive visual-bible reference portrait for the recurring character ${clean(asset.name,80)}. ${spatialCharacter}${sourceCharacter}Stable identity specification: ${clean(asset.description,1400)}. Show one clear full-body front three-quarter pose in a single portrait image, with the face large and readable enough to establish identity. Neutral unobtrusive background, even reference lighting, no other people. Keep this identity exact and reusable in later shots. ${common}`;
+  return `Create a definitive visual-bible environment plate for the recurring location ${clean(asset.name,80)}. ${spatialLocation}${sourceLocation}Stable location specification: ${clean(asset.description,1600)}. Show the architecture, floor layout, entrances, windows, fixed set dressing, materials, palette and spatial relationships clearly in one wide establishing image. No people and no unrelated place. This exact location must be reusable from different camera positions in later shots. ${common}`
 }
 function fieldLine(label,value,max=500){const text=clean(value,max);return text?`${label}: ${text}.`:""}
 function shotReferencePlan(location,characters,shot={}){
@@ -283,7 +286,7 @@ async function handleGenerate(request,env){
     const {projectId,project}=await loadContext(env,auth.token,payload),mode=clean(payload.mode,40);let prompt,references=[],dimensions=aspectDimensions(project);
     if(mode==="character_reference"||mode==="location_reference"){
       const type=mode.startsWith("character")?"character":"location",table=type==="character"?"project_ai_characters":"project_ai_locations";if(!isUuid(payload.asset_id))return json({error:"Invalid Bible item."},400);
-      const rows=await restRows(env,auth.token,table,`id=eq.${encodeURIComponent(payload.asset_id)}&project_id=eq.${encodeURIComponent(projectId)}&select=id,name,description,source_path,locked`),asset=rows[0];if(!asset)return json({error:"Bible item not found or access denied."},404);if(asset.locked)return json({error:"Unlock this reference before regenerating it."},409);if(asset.source_path)references=[await loadReferenceBytes(env,auth.token,asset.source_path)];prompt=buildReferencePrompt(type,project,asset);dimensions=type==="character"?{width:768,height:1024}:{width:1024,height:768}
+      let rows;try{rows=await restRows(env,auth.token,table,`id=eq.${encodeURIComponent(payload.asset_id)}&project_id=eq.${encodeURIComponent(projectId)}&select=id,name,description,source_path,spatial_reference_path,locked`)}catch{rows=await restRows(env,auth.token,table,`id=eq.${encodeURIComponent(payload.asset_id)}&project_id=eq.${encodeURIComponent(projectId)}&select=id,name,description,source_path,locked`)}const asset=rows[0];if(!asset)return json({error:"Bible item not found or access denied."},404);if(asset.locked)return json({error:"Unlock this reference before regenerating it."},409);for(const path of [asset.spatial_reference_path,asset.source_path].filter(Boolean))references.push(await loadReferenceBytes(env,auth.token,path));prompt=buildReferencePrompt(type,project,asset);dimensions=type==="character"?{width:768,height:1024}:{width:1024,height:768}
     }else if(mode==="shot"){
       if(!isUuid(payload.shot_id)||!isUuid(payload.scene_id))return json({error:"Invalid shot."},400);
       const shots=await restRows(env,auth.token,"shots",`id=eq.${encodeURIComponent(payload.shot_id)}&project_id=eq.${encodeURIComponent(projectId)}&scene_id=eq.${encodeURIComponent(payload.scene_id)}&select=id,scene_id,data`);if(!shots[0])return json({error:"Shot not found or access denied."},404);

@@ -12,10 +12,10 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="styles.css?v=500" />
+  <link rel="stylesheet" href="styles.css?v=510" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0"></script>
-  <script src="config.js?v=500"></script>
-  <meta name="storyboard-build" content="v5.0.0-virtual-location" />
+  <script src="config.js?v=510"></script>
+  <meta name="storyboard-build" content="v5.1.0-lighting-spatial-bible" />
 </head>
 <body>
 
@@ -819,7 +819,7 @@
 
 
 
-  <!-- LIGHTING STUDIO v3.8 -->
+  <!-- LIGHTING STUDIO v5.1 -->
   <dialog id="lightingDiagramModal" class="lighting-studio-modal">
     <div class="lighting-studio-shell">
 
@@ -847,7 +847,17 @@
 
       <main class="lighting-studio-stage">
         <div id="lightingPlanView" class="lighting-plan-view">
-          <svg id="lightingCanvas" viewBox="0 0 1200 800" role="img" aria-label="Lighting diagram plan"></svg>
+          <div id="lightingPlanPipHeader" class="lighting-plan-pip-header" hidden>
+            <span><strong>LIVE DIAGRAM</strong><small>Drag to move · edit while viewing camera</small></span>
+            <button id="resetLightingPlanPipBtn" type="button" title="Reset diagram window">↺</button>
+          </div>
+          <div class="lighting-plan-canvas-wrap">
+            <svg id="lightingCanvas" viewBox="0 0 1200 800" role="img" aria-label="Lighting diagram plan"></svg>
+          </div>
+        </div>
+
+        <div id="lightingSplitHandle" class="lighting-split-handle" hidden role="separator" aria-orientation="horizontal" aria-label="Resize Camera View and Lighting Diagram" tabindex="0">
+          <span></span>
         </div>
 
         <div id="lightingCameraView" class="lighting-camera-view" hidden>
@@ -950,14 +960,39 @@
               <input id="virtualLocationOffsetY" type="range" min="-5" max="5" step="0.05" value="0" />
               <button id="resetVirtualLocationTransformBtn" type="button" class="lighting-wide-action">Center &amp; Reset Scan</button>
             </div>
+
+            <div id="virtualLocationBibleLink" class="spatial-bible-link" hidden>
+              <div class="lighting-section-title">BIBLE CONNECTION</div>
+              <label for="virtualLocationBibleSelect">Connect this scan to a Bible location</label>
+              <select id="virtualLocationBibleSelect" title="Bible location"></select>
+              <div class="spatial-bible-actions">
+                <button id="linkVirtualLocationBibleBtn" type="button">Link Scan</button>
+                <button id="captureVirtualLocationBibleBtn" type="button">Capture Camera View for AI</button>
+              </div>
+              <small id="virtualLocationBibleStatus">The captured camera view becomes a spatial AI reference.</small>
+            </div>
           </section>
 
-          <section class="lighting-drawer-section">
-            <div class="lighting-section-title">OBJECTS</div>
+          <section id="lightingCamerasSection" class="lighting-drawer-section lighting-camera-rack">
+            <div class="lighting-section-heading">
+              <div><div class="lighting-section-title">CAMERAS</div><small>Camera controls are separate from scene objects.</small></div>
+              <button id="drawerAddLightingCameraBtn" type="button" class="lighting-section-add">＋ Camera</button>
+            </div>
+            <div id="lightingCameraList" class="lighting-camera-list"></div>
+          </section>
+
+          <section id="lightingObjectsSection" class="lighting-drawer-section">
+            <div class="lighting-section-heading">
+              <div><div class="lighting-section-title">LIGHTS &amp; SUBJECTS</div><small>Choose an item to edit its physical properties.</small></div>
+              <div class="lighting-section-quick-actions">
+                <button id="drawerAddLightingFixtureBtn" type="button" class="lighting-section-add">＋ Light</button>
+                <button id="drawerAddLightingSubjectBtn" type="button" class="lighting-section-add">＋ Subject</button>
+              </div>
+            </div>
             <div id="lightingObjectList" class="lighting-object-list"></div>
           </section>
 
-          <section class="lighting-drawer-section">
+          <section id="lightingPropertiesSection" class="lighting-drawer-section">
             <div class="lighting-section-title">PROPERTIES</div>
             <div id="lightingInspectorEmpty" class="lighting-inspector-empty">Click an object in the diagram or in the list.</div>
 
@@ -968,6 +1003,7 @@
               <div id="lightingLightFields" hidden>
                 <label>Light type</label>
                 <div id="lightingFixtureCatalog" class="lighting-catalog-grid"></div>
+                <div id="lightingFixtureSpecs" class="lighting-fixture-specs"></div>
 
                 <div class="lighting-property-pair">
                   <div>
@@ -985,6 +1021,7 @@
 
                 <label>Diffusion / Modifier</label>
                 <div id="lightingModifierCatalog" class="lighting-modifier-grid"></div>
+                <div id="lightingModifierSpecs" class="lighting-modifier-specs"></div>
 
                 <div class="lighting-property-pair">
                   <div>
@@ -1030,6 +1067,10 @@
               </div>
 
               <div id="lightingSubjectFields" hidden>
+                <label>Bible Character / 3D Face</label>
+                <select id="lightingSubjectCharacter">
+                  <option value="">Generic mannequin</option>
+                </select>
                 <div class="lighting-property-pair">
                   <div>
                     <label>Subject Type</label>
@@ -1050,8 +1091,23 @@
                   </div>
                   <div>
                     <label>Body Shape</label>
-                    <div class="lighting-subject-help">Female = wider hips · Male = broader shoulders. Both are bald.</div>
+                    <div class="lighting-subject-help">Realistic clothed proportions with a neutral fallback face.</div>
                   </div>
+                </div>
+                <div id="lightingSubjectFaceControls" class="lighting-face-controls" hidden>
+                  <div class="lighting-face-status"><span id="lightingSubjectFaceBadge">3D FACE</span><strong id="lightingSubjectFaceName"></strong></div>
+                  <div class="lighting-property-pair">
+                    <div>
+                      <label>Face Scale <span id="lightingSubjectFaceScaleValue">100%</span></label>
+                      <input id="lightingSubjectFaceScale" type="range" min="50" max="180" step="1" value="100" />
+                    </div>
+                    <div>
+                      <label>Face Turn <span id="lightingSubjectFaceYawValue">0°</span></label>
+                      <input id="lightingSubjectFaceYaw" type="range" min="-180" max="180" step="1" value="0" />
+                    </div>
+                  </div>
+                  <label>Face Height <span id="lightingSubjectFaceOffsetValue">0 cm</span></label>
+                  <input id="lightingSubjectFaceOffset" type="range" min="-20" max="20" step="1" value="0" />
                 </div>
               </div>
 
@@ -1211,7 +1267,7 @@
     </div>
   </dialog>
 
-  <script src="i18n.js?v=500"></script>
-  <script src="app.js?v=500"></script>
+  <script src="i18n.js?v=510"></script>
+  <script src="app.js?v=510"></script>
 </body>
 </html>

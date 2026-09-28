@@ -1,4 +1,4 @@
-// Storyboard Shot Builder v5.0.0 — English / Persian interface
+// Storyboard Shot Builder v5.1.0 — English / Persian interface
 (() => {
   "use strict";
 
@@ -566,6 +566,29 @@
     "Forward / Back":"جلو / عقب",
     "Floor Offset":"فاصله از کف",
     "Center & Reset Scan":"مرکز و بازنشانی اسکن",
+    "BIBLE CONNECTION":"اتصال به بایبل",
+    "Connect this scan to a Bible location":"اتصال این اسکن به یک لوکیشن بایبل",
+    "Bible location":"لوکیشن بایبل",
+    "Link Scan":"اتصال اسکن",
+    "Capture Camera View for AI":"ثبت نمای دوربین برای هوش مصنوعی",
+    "The captured camera view becomes a spatial AI reference.":"نمای ثبت‌شدهٔ دوربین به مرجع فضایی هوش مصنوعی تبدیل می‌شود.",
+    "CAMERAS":"دوربین‌ها",
+    "Camera controls are separate from scene objects.":"کنترل‌های دوربین از اشیای صحنه جدا هستند.",
+    "＋ Camera":"＋ دوربین",
+    "LIGHTS & SUBJECTS":"نورها و سوژه‌ها",
+    "Choose an item to edit its physical properties.":"برای ویرایش ویژگی‌های فیزیکی، یک مورد را انتخاب کنید.",
+    "＋ Light":"＋ نور",
+    "＋ Subject":"＋ سوژه",
+    "Bible Character / 3D Face":"کاراکتر بایبل / چهره سه‌بعدی",
+    "Generic mannequin":"مانکن عمومی",
+    "Face Scale":"مقیاس چهره",
+    "Face Turn":"چرخش چهره",
+    "Face Height":"ارتفاع چهره",
+    "Realistic clothed proportions with a neutral fallback face.":"تناسبات واقع‌گرایانه با لباس و چهرهٔ خنثی جایگزین.",
+    "LIVE DIAGRAM":"دیاگرام زنده",
+    "Drag to move · edit while viewing camera":"برای جابه‌جایی بکشید · هم‌زمان با نمای دوربین ویرایش کنید",
+    "Resize Camera View and Lighting Diagram":"تغییر اندازهٔ نمای دوربین و دیاگرام نور",
+    "Reset diagram window":"بازنشانی پنجرهٔ دیاگرام",
     "Scan attached. Open Camera View, then choose Explore Location.":"اسکن متصل شد. نمای دوربین را باز کنید و سپس «کاوش لوکیشن» را بزنید.",
     "Attach a 3D scan before exploring the location.":"پیش از کاوش لوکیشن، یک اسکن سه‌بعدی متصل کنید.",
     "Add a camera before exploring the location.":"پیش از کاوش لوکیشن، یک دوربین اضافه کنید.",

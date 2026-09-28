@@ -1,4 +1,4 @@
-// Storyboard Shot Builder v5.0.0 — Virtual Location scans and spatial walkthrough
+// Storyboard Shot Builder v5.1.0 — Spatial Bible and live Lighting companion
 const OPTIONS = {
   shotSize:["ECU · Extreme Close Up","CU · Close Up","MCU · Medium Close Up","MS · Medium Shot","MLS · Medium Long Shot","WS · Wide Shot","EWS · Extreme Wide Shot","OTS · Over The Shoulder","POV · Point of View","Insert","Top Shot"],
   angle:["Eye Level","High Angle","Low Angle","Top / Bird's Eye","Dutch Angle","Ground Level","Overhead","Custom"],
@@ -117,6 +117,7 @@ let app = {
   ai: {
     ready: false,
     sourceReady: false,
+    spatialReady: false,
     loading: false,
     generating: false,
     generatingAssetId: null,
@@ -178,7 +179,11 @@ let app = {
     virtualLocationsReady: true,
     virtualLocationMigrationMessage: "Run supabase-v5.0-virtual-locations.sql, then reload this project.",
     locationModelCache: new Map(),
+    faceModelCache: new Map(),
     upload: null,
+    faceUpload: null,
+    pipDrag: null,
+    mobileSplit: 55,
     explorer: {
       active: false,
       pose: null,
@@ -1115,11 +1120,11 @@ async function deleteAdminProject(project){
     supportOpened=true;
     const [{data:paths},{data:characters},{data:locations},{data:locationScans}]=await Promise.all([
       sb.from("shots").select("image_path,original_image_path").eq("project_id",project.id),
-      sb.from("project_ai_characters").select("reference_path,source_path").eq("project_id",project.id),
-      sb.from("project_ai_locations").select("reference_path,source_path").eq("project_id",project.id),
+      sb.from("project_ai_characters").select("*").eq("project_id",project.id),
+      sb.from("project_ai_locations").select("*").eq("project_id",project.id),
       sb.from("location_scans").select("model_path").eq("project_id",project.id)
     ]);
-    await removeMediaPaths([...(paths||[]).flatMap(x=>[x.image_path,x.original_image_path]),...(characters||[]).flatMap(x=>[x.reference_path,x.source_path]),...(locations||[]).flatMap(x=>[x.reference_path,x.source_path]),...(locationScans||[]).map(x=>x.model_path)]);
+    await removeMediaPaths([...(paths||[]).flatMap(x=>[x.image_path,x.original_image_path]),...(characters||[]).flatMap(x=>[x.reference_path,x.source_path,x.spatial_reference_path,x.face_scan_path]),...(locations||[]).flatMap(x=>[x.reference_path,x.source_path,x.spatial_reference_path]),...(locationScans||[]).map(x=>x.model_path)]);
     const {error}=await sb.rpc("storyboard_admin_delete_project",{p_project_id:project.id,p_target_user_id:user.user_id});if(error)throw error;
     supportOpened=false;setMsg("adminCenterNotice",`Project "${project.name}" deleted.`);await Promise.all([loadAdminUserProjects(),loadAdminActivity(),loadAdminUsers(true)])
   }catch(err){setMsg("adminCenterNotice",err.message||"Could not delete the project.","warning")}
@@ -1308,7 +1313,7 @@ async function refreshSignedImages(){
   }
   if($("aiBibleModal")?.open){
     for(const asset of [...app.ai.characters,...app.ai.locations]){
-      if(asset.reference_path||asset.source_path)jobs.push(signAiAsset(asset))
+      if(asset.reference_path||asset.source_path||asset.spatial_reference_path||asset.face_scan_path)jobs.push(signAiAsset(asset))
     }
   }
   await Promise.all(jobs);
@@ -1778,8 +1783,8 @@ function shotImageTarget(shot){
   return {kind:"shot",id:shot.id,url:shot.image,title:`Shot ${shot.shotNo}`,caption:`${scene?.title||`Scene ${scene?.number||""}`} · ${projectAspectText(app.current)}`,maxDimension:1024,hasOriginal:!!(shot.originalImagePath||shot.originalImage)}
 }
 function aiAssetImageTarget(asset,type,role="reference"){
-  const source=role==="source",url=source?asset?.sourceUrl:asset?.referenceUrl;if(!url)return null;
-  return {kind:source?"asset-source":"asset-reference",id:asset.id,type,url,title:asset.name||uiText(type),caption:source?`${asset.name} · Source image used to guide AI generation`:`${asset.name} · ${type} reference`,maxDimension:496,aspect:type==="character"?{w:3,h:4}:{w:4,h:3}}
+  const source=role==="source",spatial=role==="spatial",url=source?asset?.sourceUrl:spatial?asset?.spatialReferenceUrl:asset?.referenceUrl;if(!url)return null;
+  return {kind:source?"asset-source":spatial?"asset-spatial":"asset-reference",id:asset.id,type,url,title:asset.name||uiText(type),caption:source?`${asset.name} · Source image used to guide AI generation`:spatial?`${asset.name} · Spatial scan view used to guide AI generation`:`${asset.name} · ${type} reference`,maxDimension:496,aspect:type==="character"?{w:3,h:4}:{w:4,h:3}}
 }
 function canCropImageTarget(target){return !!(target?.url&&can("media")&&!app.ai.generating&&(target.kind==="shot"||target.kind==="asset-reference"||target.kind==="asset-source"))}
 function canRestoreOriginalImageTarget(target){const shot=target?.kind==="shot"?shotById(target.id):null;return !!(shot&&can("media")&&!app.ai.generating&&(shot.originalImagePath||shot.originalImage))}
@@ -1916,7 +1921,8 @@ async function loadAiUsage(){
 function normalizeAiAsset(row,type,previous=null){
   const sameReference=!!(previous&&previous.reference_path===row.reference_path);
   const sameSource=!!(previous&&previous.source_path===row.source_path);
-  return {...row,source_path:row.source_path||null,type,locked:!!row.locked,referenceUrl:sameReference?previous.referenceUrl:null,sourceUrl:sameSource?previous.sourceUrl:null,generationStatus:previous?.generationStatus||"",generationStatusKind:previous?.generationStatusKind||""}
+  const sameSpatial=!!(previous&&previous.spatial_reference_path===row.spatial_reference_path),sameFace=!!(previous&&previous.face_scan_path===row.face_scan_path);
+  return {...row,source_path:row.source_path||null,spatial_reference_path:row.spatial_reference_path||null,location_scan_id:row.location_scan_id||null,face_scan_path:row.face_scan_path||null,face_scan_format:row.face_scan_format||null,face_scan_metadata:row.face_scan_metadata&&typeof row.face_scan_metadata==="object"?row.face_scan_metadata:{},type,locked:!!row.locked,referenceUrl:sameReference?previous.referenceUrl:null,sourceUrl:sameSource?previous.sourceUrl:null,spatialReferenceUrl:sameSpatial?previous.spatialReferenceUrl:null,faceModelUrl:sameFace?previous.faceModelUrl:null,generationStatus:previous?.generationStatus||"",generationStatusKind:previous?.generationStatusKind||""}
 }
 async function signAiAsset(asset){
   if(!asset)return asset;
@@ -1925,6 +1931,10 @@ async function signAiAsset(asset){
   else asset.referenceUrl=null;
   if(asset.source_path)jobs.push((async()=>{const previous=asset.sourceUrl,{data,error}=await sb.storage.from("storyboards").createSignedUrl(asset.source_path,SIGNED_IMAGE_TTL_SECONDS);asset.sourceUrl=!error&&data?.signedUrl?data.signedUrl:previous||null})());
   else asset.sourceUrl=null;
+  if(asset.spatial_reference_path)jobs.push((async()=>{const previous=asset.spatialReferenceUrl,{data,error}=await sb.storage.from("storyboards").createSignedUrl(asset.spatial_reference_path,SIGNED_IMAGE_TTL_SECONDS);asset.spatialReferenceUrl=!error&&data?.signedUrl?data.signedUrl:previous||null})());
+  else asset.spatialReferenceUrl=null;
+  if(asset.face_scan_path)jobs.push((async()=>{const previous=asset.faceModelUrl,{data,error}=await sb.storage.from("storyboards").createSignedUrl(asset.face_scan_path,VIRTUAL_LOCATION_SIGNED_URL_SECONDS);asset.faceModelUrl=!error&&data?.signedUrl?data.signedUrl:previous||null})());
+  else asset.faceModelUrl=null;
   await Promise.all(jobs);
   return asset
 }
@@ -1934,16 +1944,24 @@ async function loadAiVisualBible(projectId=app.current?.id){
   if(app.mode!=="cloud"||!sb||!projectId)return;
   app.ai.loading=true;
   const modernColumns="id,project_id,name,description,reference_path,source_path,style_snapshot,locked,created_at,updated_at",legacyColumns="id,project_id,name,description,reference_path,style_snapshot,locked,created_at,updated_at";
+  const characterSpatialColumns=`${modernColumns},face_scan_path,face_scan_format,face_scan_metadata,spatial_reference_path`,locationSpatialColumns=`${modernColumns},location_scan_id,spatial_reference_path`;
   let [characters,locations]=await Promise.all([
-    sb.from("project_ai_characters").select(modernColumns).eq("project_id",projectId).order("created_at"),
-    sb.from("project_ai_locations").select(modernColumns).eq("project_id",projectId).order("created_at")
+    sb.from("project_ai_characters").select(characterSpatialColumns).eq("project_id",projectId).order("created_at"),
+    sb.from("project_ai_locations").select(locationSpatialColumns).eq("project_id",projectId).order("created_at")
   ]);
+  const spatialColumnMissing=[characters.error,locations.error].some(error=>/face_scan_path|face_scan_format|face_scan_metadata|spatial_reference_path|location_scan_id/i.test(String(error?.message||"")));
+  if(spatialColumnMissing){
+    [characters,locations]=await Promise.all([
+      sb.from("project_ai_characters").select(modernColumns).eq("project_id",projectId).order("created_at"),
+      sb.from("project_ai_locations").select(modernColumns).eq("project_id",projectId).order("created_at")
+    ]);app.ai.spatialReady=false
+  }else app.ai.spatialReady=true;
   const sourceColumnMissing=[characters.error,locations.error].some(error=>/source_path/i.test(String(error?.message||"")));
   if(sourceColumnMissing){
     [characters,locations]=await Promise.all([
       sb.from("project_ai_characters").select(legacyColumns).eq("project_id",projectId).order("created_at"),
       sb.from("project_ai_locations").select(legacyColumns).eq("project_id",projectId).order("created_at")
-    ]);app.ai.sourceReady=false
+    ]);app.ai.sourceReady=false;app.ai.spatialReady=false
   }else app.ai.sourceReady=true;
   app.ai.loading=false;
   if(characters.error||locations.error){
@@ -1954,9 +1972,10 @@ async function loadAiVisualBible(projectId=app.current?.id){
   app.ai.characters=(characters.data||[]).map(x=>normalizeAiAsset(x,"character",previousAssets.get(x.id)));
   app.ai.locations=(locations.data||[]).map(x=>normalizeAiAsset(x,"location",previousAssets.get(x.id)));
   app.ai.ready=true;
+  renderVirtualLocationBibleControls();
   // A Realtime refresh can happen while the Bible dialog is open.
   // Restore any missing signed previews before that dialog is rendered again.
-  if($("aiBibleModal")?.open)await Promise.all([...app.ai.characters,...app.ai.locations].filter(x=>(x.reference_path&&!x.referenceUrl)||(x.source_path&&!x.sourceUrl)).map(signAiAsset))
+  if($("aiBibleModal")?.open)await Promise.all([...app.ai.characters,...app.ai.locations].filter(x=>(x.reference_path&&!x.referenceUrl)||(x.source_path&&!x.sourceUrl)||(x.spatial_reference_path&&!x.spatialReferenceUrl)||(x.face_scan_path&&!x.faceModelUrl)).map(signAiAsset))
 }
 
 /* ---------- BIBLE SCRIPT + SHOT REFERENCES ---------- */
@@ -2203,11 +2222,27 @@ async function openAiVisualBible(options={}){
   if(app.ai.ready&&!app.ai.generating)setMsg("aiBibleNotice","");
   const settings=options&&typeof options==="object"&&!options.currentTarget?options:{},dialog=$("aiBibleModal");setBibleSection(settings.section||"visual",{focusProject:false});renderAiVisualBible();if(!dialog.open)dialog.showModal();
   if(settings.focusProject)setBibleSection("visual",{focusProject:true});
-  await Promise.all([...app.ai.characters,...app.ai.locations].filter(x=>(x.reference_path&&!x.referenceUrl)||(x.source_path&&!x.sourceUrl)).map(signAiAsset));renderAiVisualBible()
+  await Promise.all([...app.ai.characters,...app.ai.locations].filter(x=>(x.reference_path&&!x.referenceUrl)||(x.source_path&&!x.sourceUrl)||(x.spatial_reference_path&&!x.spatialReferenceUrl)||(x.face_scan_path&&!x.faceModelUrl)).map(signAiAsset));renderAiVisualBible()
 }
 function aiAssetCard(asset,type){
-  const editable=can("media"),locked=!!asset.locked,styleMatches=!locked||asset.style_snapshot===app.current.style,hasReference=!!asset.reference_path,hasSource=!!asset.source_path,generatingThis=app.ai.generating&&app.ai.generatingAssetId===asset.id;
-  const generateLabel=generatingThis?"Generating…":hasSource?(hasReference?"Regenerate from Source":"Generate from Source"):(hasReference?"Regenerate":"Generate Reference");
+  const editable=can("media"),locked=!!asset.locked,styleMatches=!locked||asset.style_snapshot===app.current.style,hasReference=!!asset.reference_path,hasSource=!!asset.source_path,hasSpatial=!!asset.spatial_reference_path,hasFace=type==="character"&&!!asset.face_scan_path,generatingThis=app.ai.generating&&app.ai.generatingAssetId===asset.id;
+  const linkedScan=type==="location"?(app.lighting.virtualLocations||[]).find(scan=>scan.id===asset.location_scan_id):null,hasGenerationGuide=hasSource||hasSpatial;
+  const generateLabel=generatingThis?"Generating…":hasGenerationGuide?(hasReference?"Regenerate from References":"Generate from References"):(hasReference?"Regenerate":"Generate Reference");
+  const spatialPanel=type==="character"?`
+      <div class="ai-spatial-panel${hasFace||hasSpatial?" has-spatial":""}">
+        ${hasSpatial&&asset.spatialReferenceUrl?`<button type="button" class="ai-spatial-preview has-image"><img src="${escapeHtml(asset.spatialReferenceUrl)}" alt="${escapeHtml(asset.name)} spatial face reference" loading="lazy"></button>`:`<span class="ai-spatial-preview" aria-hidden="true">◎</span>`}
+        <div class="ai-spatial-copy"><strong>3D Face Scan</strong><small>${app.ai.spatialReady?"Attach a GLB/USDZ face scan. A rendered scan view is passed to AI; the model can also replace the mannequin head in Camera View.":"Run Spatial Bible & Lighting Studio v5.1 SQL to enable 3D face scans."}</small>
+          <div class="ai-spatial-meta">${hasFace?`<span>${escapeHtml(String(asset.face_scan_format||"3D").toUpperCase())}</span><span>Mannequin ready</span>`:"<span>No scan attached</span>"}${hasSpatial?"<span>AI view ready</span>":""}</div>
+          <div class="ai-spatial-actions"><label class="ai-upload-label ${!editable||!app.ai.spatialReady||app.ai.generating?"disabled":""}">${hasFace?"Replace 3D Face":"Add 3D Face"}<input class="ai-face-scan-input" type="file" accept=".glb,.usdz,model/gltf-binary,model/vnd.usdz+zip" hidden ${!editable||!app.ai.spatialReady||app.ai.generating?"disabled":""}></label>${hasFace?`<button type="button" class="refresh-spatial" ${!editable||app.ai.generating?"disabled":""}>Refresh AI View</button><button type="button" class="remove-spatial" ${!editable||app.ai.generating?"disabled":""}>Remove</button>`:""}</div>
+        </div>
+      </div>`:`
+      <div class="ai-spatial-panel${asset.location_scan_id||hasSpatial?" has-spatial":""}">
+        ${hasSpatial&&asset.spatialReferenceUrl?`<button type="button" class="ai-spatial-preview has-image"><img src="${escapeHtml(asset.spatialReferenceUrl)}" alt="${escapeHtml(asset.name)} spatial location reference" loading="lazy"></button>`:`<span class="ai-spatial-preview" aria-hidden="true">⌂</span>`}
+        <div class="ai-spatial-copy"><strong>Linked 3D Location</strong><small>${app.ai.spatialReady?"Link a Virtual Location in Lighting Diagram and capture its Camera View for AI generation.":"Run Spatial Bible & Lighting Studio v5.1 SQL to enable scan links."}</small>
+          <div class="ai-spatial-meta">${asset.location_scan_id?`<span>${escapeHtml(linkedScan?.name||"3D scan linked")}</span>`:"<span>No scan linked</span>"}${hasSpatial?"<span>AI view ready</span>":""}</div>
+          <div class="ai-spatial-actions"><button type="button" class="open-lighting-spatial" ${!app.ai.spatialReady?"disabled":""}>Open Lighting Diagram</button>${hasSpatial?`<button type="button" class="remove-spatial" ${!editable||app.ai.generating?"disabled":""}>Remove AI View</button>`:""}</div>
+        </div>
+      </div>`;
   const card=document.createElement("article");card.className="ai-asset-card"+(locked?" is-locked":"");card.dataset.assetId=asset.id;card.dataset.assetType=type;
   card.innerHTML=`
     <div class="ai-asset-preview">
@@ -2233,6 +2268,7 @@ function aiAssetCard(asset,type){
           </div>
         </div>
       </div>
+      ${spatialPanel}
       <div class="ai-asset-status${asset.generationStatusKind?` ${escapeHtml(asset.generationStatusKind)}`:""}" role="status" aria-live="polite" ${asset.generationStatus?"":"hidden"}>${escapeHtml(asset.generationStatus||"")}</div>
     </div>`;
   const name=card.querySelector(".ai-asset-name"),description=card.querySelector(".ai-asset-description");
@@ -2242,6 +2278,11 @@ function aiAssetCard(asset,type){
   card.querySelector(".ai-asset-image-open")?.addEventListener("click",()=>openImageViewer(aiAssetImageTarget(asset,type,"reference")));
   card.querySelector(".ai-source-preview.has-image")?.addEventListener("click",()=>openImageViewer(aiAssetImageTarget(asset,type,"source")));
   card.querySelector(".remove-source")?.addEventListener("click",()=>removeAiSource(type,asset.id));
+  card.querySelector(".ai-spatial-preview.has-image")?.addEventListener("click",()=>openImageViewer(aiAssetImageTarget(asset,type,"spatial")));
+  card.querySelector(".ai-face-scan-input")?.addEventListener("change",event=>uploadAiFaceScan(asset.id,event));
+  card.querySelector(".refresh-spatial")?.addEventListener("click",()=>refreshAiFaceSpatialReference(asset.id));
+  card.querySelector(".remove-spatial")?.addEventListener("click",()=>type==="character"?removeAiFaceScan(asset.id):removeAiSpatialReference(type,asset.id));
+  card.querySelector(".open-lighting-spatial")?.addEventListener("click",async()=>{if($("aiBibleModal").open)$("aiBibleModal").close();await openLightingWorkspace();focusVirtualLocationSection()});
   card.querySelector(".lock").onclick=()=>toggleAiAssetLock(type,asset.id);
   card.querySelector(".delete").onclick=()=>deleteAiAsset(type,asset.id);
   return card
@@ -2288,7 +2329,7 @@ async function toggleAiAssetLock(type,id){
 async function deleteAiAsset(type,id){
   const asset=aiCollection(type).find(x=>x.id===id);if(!asset||!can("media")||!uiConfirm(`Delete ${asset.name} from the Bible?`))return;
   const {error}=await sb.from(aiTable(type)).delete().eq("id",id).eq("project_id",app.current.id);if(error)return setMsg("aiBibleNotice",error.message,"warning");
-  await removeMediaPaths([asset.reference_path,asset.source_path]);app.ai[type==="character"?"characters":"locations"]=aiCollection(type).filter(x=>x.id!==id);
+  await removeMediaPaths([asset.reference_path,asset.source_path,asset.spatial_reference_path,asset.face_scan_path]);if(type==="character")clearFaceModelCache(id);app.ai[type==="character"?"characters":"locations"]=aiCollection(type).filter(x=>x.id!==id);
   for(const {shot} of allShots()){
     if(type==="character")shot.aiCharacterIds=(shot.aiCharacterIds||[]).filter(x=>x!==id);
     else if(shot.aiLocationId===id)shot.aiLocationId=""
@@ -2346,6 +2387,56 @@ async function removeAiSource(type,id){
   const oldPath=asset.source_path,oldUrl=asset.sourceUrl,{error}=await sb.from(aiTable(type)).update({source_path:null,updated_at:new Date().toISOString()}).eq("id",asset.id).eq("project_id",app.current.id);
   if(error)return setMsg("aiBibleNotice",error.message||"Could not remove source image.","warning");
   asset.source_path=null;asset.sourceUrl=null;if(String(oldUrl||"").startsWith("blob:"))URL.revokeObjectURL(oldUrl);await removeMediaPaths([oldPath]);setMsg("aiBibleNotice",`${asset.name} source image removed.`);renderAiVisualBible()
+}
+async function loadSpatialModelRoot(sourceUrl,format,THREE){
+  if(format==="usdz"){const {USDZLoader}=await import(USDZ_LOADER_CDN);return await new USDZLoader().loadAsync(sourceUrl)}
+  const [{GLTFLoader},{DRACOLoader}]=await Promise.all([import(GLTF_LOADER_CDN),import(DRACO_LOADER_CDN)]),loader=new GLTFLoader(),draco=new DRACOLoader();draco.setDecoderPath(DRACO_DECODER_PATH);loader.setDRACOLoader(draco);
+  try{const gltf=await loader.loadAsync(sourceUrl);return gltf.scene||gltf.scenes?.[0]}finally{draco.dispose()}
+}
+async function renderFaceScanSpatialBlob(sourceUrl,format){
+  const THREE=await import(THREE_CDN),root=await loadSpatialModelRoot(sourceUrl,format,THREE);if(!root)throw new Error("The face scan has no readable 3D geometry.");
+  const scene=new THREE.Scene();scene.background=new THREE.Color(0x15191c);const wrapper=new THREE.Group();wrapper.add(root);scene.add(wrapper);
+  root.traverse(node=>{if(node.isMesh){node.castShadow=true;node.receiveShadow=true}});
+  const box=new THREE.Box3().setFromObject(root),size=box.getSize(new THREE.Vector3()),center=box.getCenter(new THREE.Vector3());if(box.isEmpty()||!Number.isFinite(size.x+size.y+size.z))throw new Error("The face scan geometry is invalid.");
+  const largest=Math.max(size.x,size.y,size.z,.001),scale=2/largest;root.scale.setScalar(scale);root.position.set(-center.x*scale,-center.y*scale,-center.z*scale);wrapper.rotation.y=0;
+  scene.add(new THREE.HemisphereLight(0xe5f1ff,0x16110f,1.6));const key=new THREE.DirectionalLight(0xffead8,3.4);key.position.set(2.5,3,4);scene.add(key);const fill=new THREE.DirectionalLight(0x87bfff,1.8);fill.position.set(-3,1.5,2);scene.add(fill);
+  const camera=new THREE.PerspectiveCamera(32,3/4,.01,50);camera.position.set(0,.05,4.2);camera.lookAt(0,0,0);
+  const renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true,powerPreference:"high-performance"});renderer.setPixelRatio(1);renderer.setSize(768,1024,false);renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.1;renderer.render(scene,camera);
+  const blob=await new Promise((resolve,reject)=>renderer.domElement.toBlob(value=>value?resolve(value):reject(new Error("Could not render the face scan.")),"image/jpeg",.88));renderer.dispose();disposeVirtualLocationObject(root);
+  return {blob,metadata:{bounds:{x:size.x,y:size.y,z:size.z},previewGeneratedAt:new Date().toISOString()}}
+}
+async function storeAiSpatialReference(type,asset,sourceBlob){
+  const optimized=await optimizeImageBlob(sourceBlob,496,.86),format=optimizedImageFormat(optimized),path=`${app.current.id}/ai/${aiFolder(type)}/${asset.id}/${Date.now()}-spatial.${format.extension}`,oldPath=asset.spatial_reference_path,oldUrl=asset.spatialReferenceUrl;
+  const {error:uploadError}=await sb.storage.from("storyboards").upload(path,optimized,{upsert:false,contentType:format.type,cacheControl:"31536000"});if(uploadError)throw uploadError;
+  const {error:updateError}=await sb.from(aiTable(type)).update({spatial_reference_path:path,locked:false,style_snapshot:null,updated_at:new Date().toISOString()}).eq("id",asset.id).eq("project_id",app.current.id);if(updateError){await removeMediaPaths([path]);throw updateError}
+  asset.spatial_reference_path=path;asset.spatialReferenceUrl=null;asset.locked=false;asset.style_snapshot=null;await signAiAsset(asset);if(!asset.spatialReferenceUrl)asset.spatialReferenceUrl=URL.createObjectURL(optimized);if(String(oldUrl||"").startsWith("blob:"))URL.revokeObjectURL(oldUrl);await removeMediaPaths([oldPath]);return asset
+}
+async function uploadAiFaceScan(id,event){
+  const input=event.currentTarget,file=input.files?.[0],asset=app.ai.characters.find(item=>item.id===id);input.value="";if(!file||!asset||!app.ai.spatialReady||!can("media")||app.ai.generating)return;
+  const format=virtualLocationFormat(file.name,file.type);if(!format||file.size>VIRTUAL_LOCATION_MAX_BYTES)return setMsg("aiBibleNotice","Use one self-contained GLB or USDZ face scan up to 250 MB.","warning");
+  const oldModel=asset.face_scan_path,oldSpatial=asset.spatial_reference_path,path=`${app.current.id}/ai/characters/${asset.id}/faces/${Date.now()}-${safeVirtualLocationFileName(file.name)}`;let objectUrl=null;
+  try{
+    setMsg("aiBibleNotice",`Uploading 3D face scan for ${asset.name}…`);await uploadLargeModelResumable(file,path,null,"face-scan");
+    const {error}=await sb.from("project_ai_characters").update({face_scan_path:path,face_scan_format:format,face_scan_metadata:{file_name:file.name,size_bytes:file.size,captured_with:"iphone-or-import"},spatial_reference_path:null,locked:false,style_snapshot:null,updated_at:new Date().toISOString()}).eq("id",asset.id).eq("project_id",app.current.id);if(error){await removeMediaPaths([path]);throw error}
+    asset.face_scan_path=path;asset.face_scan_format=format;asset.face_scan_metadata={file_name:file.name,size_bytes:file.size,captured_with:"iphone-or-import"};asset.spatial_reference_path=null;asset.spatialReferenceUrl=null;asset.locked=false;asset.style_snapshot=null;clearFaceModelCache(asset.id);await signAiAsset(asset);await removeMediaPaths([oldModel,oldSpatial]);
+    objectUrl=URL.createObjectURL(file);const rendered=await renderFaceScanSpatialBlob(objectUrl,format);asset.face_scan_metadata={...asset.face_scan_metadata,...rendered.metadata};await sb.from("project_ai_characters").update({face_scan_metadata:asset.face_scan_metadata}).eq("id",asset.id).eq("project_id",app.current.id);await storeAiSpatialReference("character",asset,rendered.blob);
+    setMsg("aiBibleNotice",`${asset.name} now has a 3D face scan and an AI-ready rendered view.`);renderAiVisualBible();renderLightingInspector();syncLighting3D()
+  }catch(error){console.error(error);setMsg("aiBibleNotice",error.message||"Could not save the 3D face scan.","warning");await loadAiVisualBible();renderAiVisualBible()}
+  finally{if(objectUrl)URL.revokeObjectURL(objectUrl);app.lighting.faceUpload=null}
+}
+async function refreshAiFaceSpatialReference(id){
+  const asset=app.ai.characters.find(item=>item.id===id);if(!asset?.face_scan_path||!app.ai.spatialReady||!can("media"))return;
+  try{setMsg("aiBibleNotice",`Rendering ${asset.name}'s 3D face for AI…`);if(!asset.faceModelUrl)await signAiAsset(asset);const rendered=await renderFaceScanSpatialBlob(asset.faceModelUrl,asset.face_scan_format||"glb");asset.face_scan_metadata={...(asset.face_scan_metadata||{}),...rendered.metadata};await sb.from("project_ai_characters").update({face_scan_metadata:asset.face_scan_metadata}).eq("id",asset.id).eq("project_id",app.current.id);await storeAiSpatialReference("character",asset,rendered.blob);setMsg("aiBibleNotice",`${asset.name}'s AI face view was refreshed.`);renderAiVisualBible()}
+  catch(error){setMsg("aiBibleNotice",error.message||"Could not render this face scan.","warning")}
+}
+async function removeAiSpatialReference(type,id){
+  const asset=aiCollection(type).find(item=>item.id===id);if(!asset?.spatial_reference_path||!app.ai.spatialReady||!can("media"))return;if(!uiConfirm(`Remove the spatial AI view for ${asset.name}?`))return;
+  const oldPath=asset.spatial_reference_path,oldUrl=asset.spatialReferenceUrl,{error}=await sb.from(aiTable(type)).update({spatial_reference_path:null,locked:false,style_snapshot:null,updated_at:new Date().toISOString()}).eq("id",id).eq("project_id",app.current.id);if(error)return setMsg("aiBibleNotice",error.message,"warning");asset.spatial_reference_path=null;asset.spatialReferenceUrl=null;asset.locked=false;asset.style_snapshot=null;if(String(oldUrl||"").startsWith("blob:"))URL.revokeObjectURL(oldUrl);await removeMediaPaths([oldPath]);renderAiVisualBible();renderShot()
+}
+async function removeAiFaceScan(id){
+  const asset=app.ai.characters.find(item=>item.id===id);if(!asset?.face_scan_path||!app.ai.spatialReady||!can("media")||!uiConfirm(`Remove the 3D face scan for ${asset.name}?`))return;
+  const paths=[asset.face_scan_path,asset.spatial_reference_path],urls=[asset.faceModelUrl,asset.spatialReferenceUrl],{error}=await sb.from("project_ai_characters").update({face_scan_path:null,face_scan_format:null,face_scan_metadata:{},spatial_reference_path:null,locked:false,style_snapshot:null,updated_at:new Date().toISOString()}).eq("id",id).eq("project_id",app.current.id);if(error)return setMsg("aiBibleNotice",error.message,"warning");
+  Object.assign(asset,{face_scan_path:null,face_scan_format:null,face_scan_metadata:{},faceModelUrl:null,spatial_reference_path:null,spatialReferenceUrl:null,locked:false,style_snapshot:null});urls.filter(url=>String(url||"").startsWith("blob:")).forEach(url=>URL.revokeObjectURL(url));clearFaceModelCache(id);await removeMediaPaths(paths);setMsg("aiBibleNotice",`${asset.name}'s 3D face scan was removed.`);renderAiVisualBible();renderLightingInspector();syncLighting3D()
 }
 function beginAiGeneration(mode,assetId=null){
   app.ai.previousFocus=document.activeElement;app.ai.generating=true;app.ai.generationMode=mode;app.ai.generatingAssetId=assetId;app.ai.cancelRequested=false;app.ai.requestController=null;syncAiGenerationLock();requestAnimationFrame(()=>$('cancelAiGenerationBtn')?.focus())
@@ -2753,33 +2844,63 @@ async function importJSONOnline(file){
 
 
 
-/* ---------- LIGHTING STUDIO v3.8 ---------- */
+/* ---------- LIGHTING STUDIO v5.1 ---------- */
 const LIGHTING_FIXTURES = {
-  "Fresnel":        {icon:"◉", group:"Spot",      beam:28,  shape:"spot",  kelvin:3200, intensity:78, length:360},
-  "COB Spot":       {icon:"✦", group:"Spot",      beam:44,  shape:"spot",  kelvin:5600, intensity:82, length:390},
-  "PAR":            {icon:"◍", group:"Spot",      beam:18,  shape:"spot",  kelvin:5600, intensity:88, length:430},
-  "Projection":     {icon:"▣", group:"Spot",      beam:20,  shape:"spot",  kelvin:5600, intensity:84, length:450},
-  "LED Panel":      {icon:"▤", group:"Soft",      beam:100, shape:"panel", kelvin:5600, intensity:68, length:310},
-  "Softbox":        {icon:"▱", group:"Soft",      beam:112, shape:"panel", kelvin:5600, intensity:64, length:290},
-  "Lantern":        {icon:"○", group:"Soft",      beam:155, shape:"omni",  kelvin:5600, intensity:58, length:220},
-  "Tube":           {icon:"┃", group:"Linear",    beam:125, shape:"tube",  kelvin:5600, intensity:58, length:270},
-  "Practical Bulb": {icon:"●", group:"Practical", beam:165, shape:"omni",  kelvin:2700, intensity:48, length:190},
-  "Window":         {icon:"▥", group:"Practical", beam:95,  shape:"panel", kelvin:5600, intensity:62, length:360},
-  "Candle":         {icon:"♢", group:"Practical", beam:165, shape:"omni",  kelvin:2000, intensity:24, length:115}
+  "ARRI Orbiter":            {brand:"ARRI",model:"Orbiter",iconType:"orbiter",group:"ARRI",mount:"arri-qli",beam:80,beamMin:4,beamMax:80,shape:"spot",kelvin:5600,kelvinMin:2000,kelvinMax:20000,intensity:82,length:430,watts:500,engine:"RGBACL",output:1.18},
+  "ARRI L7-C Plus":          {brand:"ARRI",model:"L7-C Plus",iconType:"fresnel",group:"ARRI",mount:"arri-l7",beam:30,beamMin:12,beamMax:45,shape:"spot",kelvin:5600,kelvinMin:2800,kelvinMax:10000,intensity:78,length:380,watts:220,engine:"RGBW",output:1.02},
+  "ARRI SkyPanel X21":       {brand:"ARRI",model:"SkyPanel X21",iconType:"panel",group:"ARRI",mount:"arri-x21",beam:107,beamMin:11,beamMax:121,shape:"panel",kelvin:5600,kelvinMin:1500,kelvinMax:20000,intensity:74,length:335,engine:"RGBACL",output:1.08},
+  "Nanlite Forza 60C":       {brand:"Nanlite",model:"Forza 60C",iconType:"cob",group:"NANLITE",mount:"fm",beam:45,beamMin:19,beamMax:120,shape:"spot",kelvin:5600,kelvinMin:1800,kelvinMax:20000,intensity:76,length:330,watts:88,engine:"RGBLAC",output:.76},
+  "Nanlite Forza 300B II":   {brand:"Nanlite",model:"Forza 300B II",iconType:"cob",group:"NANLITE",mount:"bowens",beam:55,beamMin:10,beamMax:120,shape:"spot",kelvin:5600,kelvinMin:2700,kelvinMax:6500,intensity:88,length:450,watts:350,engine:"Bi-color",output:1.12},
+  "Nanlite PavoSlim 60C":    {brand:"Nanlite",model:"PavoSlim 60C",iconType:"slim-panel",group:"NANLITE",mount:"pavoslim",beam:60,beamMin:40,beamMax:100,shape:"panel",kelvin:5600,kelvinMin:2700,kelvinMax:7500,intensity:68,length:310,engine:"RGBWW",output:.72},
+  "Nanlite PavoTube II 30C": {brand:"Nanlite",model:"PavoTube II 30C",iconType:"tube",group:"NANLITE",mount:"tube",beam:125,beamMin:90,beamMax:165,shape:"tube",kelvin:5600,kelvinMin:2700,kelvinMax:7500,intensity:62,length:270,watts:60,engine:"RGBWW",output:.63},
+  "Practical Bulb":          {brand:"Practical",model:"Bulb",iconType:"bulb",group:"PRACTICAL",mount:"practical",beam:165,beamMin:120,beamMax:175,shape:"omni",kelvin:2700,kelvinMin:1800,kelvinMax:6500,intensity:48,length:190,output:.32},
+  "Window":                  {brand:"Natural",model:"Window",iconType:"window",group:"PRACTICAL",mount:"window",beam:95,beamMin:45,beamMax:140,shape:"panel",kelvin:5600,kelvinMin:3000,kelvinMax:12000,intensity:62,length:360,output:.88},
+  "Candle":                  {brand:"Practical",model:"Candle",iconType:"candle",group:"PRACTICAL",mount:"practical",beam:165,beamMin:120,beamMax:175,shape:"omni",kelvin:2000,kelvinMin:1800,kelvinMax:3200,intensity:24,length:115,output:.16},
+
+  /* Backward-compatible definitions for diagrams saved before v5.1. */
+  "Fresnel":        {brand:"Legacy",model:"Fresnel",iconType:"fresnel",group:"LEGACY",catalog:false,mount:"generic",beam:28,beamMin:8,beamMax:65,shape:"spot",kelvin:3200,kelvinMin:1800,kelvinMax:12000,intensity:78,length:360,output:.9},
+  "COB Spot":       {brand:"Legacy",model:"COB Spot",iconType:"cob",group:"LEGACY",catalog:false,mount:"bowens",beam:44,beamMin:10,beamMax:120,shape:"spot",kelvin:5600,kelvinMin:1800,kelvinMax:12000,intensity:82,length:390,output:1},
+  "PAR":            {brand:"Legacy",model:"PAR",iconType:"par",group:"LEGACY",catalog:false,mount:"generic",beam:18,beamMin:8,beamMax:60,shape:"spot",kelvin:5600,kelvinMin:1800,kelvinMax:12000,intensity:88,length:430,output:1},
+  "Projection":     {brand:"Legacy",model:"Projection",iconType:"projection",group:"LEGACY",catalog:false,mount:"bowens",beam:20,beamMin:8,beamMax:60,shape:"spot",kelvin:5600,kelvinMin:1800,kelvinMax:12000,intensity:84,length:450,output:.9},
+  "LED Panel":      {brand:"Legacy",model:"LED Panel",iconType:"panel",group:"LEGACY",catalog:false,mount:"panel",beam:100,beamMin:30,beamMax:140,shape:"panel",kelvin:5600,kelvinMin:1800,kelvinMax:12000,intensity:68,length:310,output:.7},
+  "Softbox":        {brand:"Legacy",model:"Softbox",iconType:"softbox",group:"LEGACY",catalog:false,mount:"soft",beam:112,beamMin:60,beamMax:150,shape:"panel",kelvin:5600,kelvinMin:1800,kelvinMax:12000,intensity:64,length:290,output:.55},
+  "Lantern":        {brand:"Legacy",model:"Lantern",iconType:"lantern",group:"LEGACY",catalog:false,mount:"soft",beam:155,beamMin:120,beamMax:175,shape:"omni",kelvin:5600,kelvinMin:1800,kelvinMax:12000,intensity:58,length:220,output:.48},
+  "Tube":           {brand:"Legacy",model:"Tube",iconType:"tube",group:"LEGACY",catalog:false,mount:"tube",beam:125,beamMin:90,beamMax:165,shape:"tube",kelvin:5600,kelvinMin:1800,kelvinMax:12000,intensity:58,length:270,output:.52}
 };
 
 const LIGHTING_MODIFIERS = {
-  "None":                  {short:"Open", spread:0,  softness:0.00, transmission:1.00},
-  "251 Quarter Diffusion": {short:"¼ Diff",spread:8, softness:0.15, transmission:0.88},
-  "250 Half Diffusion":    {short:"½ Diff",spread:16,softness:0.28, transmission:0.76},
-  "216 Full Diffusion":    {short:"Full",  spread:26,softness:0.44, transmission:0.61},
-  "Opal":                  {short:"Opal",  spread:12,softness:0.23, transmission:0.82},
-  "Hampshire Frost":       {short:"Frost", spread:18,softness:0.31, transmission:0.73},
-  "Light Grid Cloth":      {short:"Lt Grid",spread:12,softness:0.24,transmission:0.82},
-  "Grid Cloth":            {short:"Grid",  spread:28,softness:0.46, transmission:0.58},
-  "Magic Cloth":           {short:"Magic", spread:34,softness:0.55, transmission:0.49},
-  "Silk":                  {short:"Silk",  spread:22,softness:0.38, transmission:0.68},
-  "Muslin Bounce":         {short:"Muslin",spread:40,softness:0.60, transmission:0.46}
+  "None":                         {short:"Open / Native",mounts:["all"],softness:0,transmission:1,attachment:"none",description:"Fixture native beam"},
+  "ARRI Orbiter Beam 4°":         {short:"Beam 4°",mounts:["arri-qli"],beam:4,beamMin:4,beamMax:4,softness:.02,transmission:.82,attachment:"projection",description:"Orbiter Beam optic"},
+  "ARRI Orbiter Projection 25°":  {short:"Projection 25°",mounts:["arri-qli"],beam:25,beamMin:25,beamMax:25,softness:.03,transmission:.78,attachment:"projection",description:"Orbiter projection optic"},
+  "ARRI Orbiter Projection 35°":  {short:"Projection 35°",mounts:["arri-qli"],beam:35,beamMin:35,beamMax:35,softness:.04,transmission:.78,attachment:"projection",description:"Orbiter projection optic"},
+  "ARRI Orbiter Fresnel 15–65°":  {short:"Fresnel 15–65°",mounts:["arri-qli"],beam:32,beamMin:15,beamMax:65,softness:.1,transmission:.86,attachment:"fresnel",description:"Orbiter motorized Fresnel lens"},
+  "ARRI Orbiter Open Face 15°":   {short:"Open Face 15°",mounts:["arri-qli"],beam:15,beamMin:15,beamMax:15,softness:.05,transmission:.96,attachment:"reflector",description:"Orbiter Open Face optic"},
+  "ARRI Orbiter Open Face 30°":   {short:"Open Face 30°",mounts:["arri-qli"],beam:30,beamMin:30,beamMax:30,softness:.06,transmission:.96,attachment:"reflector",description:"Orbiter Open Face optic"},
+  "ARRI Orbiter Open Face 60°":   {short:"Open Face 60°",mounts:["arri-qli"],beam:60,beamMin:60,beamMax:60,softness:.08,transmission:.95,attachment:"reflector",description:"Orbiter Open Face optic"},
+  "ARRI Orbiter Softbox":         {short:"Orbiter Softbox",mounts:["arri-qli"],beam:105,beamMin:85,beamMax:125,softness:.72,transmission:.62,attachment:"softbox",description:"Large soft source"},
+  "ARRI SkyPanel X21 HyPer 11°":  {short:"HyPer 11°",mounts:["arri-x21"],beam:11,beamMin:11,beamMax:11,softness:.04,transmission:.92,attachment:"panel-lens",description:"Hard parallel beam"},
+  "ARRI SkyPanel X21 Dome 107°":  {short:"Dome 107°",mounts:["arri-x21"],beam:107,beamMin:107,beamMax:107,softness:.84,transmission:.7,attachment:"dome",description:"Soft omnidirectional dome"},
+  "ARRI SkyPanel X21 Open 121°":  {short:"Open Face 121°",mounts:["arri-x21"],beam:121,beamMin:121,beamMax:121,softness:.5,transmission:.95,attachment:"panel-lens",description:"Wide open-face panel"},
+  "Nanlite FL-20G Fresnel 10–45°":{short:"FL-20G 10–45°",mounts:["bowens"],beam:25,beamMin:10,beamMax:45,softness:.09,transmission:.84,attachment:"fresnel",description:"Bowens Fresnel lens"},
+  "Nanlite PJ-BM Projection 19°": {short:"PJ-BM 19°",mounts:["bowens"],beam:19,beamMin:19,beamMax:19,softness:.02,transmission:.72,attachment:"projection",description:"Bowens projection attachment"},
+  "Nanlite PJ-BM Zoom 25–45°":   {short:"PJ-BM 25–45°",mounts:["bowens"],beam:35,beamMin:25,beamMax:45,softness:.03,transmission:.7,attachment:"projection",description:"Bowens zoom projection"},
+  "Nanlite Rapid 90 Parabolic":   {short:"Rapid 90",mounts:["bowens","fm"],beam:90,beamMin:70,beamMax:105,softness:.74,transmission:.68,attachment:"parabolic",description:"90 cm parabolic softbox"},
+  "Nanlite Rapid 120 Parabolic":  {short:"Rapid 120",mounts:["bowens","fm"],beam:90,beamMin:60,beamMax:100,softness:.84,transmission:.62,attachment:"parabolic",description:"120 cm parabolic softbox"},
+  "Nanlite Rapid 120 + Eggcrate": {short:"Rapid 120 Grid",mounts:["bowens","fm"],beam:55,beamMin:50,beamMax:60,softness:.8,transmission:.52,attachment:"parabolic-grid",description:"Parabolic softbox with grid"},
+  "Nanlite Lantern":              {short:"Lantern",mounts:["bowens","fm"],beam:160,beamMin:140,beamMax:175,softness:.92,transmission:.58,attachment:"lantern",description:"Near-omnidirectional soft source"},
+  "Nanlite Strip Softbox":        {short:"Stripbox",mounts:["bowens","fm"],beam:82,beamMin:55,beamMax:105,softness:.72,transmission:.64,attachment:"stripbox",description:"Narrow rectangular soft source"},
+  "PavoSlim Softbox + Grid":      {short:"Softbox + Grid",mounts:["pavoslim"],beam:50,beamMin:40,beamMax:70,softness:.72,transmission:.58,attachment:"panel-softbox",description:"Panel softbox with eggcrate"},
+  "PavoTube Grid":                {short:"Tube Grid",mounts:["tube"],beam:70,beamMin:55,beamMax:90,softness:.28,transmission:.78,attachment:"tube-grid",description:"Controls tube spill"},
+  "251 Quarter Diffusion":        {short:"251 ¼ Diff",mounts:["all"],spread:8,softness:.15,transmission:.88,attachment:"frame",description:"Light diffusion frame"},
+  "250 Half Diffusion":           {short:"250 ½ Diff",mounts:["all"],spread:16,softness:.28,transmission:.76,attachment:"frame",description:"Medium diffusion frame"},
+  "216 Full Diffusion":           {short:"216 Full",mounts:["all"],spread:26,softness:.44,transmission:.61,attachment:"frame",description:"Heavy diffusion frame"},
+  "Opal":                         {short:"Opal",mounts:["all"],spread:12,softness:.23,transmission:.82,attachment:"frame",description:"Opal diffusion"},
+  "Hampshire Frost":              {short:"Hampshire",mounts:["all"],spread:18,softness:.31,transmission:.73,attachment:"frame",description:"Frost diffusion"},
+  "Light Grid Cloth":             {short:"Light Grid",mounts:["all"],spread:12,softness:.24,transmission:.82,attachment:"frame",description:"Light grid cloth"},
+  "Grid Cloth":                   {short:"Grid Cloth",mounts:["all"],spread:28,softness:.46,transmission:.58,attachment:"frame",description:"Full grid cloth"},
+  "Magic Cloth":                  {short:"Magic Cloth",mounts:["all"],spread:34,softness:.55,transmission:.49,attachment:"frame",description:"Dense diffusion"},
+  "Silk":                         {short:"Silk",mounts:["all"],spread:22,softness:.38,transmission:.68,attachment:"frame",description:"Silk diffusion"},
+  "Muslin Bounce":                {short:"Muslin",mounts:["all"],beam:120,beamMin:90,beamMax:150,softness:.8,transmission:.46,attachment:"bounce",description:"Warm bounce source"}
 };
 
 // Use the same jsDelivr ESM identity imported internally by the addon loaders.
@@ -2909,11 +3030,31 @@ function renderVirtualLocationControls(){
     $("virtualLocationScaleValue").textContent=`${Math.round(transform.scale*100)}%`;$("virtualLocationRotationValue").textContent=`${Math.round(transform.rotationY)}°`;
     $("virtualLocationOffsetXValue").textContent=`${transform.x.toFixed(1)} m`;$("virtualLocationOffsetYValue").textContent=`${transform.y.toFixed(1)} m`;$("virtualLocationOffsetZValue").textContent=`${transform.z.toFixed(1)} m`
   }
-  renderVirtualLocationBadge();renderVirtualExploreUi()
+  renderVirtualLocationBadge();renderVirtualExploreUi();renderVirtualLocationBibleControls()
 }
 function renderVirtualLocationBadge(){
   const scan=linkedVirtualLocation(),badge=$("virtualLocationBadge");if(!badge)return;badge.hidden=!scan;if(!scan)return;
   $("virtualLocationBadgeName").textContent=scan.name;$("virtualLocationBadgeMeta").textContent=`${scan.format.toUpperCase()} · ${virtualLocationFileSize(scan.size_bytes)}`
+}
+function renderVirtualLocationBibleControls(){
+  const wrap=$("virtualLocationBibleLink"),select=$("virtualLocationBibleSelect");if(!wrap||!select)return;const scan=linkedVirtualLocation(),cloud=app.mode==="cloud";
+  wrap.hidden=!cloud||!scan;if(!cloud||!scan)return;const locations=app.ai.locations||[],current=locations.find(asset=>asset.location_scan_id===scan.id),preserved=select.value;
+  select.innerHTML='<option value="">Choose a Bible location…</option>'+locations.map(asset=>`<option value="${escapeHtml(asset.id)}">${escapeHtml(asset.name)}${asset.location_scan_id===scan.id?" · linked":""}</option>`).join("");select.value=locations.some(asset=>asset.id===preserved)?preserved:(current?.id||"");
+  const asset=locations.find(item=>item.id===select.value),ready=app.ai.spatialReady&&!!asset&&lightingCanEdit()&&can("media");select.disabled=!app.ai.spatialReady||!locations.length||!can("media");$("linkVirtualLocationBibleBtn").disabled=!ready;$("captureVirtualLocationBibleBtn").disabled=!ready;
+  $("virtualLocationBibleStatus").textContent=!app.ai.spatialReady?"Run the saved SQL query “Spatial Bible & Lighting Studio v5.1”, then reload.":!locations.length?"Create a location in Bible first.":current?.spatial_reference_path?`${scan.name} is linked to ${current.name}; its AI camera view is ready.`:current?`${scan.name} is linked to ${current.name}. Capture a Camera View for AI.`:"Choose a Bible location, link the scan, then capture its AI view."
+}
+async function linkVirtualLocationToBible(){
+  const scan=linkedVirtualLocation(),asset=app.ai.locations.find(item=>item.id===$("virtualLocationBibleSelect").value);if(!scan||!asset||!app.ai.spatialReady||!lightingCanEdit()||!can("media"))return;const changed=asset.location_scan_id!==scan.id,oldSpatial=changed?asset.spatial_reference_path:null;
+  const changes={location_scan_id:scan.id,updated_at:new Date().toISOString()};if(changed)Object.assign(changes,{spatial_reference_path:null,locked:false,style_snapshot:null});const {error}=await sb.from("project_ai_locations").update(changes).eq("id",asset.id).eq("project_id",app.current.id);if(error){setVirtualLocationNotice(error.message||"Could not link this scan to Bible.","warning");return}
+  asset.location_scan_id=scan.id;if(changed){asset.spatial_reference_path=null;asset.spatialReferenceUrl=null;asset.locked=false;asset.style_snapshot=null;await removeMediaPaths([oldSpatial])}setVirtualLocationNotice(`${scan.name} is linked to Bible location ${asset.name}.`);renderVirtualLocationBibleControls();renderAiVisualBible()
+}
+function canvasToBlob(canvas,type="image/jpeg",quality=.9){return new Promise((resolve,reject)=>canvas?.toBlob?.(blob=>blob?resolve(blob):reject(new Error("Could not capture Camera View.")),type,quality))}
+async function captureVirtualLocationForBible(){
+  const scan=linkedVirtualLocation(),asset=app.ai.locations.find(item=>item.id===$("virtualLocationBibleSelect").value);if(!scan||!asset||!app.ai.spatialReady||!lightingCanEdit()||!can("media"))return;
+  try{
+    if(asset.location_scan_id!==scan.id)await linkVirtualLocationToBible();if(asset.location_scan_id!==scan.id)throw new Error("Link the scan to this Bible location before capturing.");setVirtualLocationNotice("Preparing spatial Camera View for AI…");app.lighting.viewMode="camera";await renderLightingViewMode();await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+    const state=app.lighting.three;if(!state?.renderer||!state.scene||!state.camera)throw new Error("Camera View is not ready.");state.renderer.render(state.scene,state.camera);const blob=await canvasToBlob(state.renderer.domElement);await storeAiSpatialReference("location",asset,blob);setVirtualLocationNotice(`${asset.name} now has a spatial AI reference from this exact Camera View.`);renderVirtualLocationBibleControls();renderAiVisualBible();renderShot()
+  }catch(error){console.error(error);setVirtualLocationNotice(error.message||"Could not capture this Camera View.","warning")}
 }
 function disposeVirtualLocationObject(object){
   object?.traverse?.(node=>{if(node.geometry?.dispose)node.geometry.dispose();const materials=Array.isArray(node.material)?node.material:[node.material];for(const material of materials.filter(Boolean)){for(const value of Object.values(material)){if(value?.isTexture&&value.dispose)value.dispose()}material.dispose?.()}})
@@ -2923,7 +3064,7 @@ function clearVirtualLocationModelCache(scanId=null){
     if(scanId&&id!==scanId)continue;disposeVirtualLocationObject(entry.root);if(entry.objectUrl)URL.revokeObjectURL(entry.objectUrl);app.lighting.locationModelCache.delete(id)
   }
 }
-async function uploadVirtualLocationResumable(file,path,onProgress){
+async function uploadLargeModelResumable(file,path,onProgress,feature="virtual-location"){
   const [{data:{session}},tus]=await Promise.all([sb.auth.getSession(),import(TUS_CLIENT_CDN)]);if(!session?.access_token)throw new Error("Your session expired. Sign in again before uploading the scan.");
   const host=new URL(cfg.SUPABASE_URL).hostname,projectRef=host.split(".")[0];if(!projectRef)throw new Error("Storage is not configured.");
   return new Promise((resolve,reject)=>{
@@ -2931,13 +3072,14 @@ async function uploadVirtualLocationResumable(file,path,onProgress){
       endpoint:`https://${projectRef}.storage.supabase.co/storage/v1/upload/resumable`,
       retryDelays:[0,3000,5000,10000,20000],headers:{authorization:`Bearer ${session.access_token}`},
       uploadDataDuringCreation:true,removeFingerprintOnSuccess:true,chunkSize:6*1024*1024,
-      metadata:{bucketName:"storyboards",objectName:path,contentType:virtualLocationContentType(virtualLocationFormat(file.name,file.type)),cacheControl:"31536000",metadata:JSON.stringify({feature:"virtual-location",projectId:app.current.id})},
+      metadata:{bucketName:"storyboards",objectName:path,contentType:virtualLocationContentType(virtualLocationFormat(file.name,file.type)),cacheControl:"31536000",metadata:JSON.stringify({feature,projectId:app.current.id})},
       onError:error=>reject(error),onProgress:(uploaded,total)=>onProgress?.(total?uploaded/total*100:0),onSuccess:()=>resolve(upload.url)
     });
-    app.lighting.upload=upload;
+    if(feature==="face-scan")app.lighting.faceUpload=upload;else app.lighting.upload=upload;
     upload.findPreviousUploads().then(previous=>{if(previous.length)upload.resumeFromPreviousUpload(previous[0]);upload.start()}).catch(reject)
   })
 }
+function uploadVirtualLocationResumable(file,path,onProgress){return uploadLargeModelResumable(file,path,onProgress,"virtual-location")}
 async function importVirtualLocationFile(file,capturedWith="import"){
   if(!file||!lightingCanEdit())return;const format=virtualLocationFormat(file.name,file.type);
   if(!format)throw new Error("Choose one self-contained GLB or USDZ file.");
@@ -3020,8 +3162,36 @@ function lightingLinkedShot(diagram=app.lighting.current){
   const shot=scene?.shots.find(s=>s.id===diagram.shot_id);
   return shot?{scene,shot}:null
 }
-function lightingFixtureProps(name){return LIGHTING_FIXTURES[name]||LIGHTING_FIXTURES["COB Spot"]}
+function lightingFixtureProps(name){return LIGHTING_FIXTURES[name]||LIGHTING_FIXTURES["ARRI Orbiter"]}
 function lightingModifierProps(name){return LIGHTING_MODIFIERS[name]||LIGHTING_MODIFIERS.None}
+function lightingModifierCompatible(fixtureName,modifierName){
+  const fixture=lightingFixtureProps(fixtureName),modifier=lightingModifierProps(modifierName),mounts=modifier.mounts||["all"];
+  return mounts.includes("all")||mounts.includes(fixture.mount)
+}
+function lightingEffectiveBeam(object){
+  const fixture=lightingFixtureProps(object?.fixture),modifier=lightingModifierProps(object?.diffusion);
+  const min=Number(modifier.beamMin??fixture.beamMin??5),max=Number(modifier.beamMax??fixture.beamMax??175);
+  const requested=modifier.beam!=null?Number(object?.beam??modifier.beam):Number(object?.beam??fixture.beam)+(Number(modifier.spread)||0);
+  return Math.max(Math.min(min,max),Math.min(Math.max(min,max),requested))
+}
+function lightingFixtureIcon(type="cob"){
+  const paths={
+    orbiter:'<path d="M5 8h11l3 4-3 4H5z"/><circle cx="7" cy="12" r="3"/><path d="M19 10h2v4h-2M11 8V5m-3 0h6M10 16v3m-3 0h6"/>',
+    fresnel:'<path d="M5 7h10l4 5-4 5H5z"/><circle cx="7" cy="12" r="3.2"/><path d="M15 8V5m-3 0h6M10 17v3m-3 0h6"/>',
+    panel:'<rect x="4" y="4" width="16" height="15" rx="2"/><path d="M8 4v15m4-15v15m4-15v15M4 9h16m-16 5h16M12 19v3m-4 0h8"/>',
+    "slim-panel":'<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 6v12m5-12v12m5-12v12M3 12h18M12 18v3"/>',
+    cob:'<path d="M4 8h12l4 4-4 4H4z"/><circle cx="6.5" cy="12" r="2.5"/><path d="M12 8V5m-3 0h6M10 16v4m-3 0h6"/>',
+    par:'<path d="M4 7h10l6 5-6 5H4z"/><path d="M8 7c4 3 4 7 0 10M10 17v3m-3 0h6"/>',
+    projection:'<path d="M3 8h10l3 2h5v4h-5l-3 2H3z"/><circle cx="6" cy="12" r="2.5"/><path d="M10 16v4m-3 0h6"/>',
+    tube:'<rect x="9" y="2" width="6" height="18" rx="3"/><path d="M7 4h2m6 0h2M12 20v2"/>',
+    bulb:'<path d="M8 10a4 4 0 1 1 8 0c0 2-1.4 3-2.2 4H10.2C9.4 13 8 12 8 10Z"/><path d="M10 17h4m-3 3h2"/>',
+    window:'<rect x="3" y="3" width="18" height="18"/><path d="M12 3v18M3 12h18"/>',
+    candle:'<path d="M9 10h6v11H9zM12 9c-3-3 1-5 0-7 3 2 3 5 0 7Z"/>',
+    softbox:'<path d="M5 5h14l3 14H2z"/><path d="M12 19v3"/>',
+    lantern:'<ellipse cx="12" cy="10" rx="7" ry="8"/><path d="M8 18h8M12 18v4"/>'
+  };
+  return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[type]||paths.cob}</svg>`
+}
 function safeSvgText(v){return escapeHtml(String(v??""))}
 function slugName(v){return String(v||"lighting-diagram").trim().toLowerCase().replace(/[^a-z0-9_-]+/g,"-").replace(/^-+|-+$/g,"")||"lighting-diagram"}
 function parseLensMm(v){
@@ -3224,13 +3394,21 @@ function normalizeLightingObject(o){
     if(o.roll==null)o.roll=cameraAngleRoll(o.angle);
     if(o.autoFrame==null)o.autoFrame=true;
   }else if(o.type==="light"){
+    if(!LIGHTING_FIXTURES[o.fixture])o.fixture="ARRI Orbiter";
     if(o.height3d==null)o.height3d=2.2;
     if(o.tilt==null)o.tilt=-15;
     if(!o.diffusion)o.diffusion="None";
+    if(!lightingModifierCompatible(o.fixture,o.diffusion))o.diffusion="None";
+    const fp=lightingFixtureProps(o.fixture);o.kelvin=Math.max(fp.kelvinMin||1800,Math.min(fp.kelvinMax||20000,Number(o.kelvin)||fp.kelvin));
+    o.beam=Math.max(1,Math.min(175,Number(o.beam)||fp.beam));
   }else if(o.type==="subject"){
     if(o.height3d==null)o.height3d=1.75;
     if(o.scale==null)o.scale=100;
     if(!o.gender)o.gender="female";
+    if(o.characterId==null)o.characterId="";
+    if(o.faceScale==null)o.faceScale=100;
+    if(o.faceYaw==null)o.faceYaw=0;
+    if(o.faceOffset==null)o.faceOffset=0;
   }
   if(o.rotation==null)o.rotation=0;
   return o
@@ -3247,7 +3425,7 @@ function defaultLightingCamera(){
 function defaultLightingSubject(){
   return normalizeLightingObject({id:uid(),type:"subject",label:"Subject",gender:"female",x:650,y:400,rotation:180})
 }
-function defaultLightingLight(fixture="COB Spot",opts={}){
+function defaultLightingLight(fixture="Nanlite Forza 300B II",opts={}){
   const p=lightingFixtureProps(fixture);
   return normalizeLightingObject({
     id:uid(),type:"light",label:fixture,fixture,x:390,y:245,rotation:28,
@@ -3257,9 +3435,9 @@ function defaultLightingLight(fixture="COB Spot",opts={}){
 function shotLightPreset(s=currentShot()){
   const source=s?.lightSource||"Off-camera Artificial Light",quality=s?.lightQuality||"";
   const map={
-    "Candle":["Candle",2000],"Window Light":["Window",5600],"Moonlight":["COB Spot",7000],
-    "Sunlight":["PAR",5600],"Torch":["Practical Bulb",2200],"Practical Light":["Practical Bulb",3000],
-    "Off-camera Artificial Light":["LED Panel",5600],"Mixed":["LED Panel",4300],"Unspecified":["COB Spot",5600]
+    "Candle":["Candle",2000],"Window Light":["Window",5600],"Moonlight":["ARRI Orbiter",7000],
+    "Sunlight":["Nanlite Forza 300B II",5600],"Torch":["Practical Bulb",2200],"Practical Light":["Practical Bulb",3000],
+    "Off-camera Artificial Light":["ARRI SkyPanel X21",5600],"Mixed":["Nanlite PavoSlim 60C",4300],"Unspecified":["ARRI Orbiter",5600]
   };
   const [fixture,kelvin]=map[source]||map["Off-camera Artificial Light"];
   const fp=lightingFixtureProps(fixture);
@@ -3343,50 +3521,62 @@ function renderLightingDiagramList(){
 function renderLightingObjectList(){
   const el=$("lightingObjectList");if(!el||!app.lighting.current)return;
   const groups=[
-    ["CAMERAS","camera","⌁"],["LIGHTS","light","✦"],["SUBJECTS","subject","●"]
+    ["LIGHTS","light"],["SUBJECTS","subject"]
   ];
-  el.innerHTML=groups.map(([title,type,icon])=>{
+  el.innerHTML=groups.map(([title,type])=>{
     const items=app.lighting.current.data.objects.filter(o=>o.type===type);
     return `<div class="lighting-object-group">
       <div class="lighting-object-group-title">${title}<span>${items.length}</span></div>
       ${items.length?items.map(o=>`
         <button type="button" class="lighting-object-row ${o.id===app.lighting.selectedId?"active":""}" data-lighting-select="${o.id}">
-          <span class="lighting-object-row-icon">${type==="light"?(lightingFixtureProps(o.fixture).icon||icon):icon}</span>
-          <span><strong>${escapeHtml(o.label||o.fixture||type)}</strong><small>${type==="light"?`${escapeHtml(o.fixture)} · ${o.kelvin}K`:type==="camera"?`${escapeHtml(o.lens||"")} · ${escapeHtml(shortValue(o.shotSize))}`:`${Number(o.height3d||1.75).toFixed(2)} m`}</small></span>
+          <span class="lighting-object-row-icon">${type==="light"?lightingFixtureIcon(lightingFixtureProps(o.fixture).iconType):"●"}</span>
+          <span><strong>${escapeHtml(o.label||o.fixture||type)}</strong><small>${type==="light"?`${escapeHtml(lightingFixtureProps(o.fixture).brand)} · ${Math.round(lightingEffectiveBeam(o))}° · ${o.kelvin}K`:`${Number(o.height3d||1.75).toFixed(2)} m${o.characterId?" · Bible face":" · mannequin"}`}</small></span>
         </button>`).join(""):`<div class="lighting-object-empty">No ${title.toLowerCase()}</div>`}
     </div>`
   }).join("");
-  el.querySelectorAll("[data-lighting-select]").forEach(b=>b.onclick=()=>selectLightingObject(b.dataset.lightingSelect,false))
+  el.querySelectorAll("[data-lighting-select]").forEach(b=>b.onclick=()=>selectLightingObject(b.dataset.lightingSelect,false));renderLightingCameraList()
+}
+function renderLightingCameraList(){
+  const el=$("lightingCameraList");if(!el||!app.lighting.current)return;const items=app.lighting.current.data.objects.filter(o=>o.type==="camera");
+  el.innerHTML=items.length?items.map(o=>`
+    <button type="button" class="lighting-object-row ${o.id===app.lighting.selectedId?"active":""}" data-lighting-camera-select="${o.id}">
+      <span class="lighting-object-row-icon">⌁</span>
+      <span><strong>${escapeHtml(o.label||"Camera")}</strong><small>${escapeHtml(o.lens||"")} · ${escapeHtml(shortValue(o.shotSize))}</small></span>
+      <span class="lighting-camera-live" ${o.id===app.lighting.activeCameraId?"":"hidden"}>LIVE</span>
+    </button>`).join(""):'<div class="lighting-object-empty">No cameras</div>';
+  el.querySelectorAll("[data-lighting-camera-select]").forEach(button=>button.onclick=()=>selectLightingObject(button.dataset.lightingCameraSelect,false))
 }
 function renderFixtureCatalog(){
   const el=$("lightingFixtureCatalog"),o=lightingSelected();if(!el||!o||o.type!=="light")return;
-  const groups=["Spot","Soft","Linear","Practical"];
+  const groups=["ARRI","NANLITE","PRACTICAL"];
   el.innerHTML=groups.map(group=>`
     <div class="lighting-catalog-group">
       <div class="lighting-catalog-group-title">${group}</div>
       <div class="lighting-catalog-items">
-        ${Object.entries(LIGHTING_FIXTURES).filter(([,v])=>v.group===group).map(([name,v])=>`
+        ${Object.entries(LIGHTING_FIXTURES).filter(([,v])=>v.group===group&&v.catalog!==false).map(([name,v])=>`
           <button type="button" class="lighting-catalog-chip ${o.fixture===name?"active":""}" data-fixture="${escapeHtml(name)}">
-            <span>${v.icon}</span><small>${escapeHtml(name)}</small>
+            <span class="fixture-icon">${lightingFixtureIcon(v.iconType)}</span><span class="fixture-copy"><strong>${escapeHtml(v.model)}</strong><small>${escapeHtml(v.brand)} · ${v.beamMin}–${v.beamMax}°</small></span>
           </button>`).join("")}
       </div>
     </div>`).join("");
   el.querySelectorAll("[data-fixture]").forEach(b=>b.onclick=()=>{
     const selected=lightingSelected();if(!selected||!lightingCanEdit())return;
     const old=selected.fixture;selected.fixture=b.dataset.fixture;selected.label=selected.label===old?selected.fixture:selected.label;
-    const fp=lightingFixtureProps(selected.fixture);selected.beam=fp.beam;
+    const fp=lightingFixtureProps(selected.fixture);selected.beam=fp.beam;selected.kelvin=Math.max(fp.kelvinMin,Math.min(fp.kelvinMax,Number(selected.kelvin)||fp.kelvin));
+    if(!lightingModifierCompatible(selected.fixture,selected.diffusion))selected.diffusion="None";
     markLightingDirty();renderLightingInspector();renderLightingCanvas();syncLighting3D()
   })
 }
 function renderModifierCatalog(){
   const el=$("lightingModifierCatalog"),o=lightingSelected();if(!el||!o||o.type!=="light")return;
-  el.innerHTML=Object.entries(LIGHTING_MODIFIERS).map(([name,v])=>`
+  el.innerHTML=Object.entries(LIGHTING_MODIFIERS).filter(([name])=>lightingModifierCompatible(o.fixture,name)).map(([name,v])=>`
     <button type="button" class="lighting-modifier-chip ${o.diffusion===name?"active":""}" data-modifier="${escapeHtml(name)}" title="${escapeHtml(name)}">
-      ${escapeHtml(v.short)}
+      <strong>${escapeHtml(v.short)}</strong><small>${escapeHtml(v.description||name)}</small>
     </button>`).join("");
   el.querySelectorAll("[data-modifier]").forEach(b=>b.onclick=()=>{
     const selected=lightingSelected();if(!selected||!lightingCanEdit())return;
-    selected.diffusion=b.dataset.modifier;markLightingDirty();renderLightingInspector();renderLightingCanvas();syncLighting3D()
+    selected.diffusion=b.dataset.modifier;const modifier=lightingModifierProps(selected.diffusion);if(modifier.beam!=null)selected.beam=modifier.beam;
+    markLightingDirty();renderLightingInspector();renderLightingCanvas();syncLighting3D()
   })
 }
 function setLightingCurrent(diagram){
@@ -3515,10 +3705,10 @@ function applyLightingPermissions(){
     "lightingObjectKelvin","lightingObjectIntensity","lightingObjectBeam","lightingObjectHeight3d","lightingObjectTilt",
     "lightingObjectLens","lightingObjectShotSize","lightingObjectAngle","lightingObjectHeight","lightingObjectMovement",
     "lightingObjectFocus","lightingCameraHeight3d","lightingCameraTilt","lightingSubjectHeight3d","lightingSubjectScale",
-    "lightingSubjectGender","lightingObjectRotation","deleteLightingObjectBtn","lightingDiagramNotes","virtualLocationSelect",
+    "lightingSubjectGender","lightingSubjectCharacter","lightingSubjectFaceScale","lightingSubjectFaceYaw","lightingSubjectFaceOffset","lightingObjectRotation","deleteLightingObjectBtn","lightingDiagramNotes","virtualLocationSelect",
     "importVirtualLocationBtn","scanVirtualLocationBtn","detachVirtualLocationBtn","deleteVirtualLocationBtn",
     "virtualLocationScale","virtualLocationRotation","virtualLocationOffsetX","virtualLocationOffsetY","virtualLocationOffsetZ",
-    "resetVirtualLocationTransformBtn","placeCameraFromExplorerBtn"
+    "resetVirtualLocationTransformBtn","placeCameraFromExplorerBtn","drawerAddLightingCameraBtn","drawerAddLightingFixtureBtn","drawerAddLightingSubjectBtn","linkVirtualLocationBibleBtn","captureVirtualLocationBibleBtn"
   ].forEach(id=>{if($(id))$(id).disabled=!edit})
   renderVirtualLocationControls()
 }
@@ -3537,7 +3727,7 @@ function addLightingObject(o){
 }
 function addLightingFixture(){
   const n=app.lighting.current?.data?.objects?.filter(o=>o.type==="light").length||0;
-  addLightingObject(defaultLightingLight("COB Spot",{x:370+(n%4)*60,y:230+(n%3)*80,rotation:25+n*22}))
+  addLightingObject(defaultLightingLight("Nanlite Forza 300B II",{x:370+(n%4)*60,y:230+(n%3)*80,rotation:25+n*22}))
 }
 function addLightFromCurrentShot(){
   const s=currentShot();if(!s)return;
@@ -3585,9 +3775,10 @@ function selectedLightingChange(sourceId=""){
   o.rotation=Number($("lightingObjectRotation").value)||0;
 
   if(o.type==="light"){
-    o.kelvin=Number($("lightingObjectKelvin").value)||5600;
+    const fixture=lightingFixtureProps(o.fixture),modifier=lightingModifierProps(o.diffusion),beamMin=Number(modifier.beamMin??fixture.beamMin??5),beamMax=Number(modifier.beamMax??fixture.beamMax??175);
+    o.kelvin=Math.max(fixture.kelvinMin||1800,Math.min(fixture.kelvinMax||20000,Number($("lightingObjectKelvin").value)||fixture.kelvin));
     o.intensity=Number($("lightingObjectIntensity").value)||70;
-    o.beam=Number($("lightingObjectBeam").value)||45;
+    o.beam=Math.max(Math.min(beamMin,beamMax),Math.min(Math.max(beamMin,beamMax),Number($("lightingObjectBeam").value)||fixture.beam));
     o.height3d=Number($("lightingObjectHeight3d").value)||2.2;
     o.tilt=Number($("lightingObjectTilt").value)||0
   }else if(o.type==="camera"){
@@ -3625,6 +3816,10 @@ function selectedLightingChange(sourceId=""){
     o.height3d=Number($("lightingSubjectHeight3d").value)||1.75;
     o.scale=Number($("lightingSubjectScale").value)||100;
     o.gender=$("lightingSubjectGender").value||"female";
+    o.characterId=$("lightingSubjectCharacter").value||"";
+    o.faceScale=Number($("lightingSubjectFaceScale").value)||100;
+    o.faceYaw=Number($("lightingSubjectFaceYaw").value)||0;
+    o.faceOffset=Number($("lightingSubjectFaceOffset").value)||0;
     for(const cam of app.lighting.current.data.objects.filter(x=>x.type==="camera"&&x.autoFrame!==false)){
       if(cam.cameraHeight!=="Custom")cam.height3d=cameraHeightMeters(cam.cameraHeight,o);
       reframeCameraDistance(cam,{force:true});
@@ -3645,6 +3840,9 @@ function renderLightingInspector(updateInputs=true){
     $("lightingObjectLabel").value=o.label||o.type;
     $("lightingObjectRotation").value=Number(o.rotation||0);
     if(o.type==="light"){
+      const fixture=lightingFixtureProps(o.fixture),modifier=lightingModifierProps(o.diffusion),beamMin=Number(modifier.beamMin??fixture.beamMin??5),beamMax=Number(modifier.beamMax??fixture.beamMax??175);
+      $("lightingObjectKelvin").min=String(fixture.kelvinMin||1800);$("lightingObjectKelvin").max=String(fixture.kelvinMax||20000);
+      $("lightingObjectBeam").min=String(Math.min(beamMin,beamMax));$("lightingObjectBeam").max=String(Math.max(beamMin,beamMax));$("lightingObjectBeam").disabled=!lightingCanEdit()||beamMin===beamMax;
       $("lightingObjectKelvin").value=Number(o.kelvin||5600);
       $("lightingObjectIntensity").value=Number(o.intensity||70);
       $("lightingObjectBeam").value=Number(o.beam||45);
@@ -3658,24 +3856,32 @@ function renderLightingInspector(updateInputs=true){
       $("lightingCameraHeight3d").value=Number(o.height3d||1.65);$("lightingCameraTilt").value=Number(o.tilt||0);
       renderLightingCameraSummary()
     }else if(o.type==="subject"){
+      const select=$("lightingSubjectCharacter"),available=app.ai.characters||[];select.innerHTML=`<option value="">Generic mannequin</option>`+available.map(asset=>`<option value="${escapeHtml(asset.id)}">${escapeHtml(asset.name)}${asset.face_scan_path?" · 3D face":" · no 3D face"}</option>`).join("");select.value=available.some(asset=>asset.id===o.characterId)?o.characterId:"";
       $("lightingSubjectHeight3d").value=Number(o.height3d||1.75);
       $("lightingSubjectScale").value=Number(o.scale||100);
-      $("lightingSubjectGender").value=o.gender||"female"
+      $("lightingSubjectGender").value=o.gender||"female";
+      $("lightingSubjectFaceScale").value=Number(o.faceScale||100);$("lightingSubjectFaceYaw").value=Number(o.faceYaw||0);$("lightingSubjectFaceOffset").value=Number(o.faceOffset||0)
     }
   }
   $("lightingRotationValue").textContent=`${Math.round(Number(o.rotation||0))}°`;
   if(o.type==="light"){
+    const fixture=lightingFixtureProps(o.fixture),modifier=lightingModifierProps(o.diffusion),specs=$("lightingFixtureSpecs"),modifierSpecs=$("lightingModifierSpecs");
+    specs.innerHTML=`<span><strong>${escapeHtml(fixture.brand)}</strong> ${escapeHtml(fixture.model)}</span>${fixture.watts?`<span><strong>${fixture.watts} W</strong></span>`:""}<span>${fixture.kelvinMin}–${fixture.kelvinMax} K</span><span>${fixture.beamMin}–${fixture.beamMax}° native</span><span>${escapeHtml(fixture.engine||fixture.shape)}</span>`;
+    modifierSpecs.innerHTML=`<span><strong>${escapeHtml(modifier.short)}</strong></span><span>${Math.round(lightingEffectiveBeam(o))}° effective</span><span>${Math.round((modifier.transmission??1)*100)}% transmission</span><span>${Math.round((modifier.softness||0)*100)}% softness</span>`;
     $("lightingKelvinValue").textContent=`${Math.round(Number(o.kelvin||5600))} K`;
     $("lightingIntensityValue").textContent=`${Math.round(Number(o.intensity||70))}%`;
-    $("lightingBeamValue").textContent=`${Math.round(Number(o.beam||45))}°`;
+    $("lightingBeamValue").textContent=`${Math.round(lightingEffectiveBeam(o))}°`;
     $("lightingHeightValue").textContent=`${Number(o.height3d||2.2).toFixed(1)} m`;
     $("lightingTiltValue").textContent=`${Math.round(Number(o.tilt||0))}°`
   }else if(o.type==="camera"){
     $("lightingCameraHeightValue").textContent=`${Number(o.height3d||1.65).toFixed(2)} m`;
     $("lightingCameraTiltValue").textContent=`${Math.round(Number(o.tilt||0))}°`
   }else if(o.type==="subject"){
+    const faceAsset=(app.ai.characters||[]).find(asset=>asset.id===o.characterId),hasFace=!!faceAsset?.face_scan_path;$("lightingSubjectFaceControls").hidden=!hasFace;
+    if(hasFace)$("lightingSubjectFaceName").textContent=faceAsset.name;
     $("lightingSubjectHeightValue").textContent=`${Number(o.height3d||1.75).toFixed(2)} m`;
-    $("lightingSubjectScaleValue").textContent=`${Math.round(Number(o.scale||100))}%`
+    $("lightingSubjectScaleValue").textContent=`${Math.round(Number(o.scale||100))}%`;
+    $("lightingSubjectFaceScaleValue").textContent=`${Math.round(Number(o.faceScale||100))}%`;$("lightingSubjectFaceYawValue").textContent=`${Math.round(Number(o.faceYaw||0))}°`;$("lightingSubjectFaceOffsetValue").textContent=`${Math.round(Number(o.faceOffset||0))} cm`
   }
 }
 function deleteSelectedLightingObject(){
@@ -3686,6 +3892,16 @@ function deleteSelectedLightingObject(){
   markLightingDirty();renderLightingObjectList();renderLightingInspector();renderLightingCanvas();syncLighting3D()
 }
 
+function lightingFixturePlanSvg(fixture,stroke,color,selected){
+  const width=selected?2.8:1.7,type=fixture.iconType||"cob",common=`fill="#0b0d0f" stroke="${stroke}" stroke-width="${width}" vector-effect="non-scaling-stroke"`;
+  if(type==="panel"||type==="slim-panel")return `<rect x="-20" y="-15" width="40" height="30" rx="3" ${common}/><path d="M-10-15v30M0-15v30M10-15v30M-20-5h40M-20 5h40" fill="none" stroke="${color}" stroke-width="1" opacity=".7"/><path d="M-6 16v8h12v-8" fill="none" stroke="${stroke}" stroke-width="2"/>`;
+  if(type==="tube")return `<rect x="-22" y="-6" width="44" height="12" rx="6" ${common}/><path d="M-15 0h30" stroke="${color}" stroke-width="5" opacity=".85"/>`;
+  if(type==="window")return `<rect x="-20" y="-18" width="40" height="36" ${common}/><path d="M0-18v36M-20 0h40" stroke="${color}" stroke-width="2"/>`;
+  if(type==="candle")return `<path d="M-7-5h14v22H-7zM0-7c-7-7 3-12 0-18 8 6 8 13 0 18Z" ${common}/>`;
+  if(type==="bulb")return `<path d="M-11-5a11 11 0 1 1 22 0c0 7-5 9-7 14H-4c-2-5-7-7-7-14ZM-5 14h10M-3 19h6" ${common}/>`;
+  const front=type==="fresnel"?`<circle cx="15" cy="0" r="9" fill="${color}" stroke="${stroke}" stroke-width="1.5"/><path d="M10-6c5 3 5 9 0 12" fill="none" stroke="#071014" stroke-width="1.5"/>`:`<circle cx="15" cy="0" r="8" fill="${color}" stroke="${stroke}" stroke-width="1.2"/>`;
+  return `<path d="M-22-14H9l13 14L9 14h-31z" ${common}/>${front}<path d="M-7 15v9h14v-9" fill="none" stroke="${stroke}" stroke-width="2"/>`
+}
 
 function lightingObjectSvg(o,selected){
   const stroke=selected?"#30d7ff":"#edf3f6";
@@ -3726,8 +3942,8 @@ function lightingObjectSvg(o,selected){
   }
   if(o.type==="light"){
     const fp=lightingFixtureProps(o.fixture),mp=lightingModifierProps(o.diffusion);
-    const beam=Math.min(175,Math.max(5,Number(o.beam||fp.beam)+mp.spread));
-    const effective=(Number(o.intensity||70)/100)*mp.transmission;
+    const beam=lightingEffectiveBeam(o);
+    const effective=(Number(o.intensity||70)/100)*(mp.transmission??1)*(fp.output??1);
     const color=kelvinCss(o.kelvin||5600),len=fp.length||330;
     let beamSvg="";
     if(fp.shape==="omni"){
@@ -3741,11 +3957,10 @@ function lightingObjectSvg(o,selected){
       <g data-lighting-id="${o.id}">
         ${beamSvg}
         <g transform="translate(${o.x} ${o.y}) rotate(${o.rotation||0})">
-          <rect x="-21" y="-16" width="42" height="32" rx="7" fill="#0b0d0f" stroke="${stroke}" stroke-width="${selected?4:2}"/>
-          <circle cx="15" cy="0" r="8" fill="${color}"/>
+          ${lightingFixturePlanSvg(fp,stroke,color,selected)}
         </g>
         <text x="${o.x+34}" y="${o.y-7}" fill="#f4f7f8" font-size="15" font-weight="700">${safeSvgText(o.label||o.fixture)}</text>
-        <text x="${o.x+34}" y="${o.y+13}" fill="#8c9aa2" font-size="11">${safeSvgText(o.fixture)} · ${Number(o.kelvin||5600)}K</text>
+        <text x="${o.x+34}" y="${o.y+13}" fill="#8c9aa2" font-size="11">${safeSvgText(o.fixture)} · ${Math.round(beam)}° · ${Number(o.kelvin||5600)}K</text>
       </g>
       ${rotateHandle(o.x,o.y)}
     </g>`
@@ -3974,13 +4189,37 @@ function setLightingViewMode(mode){
   app.lighting.viewMode=mode;
   renderLightingViewMode()
 }
+function lightingCompanionIsMobile(){return !!window.matchMedia?.("(max-width: 760px)")?.matches}
+function resetLightingPlanPip(){
+  const stage=document.querySelector(".lighting-studio-stage");if(!stage)return;stage.style.removeProperty("--lighting-pip-left");stage.style.removeProperty("--lighting-pip-top")
+}
+function startLightingPipDrag(event){
+  if(lightingCompanionIsMobile()||event.target.closest("button"))return;const stage=document.querySelector(".lighting-studio-stage"),plan=$("lightingPlanView");if(!stage||!plan)return;
+  const stageRect=stage.getBoundingClientRect(),rect=plan.getBoundingClientRect();app.lighting.pipDrag={mode:"pip",pointerId:event.pointerId,offsetX:event.clientX-rect.left,offsetY:event.clientY-rect.top,stageRect};event.currentTarget.setPointerCapture?.(event.pointerId);event.preventDefault()
+}
+function moveLightingPipDrag(event){
+  const drag=app.lighting.pipDrag;if(!drag||drag.mode!=="pip"||drag.pointerId!==event.pointerId)return;const stage=document.querySelector(".lighting-studio-stage"),plan=$("lightingPlanView"),rect=plan.getBoundingClientRect(),bounds=stage.getBoundingClientRect();
+  const left=Math.max(8,Math.min(bounds.width-rect.width-8,event.clientX-bounds.left-drag.offsetX)),top=Math.max(68,Math.min(bounds.height-rect.height-8,event.clientY-bounds.top-drag.offsetY));stage.style.setProperty("--lighting-pip-left",`${left}px`);stage.style.setProperty("--lighting-pip-top",`${top}px`)
+}
+function endLightingCompanionDrag(event){
+  if(app.lighting.pipDrag?.pointerId===event.pointerId)app.lighting.pipDrag=null
+}
+function startLightingSplitDrag(event){
+  if(!lightingCompanionIsMobile())return;app.lighting.pipDrag={mode:"split",pointerId:event.pointerId};event.currentTarget.setPointerCapture?.(event.pointerId);moveLightingSplitDrag(event);event.preventDefault()
+}
+function moveLightingSplitDrag(event){
+  const drag=app.lighting.pipDrag;if(!drag||drag.mode!=="split"||drag.pointerId!==event.pointerId)return;const stage=document.querySelector(".lighting-studio-stage"),rect=stage?.getBoundingClientRect();if(!stage||!rect?.height)return;
+  const ratio=Math.max(28,Math.min(72,(event.clientY-rect.top)/rect.height*100));app.lighting.mobileSplit=ratio;stage.style.setProperty("--lighting-mobile-camera",`${ratio}%`);resizeThreeRenderer()
+}
 async function renderLightingViewMode(){
-  const cameraMode=app.lighting.viewMode==="camera";
+  const cameraMode=app.lighting.viewMode==="camera",mobile=lightingCompanionIsMobile(),stage=document.querySelector(".lighting-studio-stage");
   $("lightingPlanModeBtn").classList.toggle("active",!cameraMode);
   $("lightingCameraModeBtn").classList.toggle("active",cameraMode);
-  $("lightingPlanView").hidden=cameraMode;
+  stage?.classList.toggle("camera-companion",cameraMode);
+  $("lightingPlanView").hidden=false;
   $("lightingCameraView").hidden=!cameraMode;
-  if(cameraMode){updateLightingPlaybackStatus();await startLighting3D()}
+  $("lightingPlanPipHeader").hidden=!cameraMode||mobile;$("lightingSplitHandle").hidden=!cameraMode||!mobile;
+  if(cameraMode){if(mobile)stage?.style.setProperty("--lighting-mobile-camera",`${app.lighting.mobileSplit}%`);updateLightingPlaybackStatus();await startLighting3D();requestAnimationFrame(resizeThreeRenderer)}
   else{stopVirtualExplore();pauseLightingPlayback();stopLighting3D(false)}
   renderVirtualLocationControls()
 }
@@ -4007,77 +4246,40 @@ function planToWorld(o){
   return {x:(Number(o.x||600)-600)/100,z:(Number(o.y||400)-400)/100}
 }
 
-function makeMannequin(THREE,o){
-  const scale=(Number(o.scale||100)/100),gender=(o.gender||"female").toLowerCase(),h=Number(o.height3d||1.75)*scale;
-  const g=new THREE.Group();
-  const skin=new THREE.MeshStandardMaterial({color:0xe2b28f,roughness:.86,metalness:.02});
-  const feature=new THREE.MeshStandardMaterial({color:0x2d2522,roughness:.95});
-  const dark=new THREE.MeshStandardMaterial({color:0x8a5d48,roughness:.92});
-  const shoulderScale=gender==="male"?1.18:0.94;
-  const hipScale=gender==="female"?1.18:0.92;
-  const chestScale=gender==="male"?0.95:1.05;
-  const torsoH=h*0.35,legH=h*0.46,headR=h*0.095;
-
-  const pelvis=new THREE.Mesh(new THREE.SphereGeometry(h*0.12,22,18),skin);
-  pelvis.scale.set(hipScale,0.88,0.95);pelvis.position.y=h*0.43;g.add(pelvis);
-
-  const torso=new THREE.Mesh(new THREE.CapsuleGeometry(h*0.085,torsoH,8,16),skin);
-  torso.scale.set(chestScale*shoulderScale,1,0.86);torso.position.y=h*0.61;g.add(torso);
-
-  if(gender==="female"){
-    const breastGeo=new THREE.SphereGeometry(h*0.05,16,14);
-    const b1=new THREE.Mesh(breastGeo,skin),b2=new THREE.Mesh(breastGeo,skin);
-    b1.position.set(-h*0.05,h*0.67,h*0.07);b2.position.set(h*0.05,h*0.67,h*0.07);
-    b1.scale.set(1,0.86,0.72);b2.scale.set(1,0.86,0.72);g.add(b1,b2)
+function clearFaceModelCache(characterId=null){
+  for(const [id,entry] of app.lighting.faceModelCache){if(characterId&&id!==characterId)continue;disposeVirtualLocationObject(entry.root);app.lighting.faceModelCache.delete(id)}
+}
+async function loadFaceModel(asset){
+  const cached=app.lighting.faceModelCache.get(asset.id);if(cached?.root)return cached;if(cached?.promise)return cached.promise;const entry={root:null,promise:null};app.lighting.faceModelCache.set(asset.id,entry);
+  entry.promise=(async()=>{if(!asset.faceModelUrl)await signAiAsset(asset);if(!asset.faceModelUrl)throw new Error("Could not open the 3D face scan.");const THREE=app.lighting.three?.THREE||await import(THREE_CDN),root=await loadSpatialModelRoot(asset.faceModelUrl,asset.face_scan_format||"glb",THREE);if(!root)throw new Error("The 3D face scan has no geometry.");root.traverse(node=>{if(node.isMesh){node.castShadow=true;node.receiveShadow=true}});entry.root=root;entry.promise=null;if(app.lighting.viewMode==="camera"&&$("lightingDiagramModal")?.open)rebuildLighting3D();return entry})().catch(error=>{entry.promise=null;app.lighting.faceModelCache.delete(asset.id);console.warn("3D face scan failed",error);throw error});return entry.promise
+}
+function attachScannedFace(THREE,group,source,o,h){
+  const root=source.clone(true),box=new THREE.Box3().setFromObject(root),size=box.getSize(new THREE.Vector3()),center=box.getCenter(new THREE.Vector3()),largest=Math.max(size.x,size.y,size.z,.001),desired=h*.205*(Number(o.faceScale||100)/100),scale=desired/largest,wrapper=new THREE.Group();
+  root.scale.setScalar(scale);root.position.set(-center.x*scale,-center.y*scale,-center.z*scale);wrapper.add(root);wrapper.position.set(0,h*.905+Number(o.faceOffset||0)/100,0);wrapper.rotation.y=THREE.MathUtils.degToRad(Number(o.faceYaw||0));wrapper.name="Scanned Character Face";group.add(wrapper)
+}
+function makeMannequin(THREE,o,faceRoot=null){
+  const bodyScale=Number(o.scale||100)/100,gender=(o.gender||"female").toLowerCase(),h=Number(o.height3d||1.75)*bodyScale,g=new THREE.Group(),male=gender==="male";
+  const skin=new THREE.MeshStandardMaterial({color:0xd4a17e,roughness:.68,metalness:0}),skinSoft=new THREE.MeshStandardMaterial({color:0xe0b08d,roughness:.72}),shirt=new THREE.MeshStandardMaterial({color:male?0x263746:0x4a3043,roughness:.82}),pants=new THREE.MeshStandardMaterial({color:0x202830,roughness:.88}),shoe=new THREE.MeshStandardMaterial({color:0x111315,roughness:.72}),hair=new THREE.MeshStandardMaterial({color:0x241b17,roughness:.9}),eyeWhite=new THREE.MeshStandardMaterial({color:0xe9e5dd,roughness:.5}),iris=new THREE.MeshStandardMaterial({color:0x273d3d,roughness:.35}),lip=new THREE.MeshStandardMaterial({color:0x925f59,roughness:.7});
+  const shoulder=male ? 1.12 : .94,hips=male ? .94 : 1.1,headR=h*.092;
+  const pelvis=new THREE.Mesh(new THREE.SphereGeometry(h*.105,28,20),pants);pelvis.scale.set(hips,1,.84);pelvis.position.y=h*.45;g.add(pelvis);
+  const torso=new THREE.Mesh(new THREE.CylinderGeometry(h*.105*shoulder,h*.082*hips,h*.31,28,5),shirt);torso.position.y=h*.645;torso.scale.z=.72;g.add(torso);
+  const chest=new THREE.Mesh(new THREE.SphereGeometry(h*.105,28,18),shirt);chest.scale.set(shoulder,1.05,.73);chest.position.y=h*.70;g.add(chest);
+  const collar=new THREE.Mesh(new THREE.TorusGeometry(h*.037,h*.008,8,24),skin);collar.rotation.x=Math.PI/2;collar.position.set(0,h*.79,h*.035);g.add(collar);
+  const neck=new THREE.Mesh(new THREE.CylinderGeometry(h*.029,h*.037,h*.075,18),skin);neck.position.y=h*.825;g.add(neck);
+  const jointGeo=new THREE.SphereGeometry(h*.033,16,12),upperArmGeo=new THREE.CapsuleGeometry(h*.031,h*.205,8,14),forearmGeo=new THREE.CapsuleGeometry(h*.027,h*.19,8,14);
+  for(const sx of [-1,1]){const shoulderJoint=new THREE.Mesh(jointGeo,shirt);shoulderJoint.position.set(sx*h*.125*shoulder,h*.715,0);const upper=new THREE.Mesh(upperArmGeo,shirt);upper.position.set(sx*h*.145*shoulder,h*.61,0);upper.rotation.z=sx*.12;const elbow=new THREE.Mesh(new THREE.SphereGeometry(h*.03,14,10),skin);elbow.position.set(sx*h*.158*shoulder,h*.49,0);const lower=new THREE.Mesh(forearmGeo,skin);lower.position.set(sx*h*.163*shoulder,h*.39,.004);lower.rotation.z=sx*.04;const hand=new THREE.Mesh(new THREE.SphereGeometry(h*.031,16,12),skinSoft);hand.scale.set(.72,1.15,.48);hand.position.set(sx*h*.17*shoulder,h*.275,.008);g.add(shoulderJoint,upper,elbow,lower,hand)}
+  const thighGeo=new THREE.CapsuleGeometry(h*.048,h*.26,8,16),calfGeo=new THREE.CapsuleGeometry(h*.038,h*.245,8,16);
+  for(const sx of [-1,1]){const thigh=new THREE.Mesh(thighGeo,pants);thigh.position.set(sx*h*.052*hips,h*.315,0);thigh.rotation.z=sx*.025;const knee=new THREE.Mesh(new THREE.SphereGeometry(h*.041,16,12),pants);knee.position.set(sx*h*.052,h*.18,0);const calf=new THREE.Mesh(calfGeo,pants);calf.position.set(sx*h*.052,h*.085,0);const foot=new THREE.Mesh(new THREE.CapsuleGeometry(h*.033,h*.085,6,12),shoe);foot.rotation.x=Math.PI/2;foot.position.set(sx*h*.052,h*.018,h*.055);g.add(thigh,knee,calf,foot)}
+  if(faceRoot)attachScannedFace(THREE,g,faceRoot,o,h);
+  else{
+    const head=new THREE.Mesh(new THREE.SphereGeometry(headR,36,28),skinSoft);head.scale.set(.82,1.04,.91);head.position.y=h*.917;g.add(head);
+    const jaw=new THREE.Mesh(new THREE.SphereGeometry(headR*.72,28,20),skinSoft);jaw.scale.set(.86,.75,.92);jaw.position.set(0,h*.875,headR*.035);g.add(jaw);
+    const nose=new THREE.Mesh(new THREE.ConeGeometry(headR*.12,headR*.23,14),skinSoft);nose.rotation.x=Math.PI/2;nose.position.set(0,h*.917,headR*.82);g.add(nose);
+    for(const sx of [-1,1]){const white=new THREE.Mesh(new THREE.SphereGeometry(headR*.09,12,10),eyeWhite);white.scale.set(1.25,.7,.38);white.position.set(sx*headR*.28,h*.94,headR*.72);const pupil=new THREE.Mesh(new THREE.SphereGeometry(headR*.042,10,8),iris);pupil.position.set(sx*headR*.28,h*.94,headR*.79);g.add(white,pupil)}
+    const mouth=new THREE.Mesh(new THREE.TorusGeometry(headR*.16,headR*.015,6,20,Math.PI),lip);mouth.position.set(0,h*.888,headR*.75);mouth.rotation.z=Math.PI;g.add(mouth);
+    const cap=new THREE.Mesh(new THREE.SphereGeometry(headR*1.01,32,18,0,Math.PI*2,0,Math.PI*.56),hair);cap.scale.set(.83,1.04,.92);cap.position.y=h*.925;g.add(cap)
   }
-
-  const neck=new THREE.Mesh(new THREE.CylinderGeometry(h*0.03,h*0.035,h*0.06,12),skin);
-  neck.position.y=h*0.82;g.add(neck);
-
-  const head=new THREE.Mesh(new THREE.SphereGeometry(headR,28,20),skin);
-  head.scale.set(0.96,1.06,0.94);head.position.y=h*0.91;g.add(head);
-
-  const nose=new THREE.Mesh(new THREE.ConeGeometry(headR*0.16,headR*0.22,10),skin);
-  nose.rotation.x=Math.PI/2;nose.position.set(0,h*0.90,headR*0.82);g.add(nose);
-
-  const earGeo=new THREE.SphereGeometry(headR*0.18,10,10);
-  const earL=new THREE.Mesh(earGeo,skin), earR=new THREE.Mesh(earGeo,skin);
-  earL.position.set(-headR*0.96,h*0.91,0);earR.position.set(headR*0.96,h*0.91,0);
-  earL.scale.set(0.6,1,0.3);earR.scale.set(0.6,1,0.3);g.add(earL,earR);
-
-  const eyeGeo=new THREE.SphereGeometry(headR*0.07,8,8);
-  const eyeL=new THREE.Mesh(eyeGeo,feature), eyeR=new THREE.Mesh(eyeGeo,feature);
-  eyeL.position.set(-headR*0.28,h*0.93,headR*0.72);eyeR.position.set(headR*0.28,h*0.93,headR*0.72);g.add(eyeL,eyeR);
-
-  const mouth=new THREE.Mesh(new THREE.TorusGeometry(headR*0.15,headR*0.02,6,14,Math.PI),dark);
-  mouth.position.set(0,h*0.865,headR*0.68);mouth.rotation.z=Math.PI;g.add(mouth);
-
-  const armGeo=new THREE.CapsuleGeometry(h*0.032,h*0.26,6,10);
-  const forearmGeo=new THREE.CapsuleGeometry(h*0.028,h*0.22,6,10);
-  for(const sx of [-1,1]){
-    const upper=new THREE.Mesh(armGeo,skin);
-    upper.position.set(sx*h*0.125,h*0.67,0);upper.rotation.z=sx*(Math.PI/14);
-    const lower=new THREE.Mesh(forearmGeo,skin);
-    lower.position.set(sx*h*0.145,h*0.49,0);lower.rotation.z=sx*(Math.PI/20);
-    const hand=new THREE.Mesh(new THREE.SphereGeometry(h*0.03,12,10),skin);
-    hand.position.set(sx*h*0.15,h*0.35,0);hand.scale.set(0.8,1.2,0.45);
-    g.add(upper,lower,hand)
-  }
-
-  const thighGeo=new THREE.CapsuleGeometry(h*0.045,h*0.28,7,10);
-  const calfGeo=new THREE.CapsuleGeometry(h*0.037,h*0.26,7,10);
-  for(const sx of [-1,1]){
-    const thigh=new THREE.Mesh(thighGeo,skin);
-    thigh.position.set(sx*h*0.052,h*0.25,0);thigh.rotation.z=sx*(Math.PI/42);
-    const calf=new THREE.Mesh(calfGeo,skin);
-    calf.position.set(sx*h*0.052,h*0.07,0);
-    const foot=new THREE.Mesh(new THREE.BoxGeometry(h*0.06,h*0.025,h*0.13),skin);
-    foot.position.set(sx*h*0.052,h*0.005,h*0.04);
-    g.add(thigh,calf,foot)
-  }
-
-  g.traverse(m=>{if(m.isMesh){m.castShadow=true;m.receiveShadow=true}});
-  return g
+  g.traverse(node=>{if(node.isMesh){node.castShadow=true;node.receiveShadow=true}});g.name=o.characterId?"Character Mannequin":"Realistic Mannequin";return g
 }
 
 async function virtualLocationModelUrl(scan){
@@ -4125,10 +4327,27 @@ function syncVirtualLocationTransform3D(){
   const size=cached.bounds.size,diagonal=Math.hypot(size.x,size.y,size.z)*transform.scale;state.virtualLocationFar=Math.max(100,diagonal*4);if(state.camera){state.camera.far=state.virtualLocationFar;state.camera.updateProjectionMatrix()}
 }
 
+function makeLightingFixture3D(THREE,o,color){
+  const fp=lightingFixtureProps(o.fixture),mp=lightingModifierProps(o.diffusion),group=new THREE.Group(),body=new THREE.MeshStandardMaterial({color:0x1d2226,roughness:.58,metalness:.52}),trim=new THREE.MeshStandardMaterial({color:0x07090a,roughness:.42,metalness:.65}),glow=new THREE.MeshStandardMaterial({color,emissive:color,emissiveIntensity:1.5,roughness:.35}),fabric=new THREE.MeshStandardMaterial({color:0xd9d8cf,roughness:.94,side:THREE.DoubleSide,transparent:true,opacity:.9});
+  const type=fp.iconType;
+  if(type==="panel"||type==="slim-panel"){const frame=new THREE.Mesh(new THREE.BoxGeometry(.08,.34,.48),body),face=new THREE.Mesh(new THREE.PlaneGeometry(.4,.27),glow);face.rotation.y=Math.PI/2;face.position.x=.045;group.add(frame,face)}
+  else if(type==="tube"){const tube=new THREE.Mesh(new THREE.CylinderGeometry(.035,.035,.72,18),glow);tube.rotation.z=Math.PI/2;group.add(tube)}
+  else if(type==="window"){const frame=new THREE.Mesh(new THREE.BoxGeometry(.035,.65,.85),trim),face=new THREE.Mesh(new THREE.PlaneGeometry(.76,.56),glow);face.rotation.y=Math.PI/2;face.position.x=.022;group.add(frame,face)}
+  else if(type==="bulb"||type==="candle"){const bulb=new THREE.Mesh(new THREE.SphereGeometry(type==="candle" ? .055 : .095,20,16),glow);bulb.position.y=type==="candle" ? .11 : 0;group.add(bulb);if(type==="candle"){const base=new THREE.Mesh(new THREE.CylinderGeometry(.045,.055,.22,14),new THREE.MeshStandardMaterial({color:0xe4d6b9,roughness:.95}));group.add(base)}}
+  else{const barrel=new THREE.Mesh(new THREE.CylinderGeometry(.115,.145,.34,24),body);barrel.rotation.z=Math.PI/2;const lens=new THREE.Mesh(new THREE.CircleGeometry(.105,28),glow);lens.rotation.y=Math.PI/2;lens.position.x=.18;const yoke=new THREE.Mesh(new THREE.TorusGeometry(.19,.018,8,24,Math.PI),trim);yoke.rotation.z=Math.PI/2;yoke.position.x=-.03;group.add(barrel,lens,yoke)}
+  const attachment=mp.attachment||"none";
+  if(["softbox","parabolic","parabolic-grid","stripbox","panel-softbox"].includes(attachment)){const strip=attachment==="stripbox",wide=strip ? .24 : .52,high=strip ? .7 : .52,box=new THREE.Mesh(new THREE.CylinderGeometry(.13,Math.max(wide,high)/2,.42,4,1,true),fabric);box.rotation.z=-Math.PI/2;box.scale.z=wide/high;box.position.x=.3;group.add(box);const front=new THREE.Mesh(new THREE.PlaneGeometry(wide,high),fabric);front.rotation.y=Math.PI/2;front.position.x=.51;group.add(front)}
+  else if(attachment==="lantern"||attachment==="dome"){const dome=new THREE.Mesh(new THREE.SphereGeometry(.28,24,18),fabric);dome.position.x=.23;group.add(dome)}
+  else if(attachment==="fresnel"||attachment==="projection"||attachment==="reflector"){const length=attachment==="projection" ? .36 : .2,optic=new THREE.Mesh(new THREE.CylinderGeometry(.09,.14,length,22),body);optic.rotation.z=Math.PI/2;optic.position.x=.24;group.add(optic)}
+  else if(attachment==="frame"||attachment==="bounce"){const frame=new THREE.Mesh(new THREE.PlaneGeometry(.58,.58),fabric);frame.rotation.y=Math.PI/2;frame.position.x=.42;group.add(frame)}
+  const height=Number(o.height3d||2.2),standMat=new THREE.MeshStandardMaterial({color:0x202428,roughness:.55,metalness:.6}),pole=new THREE.Mesh(new THREE.CylinderGeometry(.012,.016,height,10),standMat);pole.position.y=-height/2;group.add(pole);for(const angle of [0,Math.PI*2/3,Math.PI*4/3]){const leg=new THREE.Mesh(new THREE.CylinderGeometry(.012,.012,.42,8),standMat);leg.rotation.z=Math.PI/2.8;leg.rotation.y=angle;leg.position.set(Math.cos(angle)*.13,-height+.08,Math.sin(angle)*.13);group.add(leg)}
+  group.rotation.y=-THREE.MathUtils.degToRad(Number(o.rotation||0));group.traverse(node=>{if(node.isMesh){node.castShadow=true;node.receiveShadow=true}});group.name=o.fixture;return group
+}
+
 function createThreeScene(THREE){
   const state=app.lighting.three,host=$("lighting3dViewport");
   if(!state.renderer){
-    state.renderer=new THREE.WebGLRenderer({antialias:true,alpha:false,powerPreference:"high-performance"});
+    state.renderer=new THREE.WebGLRenderer({antialias:true,alpha:false,preserveDrawingBuffer:true,powerPreference:"high-performance"});
     state.renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
     state.renderer.shadowMap.enabled=true;
     state.renderer.shadowMap.type=THREE.PCFSoftShadowMap;
@@ -4157,25 +4376,22 @@ function createThreeScene(THREE){
   for(const o of objects){
     const p=planToWorld(o);
     if(o.type==="subject"){
-      const g=makeMannequin(THREE,o);g.position.set(p.x,0,p.z);g.rotation.y=-Number(o.rotation||0)*Math.PI/180;state.scene.add(g)
+      const faceAsset=(app.ai.characters||[]).find(asset=>asset.id===o.characterId&&asset.face_scan_path),faceEntry=faceAsset&&app.lighting.faceModelCache.get(faceAsset.id);if(faceAsset&&!faceEntry?.root)loadFaceModel(faceAsset).catch(()=>{});
+      const g=makeMannequin(THREE,o,faceEntry?.root||null);g.position.set(p.x,0,p.z);g.rotation.y=-Number(o.rotation||0)*Math.PI/180;state.scene.add(g)
     }else if(o.type==="light"){
       const fp=lightingFixtureProps(o.fixture),mp=lightingModifierProps(o.diffusion),rgb=kelvinToRgb(o.kelvin);
       const color=new THREE.Color(rgb.r/255,rgb.g/255,rgb.b/255),height=Number(o.height3d||2.2);
-      const marker=new THREE.Mesh(
-        fp.shape==="tube"?new THREE.CylinderGeometry(.035,.035,.65,12):new THREE.BoxGeometry(.22,.16,.18),
-        new THREE.MeshStandardMaterial({color:0x202428,emissive:color,emissiveIntensity:.55})
-      );
-      marker.position.set(p.x,height,p.z);marker.rotation.y=-Number(o.rotation||0)*Math.PI/180;state.scene.add(marker);
-      const strength=Math.max(.08,(Number(o.intensity||70)/100)*mp.transmission);
-      if(fp.shape==="omni"){
+      const marker=makeLightingFixture3D(THREE,o,color);marker.position.set(p.x,height,p.z);state.scene.add(marker);
+      const strength=Math.max(.04,(Number(o.intensity||70)/100)*(mp.transmission??1)*(fp.output??1)),beam=lightingEffectiveBeam(o),omni=fp.shape==="omni"||beam>=150||["lantern","dome"].includes(mp.attachment);
+      if(omni){
         const l=new THREE.PointLight(color,45*strength,7,2);l.position.set(p.x,height,p.z);
         if(shadowLights<3){l.castShadow=true;l.shadow.mapSize.set(512,512);shadowLights++}state.scene.add(l)
       }else{
-        const l=new THREE.SpotLight(color,80*strength,10,THREE.MathUtils.degToRad(Math.min(85,(Number(o.beam||fp.beam)+mp.spread)/2)),Math.min(.95,.15+mp.softness),1.6);
+        const l=new THREE.SpotLight(color,90*strength,12,THREE.MathUtils.degToRad(Math.min(87,beam/2)),Math.min(.98,.08+(mp.softness||0)),1.55);
         l.position.set(p.x,height,p.z);
         const yaw=Number(o.rotation||0)*Math.PI/180,tilt=Number(o.tilt||-15)*Math.PI/180;
         const target=new THREE.Object3D();
-        target.position.set(p.x+Math.cos(yaw)*4,p.z===undefined?0:height+Math.sin(tilt)*4,p.z+Math.sin(yaw)*4);
+        target.position.set(p.x+Math.cos(yaw)*4,height+Math.sin(tilt)*4,p.z+Math.sin(yaw)*4);
         l.target=target;state.scene.add(target);
         if(shadowLights<4){l.castShadow=true;l.shadow.mapSize.set(768,768);shadowLights++}state.scene.add(l)
       }
@@ -4509,11 +4725,11 @@ async function deleteProject(id){
     try{
       const [{data:paths},{data:characters},{data:locations},{data:locationScans}]=await Promise.all([
         sb.from("shots").select("image_path,original_image_path").eq("project_id",id),
-        sb.from("project_ai_characters").select("reference_path,source_path").eq("project_id",id),
-        sb.from("project_ai_locations").select("reference_path,source_path").eq("project_id",id),
+        sb.from("project_ai_characters").select("*").eq("project_id",id),
+        sb.from("project_ai_locations").select("*").eq("project_id",id),
         sb.from("location_scans").select("model_path").eq("project_id",id)
       ]);
-      await removeMediaPaths([...(paths||[]).flatMap(x=>[x.image_path,x.original_image_path]),...(characters||[]).flatMap(x=>[x.reference_path,x.source_path]),...(locations||[]).flatMap(x=>[x.reference_path,x.source_path]),...(locationScans||[]).map(x=>x.model_path)]);
+      await removeMediaPaths([...(paths||[]).flatMap(x=>[x.image_path,x.original_image_path]),...(characters||[]).flatMap(x=>[x.reference_path,x.source_path,x.spatial_reference_path,x.face_scan_path]),...(locations||[]).flatMap(x=>[x.reference_path,x.source_path,x.spatial_reference_path]),...(locationScans||[]).map(x=>x.model_path)]);
       const rpc=await sb.rpc("delete_own_project",{p_project_id:id});
       if(rpc.error){
         const {data:deleted,error}=await sb.from("projects").delete().eq("id",id).eq("owner_id",app.session.user.id).select("id");
@@ -4549,13 +4765,13 @@ async function duplicateProject(id){
     const characterMap=new Map(),locationMap=new Map();
     for(const sourceAsset of characters||[]){
       const {data:newAsset,error:assetError}=await sb.from("project_ai_characters").insert({project_id:newP.id,name:sourceAsset.name,description:sourceAsset.description||"",locked:false,created_by:app.session.user.id}).select().single();if(assetError)throw assetError;
-      characterMap.set(sourceAsset.id,newAsset.id);const copied=await copyAiReferencePath(sourceAsset.reference_path,newP.id,"character",newAsset.id,"reference"),copiedSource=await copyAiReferencePath(sourceAsset.source_path,newP.id,"character",newAsset.id,"source");
-      if(copied||copiedSource){const {error:updateError}=await sb.from("project_ai_characters").update({reference_path:copied||null,source_path:copiedSource||null,style_snapshot:copied?(sourceAsset.style_snapshot||p.style):null,locked:!!(copied&&sourceAsset.locked)}).eq("id",newAsset.id);if(updateError)throw updateError}
+      characterMap.set(sourceAsset.id,newAsset.id);const copied=await copyAiReferencePath(sourceAsset.reference_path,newP.id,"character",newAsset.id,"reference"),copiedSource=await copyAiReferencePath(sourceAsset.source_path,newP.id,"character",newAsset.id,"source"),copiedSpatial=await copyAiReferencePath(sourceAsset.spatial_reference_path,newP.id,"character",newAsset.id,"spatial"),copiedFace=await copyAiReferencePath(sourceAsset.face_scan_path,newP.id,"character",newAsset.id,"face");
+      if(copied||copiedSource||copiedSpatial||copiedFace){const changes={reference_path:copied||null,source_path:copiedSource||null,style_snapshot:copied?(sourceAsset.style_snapshot||p.style):null,locked:!!(copied&&sourceAsset.locked)};if(Object.hasOwn(sourceAsset,"spatial_reference_path"))Object.assign(changes,{spatial_reference_path:copiedSpatial||null,face_scan_path:copiedFace||null,face_scan_format:copiedFace?sourceAsset.face_scan_format:null,face_scan_metadata:copiedFace?(sourceAsset.face_scan_metadata||{}):{}});const {error:updateError}=await sb.from("project_ai_characters").update(changes).eq("id",newAsset.id);if(updateError)throw updateError}
     }
     for(const sourceAsset of locations||[]){
       const {data:newAsset,error:assetError}=await sb.from("project_ai_locations").insert({project_id:newP.id,name:sourceAsset.name,description:sourceAsset.description||"",locked:false,created_by:app.session.user.id}).select().single();if(assetError)throw assetError;
-      locationMap.set(sourceAsset.id,newAsset.id);const copied=await copyAiReferencePath(sourceAsset.reference_path,newP.id,"location",newAsset.id,"reference"),copiedSource=await copyAiReferencePath(sourceAsset.source_path,newP.id,"location",newAsset.id,"source");
-      if(copied||copiedSource){const {error:updateError}=await sb.from("project_ai_locations").update({reference_path:copied||null,source_path:copiedSource||null,style_snapshot:copied?(sourceAsset.style_snapshot||p.style):null,locked:!!(copied&&sourceAsset.locked)}).eq("id",newAsset.id);if(updateError)throw updateError}
+      locationMap.set(sourceAsset.id,newAsset.id);const copied=await copyAiReferencePath(sourceAsset.reference_path,newP.id,"location",newAsset.id,"reference"),copiedSource=await copyAiReferencePath(sourceAsset.source_path,newP.id,"location",newAsset.id,"source"),copiedSpatial=await copyAiReferencePath(sourceAsset.spatial_reference_path,newP.id,"location",newAsset.id,"spatial");
+      if(copied||copiedSource||copiedSpatial){const changes={reference_path:copied||null,source_path:copiedSource||null,style_snapshot:copied?(sourceAsset.style_snapshot||p.style):null,locked:!!(copied&&sourceAsset.locked)};if(Object.hasOwn(sourceAsset,"spatial_reference_path"))changes.spatial_reference_path=copiedSpatial||null;const {error:updateError}=await sb.from("project_ai_locations").update(changes).eq("id",newAsset.id);if(updateError)throw updateError}
     }
     for(const [si,sc] of (scenes||[]).entries()){
       const {data:newSc,error:sce}=await sb.from("scenes").insert({project_id:newP.id,scene_number:si+1,title:sc.title,description:sc.description||"",story_location:sc.story_location||"",story_time:sc.story_time||"Unspecified",shoot_time:sc.shoot_time||"Unspecified",time_strategy:sc.time_strategy||"natural",ai_location_id:locationMap.get(sc.ai_location_id)||null,ai_character_ids:(sc.ai_character_ids||[]).map(id=>characterMap.get(id)).filter(Boolean),position:si+1,collapsed:false}).select().single();if(sce)throw sce;
@@ -4634,7 +4850,7 @@ function bind(){
   $("cropCanvas").addEventListener("wheel",event=>{if(!cropState.drawable||cropState.saving)return;event.preventDefault();const zoom=$("cropZoom"),next=Math.max(Number(zoom.min),Math.min(Number(zoom.max),Number(zoom.value)+(event.deltaY<0?5:-5)));zoom.value=String(next);updateCropZoom()},{passive:false});
   $("imageViewerModal").addEventListener("close",()=>{clearCropDrawable();cropState.active=false;cropState.target=null;cropState.saving=false;$("cropCanvas").hidden=true;$("cropLoading").hidden=true;setMsg("cropNotice","")});
 
-  // Lighting Studio v3.8
+  // Lighting Studio v5.1
   $("openLightingDiagramBtn").onclick=()=>openLightingWorkspace();
   $("closeLightingDiagramBtn").onclick=closeLightingWorkspace;
   $("lightingDiagramModal").addEventListener("cancel",e=>{e.preventDefault();closeLightingWorkspace()});
@@ -4645,6 +4861,9 @@ function bind(){
   $("lightingGodViewBtn").onclick=showLightingGodToast;
   $("lightingDrawerHeader").onclick=()=>toggleLightingDrawer();
   $("openVirtualLocationBtn").onclick=focusVirtualLocationSection;
+  $("resetLightingPlanPipBtn").onclick=resetLightingPlanPip;
+  $("lightingPlanPipHeader").addEventListener("pointerdown",startLightingPipDrag);$("lightingPlanPipHeader").addEventListener("pointermove",moveLightingPipDrag);$("lightingPlanPipHeader").addEventListener("pointerup",endLightingCompanionDrag);$("lightingPlanPipHeader").addEventListener("pointercancel",endLightingCompanionDrag);
+  $("lightingSplitHandle").addEventListener("pointerdown",startLightingSplitDrag);$("lightingSplitHandle").addEventListener("pointermove",moveLightingSplitDrag);$("lightingSplitHandle").addEventListener("pointerup",endLightingCompanionDrag);$("lightingSplitHandle").addEventListener("pointercancel",endLightingCompanionDrag);
 
   $("virtualLocationSelect").onchange=e=>selectVirtualLocation(e.target.value);
   $("virtualLocationFileInput").onchange=handleVirtualLocationFileInput;
@@ -4652,6 +4871,9 @@ function bind(){
   $("scanVirtualLocationBtn").onclick=startIPhoneLocationScan;
   $("detachVirtualLocationBtn").onclick=detachVirtualLocation;
   $("deleteVirtualLocationBtn").onclick=deleteVirtualLocation;
+  $("virtualLocationBibleSelect").onchange=renderVirtualLocationBibleControls;
+  $("linkVirtualLocationBibleBtn").onclick=linkVirtualLocationToBible;
+  $("captureVirtualLocationBibleBtn").onclick=captureVirtualLocationForBible;
   ["virtualLocationScale","virtualLocationRotation","virtualLocationOffsetX","virtualLocationOffsetY","virtualLocationOffsetZ"].forEach(id=>["input","change"].forEach(eventName=>$(id).addEventListener(eventName,updateVirtualLocationTransform)));
   $("resetVirtualLocationTransformBtn").onclick=resetVirtualLocationTransform;
 
@@ -4669,6 +4891,9 @@ function bind(){
   $("addLightingCameraBtn").onclick=()=>addLightingObject(defaultLightingCamera());
   $("addLightingSubjectBtn").onclick=()=>addLightingObject(defaultLightingSubject());
   $("addLightingFixtureBtn").onclick=addLightingFixture;
+  $("drawerAddLightingCameraBtn").onclick=()=>addLightingObject(defaultLightingCamera());
+  $("drawerAddLightingSubjectBtn").onclick=()=>addLightingObject(defaultLightingSubject());
+  $("drawerAddLightingFixtureBtn").onclick=addLightingFixture;
   $("addShotLightingBtn").onclick=addLightFromCurrentShot;
   $("applyShotCameraBtn").onclick=applyCurrentShotToCamera;
   $("useSelectedCameraViewBtn").onclick=useSelectedCameraView;
@@ -4678,7 +4903,7 @@ function bind(){
     "lightingObjectHeight3d","lightingObjectTilt","lightingObjectLens","lightingObjectShotSize",
     "lightingObjectAngle","lightingObjectHeight","lightingObjectMovement","lightingObjectFocus",
     "lightingCameraHeight3d","lightingCameraTilt","lightingSubjectHeight3d","lightingSubjectScale",
-    "lightingSubjectGender","lightingObjectRotation"
+    "lightingSubjectGender","lightingSubjectCharacter","lightingSubjectFaceScale","lightingSubjectFaceYaw","lightingSubjectFaceOffset","lightingObjectRotation"
   ].forEach(id=>["input","change"].forEach(ev=>$(id).addEventListener(ev,()=>selectedLightingChange(id))));
 
   $("deleteLightingObjectBtn").onclick=deleteSelectedLightingObject;
@@ -4729,7 +4954,7 @@ function bind(){
   window.addEventListener("storage",e=>{
     if(app.current&&e.key===chatReadKey(app.current.id))refreshChatNotificationBadge()
   });
-  window.addEventListener("resize",()=>{if(!isMobileEditor())closeEditorActions();syncMobileEditorUi();renderVirtualExploreUi()});
+  window.addEventListener("resize",()=>{if(!isMobileEditor())closeEditorActions();syncMobileEditorUi();renderVirtualExploreUi();if($("lightingDiagramModal")?.open&&app.lighting.viewMode==="camera")renderLightingViewMode()});
   window.addEventListener("storyboard:languagechange",()=>{
     if(app.current)renderEditor();
     if($("aiBibleModal")?.open)renderAiVisualBible();

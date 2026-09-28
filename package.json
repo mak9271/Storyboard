@@ -1,7 +1,7 @@
 {
-  "name": "storyboard-v5-virtual-location",
+  "name": "storyboard-v5-1-lighting-spatial-bible",
   "private": true,
-  "version": "5.0.0",
+  "version": "5.1.0",
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.mjs",

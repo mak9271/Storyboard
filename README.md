@@ -1,6 +1,18 @@
-# Storyboard Shot Builder v5.0.0 — Virtual Location
+# Storyboard Shot Builder v5.1.0 — Lighting Companion & Spatial Bible
 
-This build continues from the approved Storyboard lineage and adds reusable 3D filming-location scans to Lighting Diagram without removing the v4.9 production, Bible, collaboration or mobile features.
+This build extends the reusable 3D-location workflow with a live editable lighting companion, manufacturer-aware fixtures and modifiers, realistic mannequins, 3D face scans and Spatial Bible links.
+
+## v5.1.0 changes
+
+- **Camera View + live diagram:** desktop shows the same editable diagram in a movable floating window; mobile uses a vertical split view with a draggable divider.
+- The Lighting toolbar is horizontally touch-scrollable on phones.
+- Cameras have their own rack. The Objects area is now limited to lights and subjects and has clearer quick-add controls.
+- Adds ARRI Orbiter, L7-C Plus and SkyPanel X21 plus Nanlite Forza, PavoSlim and PavoTube fixture profiles, distinct schematic icons, CCT/beam limits and fixture output factors.
+- Adds compatible physical optics and modifiers, including Orbiter optics, SkyPanel X21 optics, Nanlite Fresnel/projection optics, parabolic softboxes, lanterns, grids and diffusion. Beam, transmission and softness change the 2D and 3D result.
+- Replaces the basic body marker with a clothed, proportioned PBR mannequin and supports placing a Bible character's GLB/USDZ face scan on its head.
+- A Virtual Location scan can be linked to a Bible location. A Camera View capture becomes a compact spatial reference image that the AI Worker reads during Bible-reference generation.
+- A Bible character can store a private GLB/USDZ face scan. The browser renders an AI-readable portrait from the model and keeps the original model for Camera View.
+- Adds the idempotent query `supabase-v5.1-spatial-bible-lighting.sql`; save it in Supabase as **Spatial Bible & Lighting Studio v5.1**.
 
 ## v5.0.0 changes
 
@@ -55,20 +67,21 @@ This build continues from the approved Storyboard lineage and adds reusable 3D f
 
 ## Existing installation: deployment
 
-v5.0.0 requires one additive SQL migration. It creates `location_scans`, links Lighting diagrams to scans, and adds private Storage policies. Existing shots, diagrams and media are not rewritten.
+v5.1.0 requires the v5.0 Virtual Location migration plus one new additive Spatial Bible migration. Existing shots, diagrams and media are not rewritten.
 
 1. If `Storyboard v4.8 - Lighting Access Repair` has not already succeeded, run the packaged v4.8 query once using the saved-query instructions from the prior release. Otherwise leave SQL Editor unchanged.
-2. Run `supabase-v5.0-virtual-locations.sql` once in Supabase SQL Editor.
-3. Deploy the repository-root files. Do not upload `node_modules`.
-4. Use this Cloudflare build/deploy command:
+2. Run `supabase-v5.0-virtual-locations.sql` once if it has not already been run.
+3. Run `supabase-v5.1-spatial-bible-lighting.sql` once and save it as **Spatial Bible & Lighting Studio v5.1**.
+4. Deploy the repository-root files. Do not upload `node_modules`.
+5. Use this Cloudflare build/deploy command:
 
    ```bash
    npx wrangler deploy
    ```
 
-5. No Supabase Edge Function redeploy is required.
-6. Hard-refresh the app. Page source should show `styles.css?v=500`, `config.js?v=500`, `i18n.js?v=500`, `app.js?v=500` and build `v5.0.0-virtual-location`.
-7. Open Lighting Diagram → Virtual Location, import one GLB/USDZ file, save the diagram, then open Camera View and test Explore Location.
+6. No Supabase Edge Function redeploy is required.
+7. Hard-refresh the app. Page source should show `styles.css?v=510`, `config.js?v=510`, `i18n.js?v=510`, `app.js?v=510` and build `v5.1.0-lighting-spatial-bible`.
+8. Open Lighting Diagram → Virtual Location, import one GLB/USDZ file, save the diagram, then open Camera View and test the live diagram companion and Explore Location.
 
 ## Fresh Supabase installation
 
@@ -86,6 +99,7 @@ Run and save the packaged queries in this order:
 10. `supabase-v4.7-lighting-image-restore.sql`
 11. `supabase-v4.8-lighting-access-repair.sql`
 12. `supabase-v5.0-virtual-locations.sql`
+13. `supabase-v5.1-spatial-bible-lighting.sql`
 
 Only for the first superadmin, replace the placeholder with the real Storyboard username and run:
 
@@ -102,6 +116,15 @@ For a fresh installation, deploy `supabase/functions/username-login/index.ts` fr
 3. Attach the scan to the current diagram, align its scale, rotation, floor and horizontal position, then save the diagram.
 4. Open **Camera View → Explore Location**. Drag to look around, use W/A/S/D on desktop or the touch arrows on mobile, and enable **Phone Look** to aim the virtual view by rotating the iPhone.
 5. Exploration does not move the shot camera. Select **Place Shot Camera Here** only when the explored viewpoint should become the diagram's active camera.
+6. In **Bible Connection**, choose the matching Bible location, select **Link Scan**, then frame the useful view and select **Capture Camera View for AI**.
+
+## 3D face workflow
+
+1. Create or open a character under **Bible → Visual → Characters**.
+2. Under **3D Face Scan**, import one self-contained GLB or USDZ face scan (maximum 250 MB).
+3. The app stores the private model, renders a compact AI view, and unlocks any stale generated reference for review.
+4. In Lighting Diagram, select a subject and choose that Bible character under **Bible Character / 3D Face**. Use Face Scale, Turn and Height for alignment.
+5. Generate and lock the updated Bible character reference. The Worker uses the rendered scan view as identity geometry guidance.
 
 The browser displays the stored scan rather than the user's current camera feed. Direct RoomPlan capture and physical 6DoF tracking are exposed through the documented native iOS bridge; Safari uses sensor-based look plus virtual movement and imports the file exported by the scanning app.
 
@@ -168,6 +191,7 @@ Automated checks cover HTML identity, Admin access, repaired Lighting RLS/persis
 
 - Bible and AI features require a signed-in cloud project and the relevant project permission.
 - Browser-based Virtual Location supports phone rotation plus virtual walking. Direct RoomPlan capture and translation from the iPhone's physical movement require the native iOS wrapper.
+- AI image models consume rendered 2D views of 3D scans, not raw GLB/USDZ geometry. The original 3D assets remain available to Camera View while the captured/rendered spatial image guides Bible generation.
 - Virtual Location walkthrough currently has no collision mesh, so the user can move through scanned walls when navigating manually.
 - Script analysis is evidence-based but still requires user review before applying.
 - One location is required for shot generation; up to three recurring character references are supported.
