@@ -1,4 +1,20 @@
-# FilmBoard v5.11.0 — Lighting AI Video Studio
+# FilmBoard v5.12.0 — Free Cinematic 3D Animatic
+
+This build adds a browser-rendered 3D animatic path that does not call an AI provider and does not consume billing or generation credits. The Runway/Veo studio remains available as a separate optional workflow.
+
+## v5.12.0 changes
+
+- Adds **Cinematic 3D Animatic** to Lighting Diagram with 720p, 1080p and 4K output at 24 or 30 fps.
+- Renders the exact camera and character keyframes, linked 3D location, camera lens/sensor framing, fixture positions, modifier behavior, color temperature, intensity and shadows.
+- Adds Neutral Cinema, Warm Film, Cool Night, High Contrast and B&W Storyboard looks.
+- Burns Depth of Field, temporal Motion Blur, Film Grain and Vignette into the exported video rather than showing them only as interface overlays.
+- Supports an optional local dialogue/music file with an adjustable audio level.
+- Shows render progress, cancellation, in-app playback, download and Save to Shot.
+- Performs rendering locally in the browser: no AI account, billing or credits are required. 4K depends on the device GPU/browser and is best used on desktop.
+- Uses unique v5.12 asset filenames: `filmboard-app-v512.js`, `filmboard-styles-v512.css`, `filmboard-i18n-v512.js` and `filmboard-config-v512.js`.
+- No new SQL migration is required for v5.12.0; Save to Shot reuses the private project-scoped `ai-video` storage policy from v5.11.
+
+## Previous v5.11.0 changes
 
 This build adds a shared asynchronous video-generation pipeline to Lighting Diagram with selectable **Runway** and **Veo** engines.
 

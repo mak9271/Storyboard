@@ -15,10 +15,10 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="filmboard-styles-v511.css" />
+  <link rel="stylesheet" href="filmboard-styles-v512.css" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0"></script>
-  <script src="filmboard-config-v511.js"></script>
-  <meta name="storyboard-build" content="v5.11.0-ai-video-studio" />
+  <script src="filmboard-config-v512.js"></script>
+  <meta name="storyboard-build" content="v5.12.0-cinematic-3d-animatic" />
 </head>
 <body>
 
@@ -925,7 +925,7 @@
 
         <section id="lightingCameraTimeline" class="lighting-camera-timeline" aria-label="Shot movement timeline">
           <header>
-            <div><strong>SHOT TIMELINE <span class="lighting-engine-version">KF 5.11</span></strong><small>Camera and character keyframes share one playhead and shot duration.</small></div>
+            <div><strong>SHOT TIMELINE <span class="lighting-engine-version">KF 5.12</span></strong><small>Camera and character keyframes share one playhead and shot duration.</small></div>
             <label>Duration <input id="lightingTimelineDuration" type="number" min="0.25" max="120" step="0.25" value="4" /> s</label>
           </header>
           <div class="lighting-timeline-timebar">
@@ -963,7 +963,7 @@
             <button id="lightingDeleteSelectedKeyframeBtn" type="button" class="lighting-playback-btn danger" disabled aria-label="Delete selected keyframe" title="Delete selected keyframe">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"></path></svg><span>Delete Keyframe</span>
             </button>
-            <button id="exportLightingVideoBtn" type="button" class="lighting-playback-btn export">Export Video</button>
+            <button id="exportLightingVideoBtn" type="button" class="lighting-playback-btn export">3D Animatic</button>
             <span id="lightingPlaybackStatus" class="lighting-playback-status" aria-live="polite">Add a camera or character keyframe to start.</span>
           </div>
         </section>
@@ -1210,6 +1210,29 @@
             </div>
           </section>
 
+          <section id="lightingAnimaticSection" class="lighting-drawer-section lighting-animatic-section">
+            <div class="lighting-section-title-row"><div class="lighting-section-title">CINEMATIC 3D ANIMATIC</div><span class="lighting-free-badge">FREE · LOCAL</span></div>
+            <p class="lighting-ai-video-copy">Render the exact camera and character keyframes with diagram lighting. No AI account, billing or credits are used.</p>
+            <div class="lighting-property-pair">
+              <div><label>Resolution</label><select id="lightingAnimaticResolution"><option value="720">720p</option><option value="1080" selected>1080p</option><option value="2160">4K</option></select></div>
+              <div><label>Frame Rate</label><select id="lightingAnimaticFps"><option value="24" selected>24 fps</option><option value="30">30 fps</option></select></div>
+            </div>
+            <label>Film Look</label>
+            <select id="lightingAnimaticLook"><option value="neutral">Neutral Cinema</option><option value="warm">Warm Film</option><option value="cool">Cool Night</option><option value="contrast">High Contrast</option><option value="mono">B&amp;W Storyboard</option></select>
+            <div class="lighting-animatic-sliders">
+              <label>Depth of Field <span id="lightingAnimaticDofValue">35%</span></label><input id="lightingAnimaticDof" type="range" min="0" max="100" value="35" />
+              <label>Motion Blur <span id="lightingAnimaticMotionValue">18%</span></label><input id="lightingAnimaticMotion" type="range" min="0" max="60" value="18" />
+              <label>Film Grain <span id="lightingAnimaticGrainValue">12%</span></label><input id="lightingAnimaticGrain" type="range" min="0" max="50" value="12" />
+              <label>Vignette <span id="lightingAnimaticVignetteValue">22%</span></label><input id="lightingAnimaticVignette" type="range" min="0" max="70" value="22" />
+            </div>
+            <label class="lighting-audio-file">Temporary dialogue / music<input id="lightingAnimaticAudio" type="file" accept="audio/*" /></label>
+            <label>Audio Level <span id="lightingAnimaticAudioValue">80%</span></label><input id="lightingAnimaticAudioLevel" type="range" min="0" max="100" value="80" />
+            <label class="lighting-ai-consent"><input id="lightingAnimaticCleanFrame" type="checkbox" checked /> Clean output (hide viewfinder and guides)</label>
+            <button id="renderLightingAnimaticBtn" type="button" class="lighting-wide-action primary">Render Free 3D Animatic</button>
+            <div id="lightingAnimaticJob" class="lighting-video-job" hidden><div><strong id="lightingAnimaticStage">Preparing render…</strong><span id="lightingAnimaticProgressValue">0%</span></div><progress id="lightingAnimaticProgress" max="100" value="0"></progress><p id="lightingAnimaticStatus" aria-live="polite"></p><button id="cancelLightingAnimaticBtn" type="button">Cancel</button></div>
+            <div id="lightingAnimaticResult" class="lighting-ai-video-result" hidden><video id="lightingAnimaticPlayer" controls playsinline preload="metadata"></video><div class="lighting-output-grid"><button id="saveLightingAnimaticBtn" type="button">Save to Shot</button><a id="downloadLightingAnimaticBtn" role="button" download>Download</a></div></div>
+          </section>
+
           <section id="lightingAiVideoSection" class="lighting-drawer-section lighting-ai-video-section">
             <div class="lighting-section-title">AI VIDEO STUDIO</div>
             <p class="lighting-ai-video-copy">Turn this diagram, its keyframes, lights and Bible references into a cinematic video.</p>
@@ -1387,7 +1410,7 @@
     </div>
   </dialog>
 
-  <script src="filmboard-i18n-v511.js"></script>
-  <script src="filmboard-app-v511.js"></script>
+  <script src="filmboard-i18n-v512.js"></script>
+  <script src="filmboard-app-v512.js"></script>
 </body>
 </html>

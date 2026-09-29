@@ -12,3 +12,15 @@ README.md
 package.json
 package-lock.json
 *.zip
+filmboard-app-v510.js
+filmboard-app-v511.js
+filmboard-app-v590.js
+filmboard-styles-v510.css
+filmboard-styles-v511.css
+filmboard-styles-v590.css
+filmboard-i18n-v510.js
+filmboard-i18n-v511.js
+filmboard-i18n-v590.js
+filmboard-config-v510.js
+filmboard-config-v511.js
+filmboard-config-v590.js

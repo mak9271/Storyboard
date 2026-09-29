@@ -1,7 +1,8 @@
 {
   "name": "FilmBoard",
-  "version": "5.11.0",
-  "build": "v5.11.0-ai-video-studio",
-  "keyframeEngine": "5.11",
+  "version": "5.12.0",
+  "build": "v5.12.0-cinematic-3d-animatic",
+  "keyframeEngine": "5.12",
+  "animaticEngine": "1.0",
   "videoProviders": ["runway", "veo"]
 }
