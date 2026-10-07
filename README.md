@@ -1,8 +1,8 @@
-# FilmBoard v5.14.0 — Neo-Skeuo Cinema
+# FilmBoard v5.14.1 — Neo-Skeuo Cinema
 
-## v5.14.0 changes
+## v5.14.1 changes
 
-- Rebuilds the application surfaces with the Neo-Skeuo Cinema design system: tactile raised and inset surfaces, physical button states, layered borders and cinematic paper/graphite colors.
+- Keeps the tactile Neo-Skeuo button shapes, hover states, pressed states and layered borders while restoring FilmBoard's original dark graphite and cyan color palette.
 - Replaces the Projects folder grid with expandable file-cabinet drawers. Each folder opens in place and reveals the projects inside it.
 - Uses the latest generated storyboard shot as each project cover in Cloud and Offline modes, with a FilmBoard placeholder when no frame exists.
 - Keeps drawer open/closed state between browser sessions and preserves folder rename, delete, move and project management controls.
@@ -19,7 +19,7 @@
 - Counts Unicode code points consistently in the browser and Worker, preventing surrogate-pair characters from being counted twice.
 - Removes invisible zero-width characters from imported and pasted screenplay text, preventing short documents from being rejected because of hidden copy/paste data.
 - Adds `supabase-v5.13-screenplay-format.sql` for the screenplay title and structured character list.
-- Uses unique v5.13 asset filenames: `filmboard-app-v514.js`, `filmboard-styles-v514.css`, `filmboard-i18n-v514.js` and `filmboard-config-v514.js`.
+- Uses unique v5.13 asset filenames: `filmboard-app-v5141.js`, `filmboard-styles-v5141.css`, `filmboard-i18n-v5141.js` and `filmboard-config-v5141.js`.
 
 ## Previous v5.12.0 changes
 

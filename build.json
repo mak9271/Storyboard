@@ -1,7 +1,7 @@
 {
   "name": "FilmBoard",
-  "version": "5.14.0",
-  "build": "v5.14.0-neo-skeuo-drawers",
+  "version": "5.14.1",
+  "build": "v5.14.1-dark-neo-controls",
   "keyframeEngine": "5.13",
   "screenplayFormat": "1.0",
   "animaticEngine": "1.0",
