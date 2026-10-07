@@ -15,10 +15,10 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="filmboard-styles-v512.css" />
+  <link rel="stylesheet" href="filmboard-styles-v513.css" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0"></script>
-  <script src="filmboard-config-v512.js"></script>
-  <meta name="storyboard-build" content="v5.12.0-cinematic-3d-animatic" />
+  <script src="filmboard-config-v513.js"></script>
+  <meta name="storyboard-build" content="v5.13.0-structured-screenplay" />
 </head>
 <body>
 
@@ -587,6 +587,18 @@
         <small class="field-help script-format-help">Accepted text formats: TXT, Markdown, Fountain, Final Draft FDX/XML, HTML and RTF · maximum 180,000 characters for one AI analysis.</small>
         <small class="field-help script-privacy-help">Analyze sends the saved script text to Cloudflare Workers AI for this breakdown.</small>
         <div id="scriptNotice" class="notice" hidden></div>
+        <section class="screenplay-front-matter" aria-label="Screenplay identity and cast">
+          <label>Screenplay Title<input id="scriptTitleInput" maxlength="240" placeholder="Name of the screenplay" /></label>
+          <label>Characters<textarea id="scriptCharactersInput" rows="4" maxlength="12000" placeholder="One character per line · Name — short description"></textarea></label>
+          <small>AI-detected characters are added here after analysis. Keep one character on each line.</small>
+        </section>
+        <div class="screenplay-structure-toolbar" role="toolbar" aria-label="Screenplay structure tools">
+          <select id="scriptSceneInteriorExterior" aria-label="Interior or exterior"><option value="INT">Interior · داخلی</option><option value="EXT">Exterior · خارجی</option><option value="INT/EXT">Interior / Exterior</option></select>
+          <select id="scriptSceneTime" aria-label="Scene time"><option value="Day">Day · روز</option><option value="Night">Night · شب</option><option value="Dawn">Dawn · سحر</option><option value="Sunset">Sunset · غروب</option><option value="Twilight">Twilight · گرگ‌ومیش</option></select>
+          <input id="scriptSceneName" maxlength="160" placeholder="Scene / location name" />
+          <button id="insertScriptSceneHeadingBtn" type="button" class="btn ghost">Insert Scene Heading</button>
+          <button id="formatScreenplayBtn" type="button" class="btn ghost">Format Screenplay</button>
+        </div>
         <div class="script-writing-toolbar" role="toolbar" aria-label="Script writing tools">
           <label for="scriptDirectionSelect">Writing Direction</label>
           <select id="scriptDirectionSelect" aria-label="Script writing direction">
@@ -602,6 +614,7 @@
           </div>
         </div>
         <div id="scriptTextEditor" class="script-editor script-rich-editor" contenteditable="true" dir="ltr" role="textbox" aria-multiline="true" data-i18n="off" data-placeholder="Choose a script file or paste screenplay text here…" spellcheck="false"></div>
+        <div class="script-count-bar" aria-live="polite"><span id="scriptCharacterCount">0 characters</span><span id="scriptAnalysisLimit">0% of AI analysis limit</span></div>
         <div class="script-selection-panel">
           <div class="script-selection-copy">
             <strong id="scriptSelectionTitle">Select text to connect it to a shot</strong>
@@ -925,7 +938,7 @@
 
         <section id="lightingCameraTimeline" class="lighting-camera-timeline" aria-label="Shot movement timeline">
           <header>
-            <div><strong>SHOT TIMELINE <span class="lighting-engine-version">KF 5.12</span></strong><small>Camera and character keyframes share one playhead and shot duration.</small></div>
+            <div><strong>SHOT TIMELINE <span class="lighting-engine-version">KF 5.13</span></strong><small>Camera and character keyframes share one playhead and shot duration.</small></div>
             <label>Duration <input id="lightingTimelineDuration" type="number" min="0.25" max="120" step="0.25" value="4" /> s</label>
           </header>
           <div class="lighting-timeline-timebar">
@@ -1410,7 +1423,7 @@
     </div>
   </dialog>
 
-  <script src="filmboard-i18n-v512.js"></script>
-  <script src="filmboard-app-v512.js"></script>
+  <script src="filmboard-i18n-v513.js"></script>
+  <script src="filmboard-app-v513.js"></script>
 </body>
 </html>

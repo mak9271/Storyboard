@@ -1,4 +1,18 @@
-# FilmBoard v5.12.0 — Free Cinematic 3D Animatic
+# FilmBoard v5.13.0 — Structured Screenplay Format
+
+## v5.13.0 changes
+
+- Adds separate screenplay title and character-list fields before the main script.
+- Adds standard scene-heading insertion for Interior, Exterior or Interior/Exterior with Day, Night, Dawn, Sunset and Twilight.
+- Uses the AI breakdown to identify scene starts, character cues and dialogue, then formats scene headings and centers dialogue without changing the authoritative plain text or shot-link offsets.
+- Adds a manual **Format Screenplay** action for refreshing the same layout.
+- Shows a live visible-character count and percentage of the 180,000-character AI-analysis limit beneath the editor.
+- Counts Unicode code points consistently in the browser and Worker, preventing surrogate-pair characters from being counted twice.
+- Removes invisible zero-width characters from imported and pasted screenplay text, preventing short documents from being rejected because of hidden copy/paste data.
+- Adds `supabase-v5.13-screenplay-format.sql` for the screenplay title and structured character list.
+- Uses unique v5.13 asset filenames: `filmboard-app-v513.js`, `filmboard-styles-v513.css`, `filmboard-i18n-v513.js` and `filmboard-config-v513.js`.
+
+## Previous v5.12.0 changes
 
 This build adds a browser-rendered 3D animatic path that does not call an AI provider and does not consume billing or generation credits. The Runway/Veo studio remains available as a separate optional workflow.
 

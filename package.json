@@ -1,11 +1,11 @@
 {
-  "name": "filmboard-v5-12-cinematic-3d-animatic",
+  "name": "filmboard-v5-13-structured-screenplay",
   "private": true,
-  "version": "5.12.0",
+  "version": "5.13.0",
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
-    "check": "node --check app.js && node --check filmboard-app-v512.js && node --check worker.js && npm test",
+    "check": "node --check app.js && node --check filmboard-app-v513.js && node --check worker.js && npm test",
     "deploy": "wrangler deploy"
   },
   "devDependencies": {
