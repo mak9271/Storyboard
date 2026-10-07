@@ -1,4 +1,4 @@
-// FilmBoard v5.13.0 AI gateway: structured screenplay + FLUX + Runway/Veo.
+// FilmBoard v5.14.0 AI gateway: Neo-Skeuo UI + structured screenplay + FLUX + Runway/Veo.
 const DEFAULT_MODEL = "@cf/black-forest-labs/flux-2-klein-4b";
 const ALLOWED_MODEL = new Set([DEFAULT_MODEL]);
 const DEFAULT_SCRIPT_MODEL = "@cf/zai-org/glm-4.7-flash";

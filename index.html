@@ -15,12 +15,20 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="filmboard-styles-v513.css" />
+  <link rel="stylesheet" href="filmboard-styles-v514.css" />
+  <link rel="stylesheet" href="filmboard-neo-v514.css" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0"></script>
-  <script src="filmboard-config-v513.js"></script>
-  <meta name="storyboard-build" content="v5.13.0-structured-screenplay" />
+  <script src="filmboard-config-v514.js"></script>
+  <meta name="storyboard-build" content="v5.14.0-neo-skeuo-drawers" />
 </head>
 <body>
+
+  <div id="uiTransitionFeedback" class="ui-transition-feedback" role="status" aria-live="assertive" hidden>
+    <div class="ui-transition-card">
+      <span class="neo-loading-reel" aria-hidden="true"><i></i><i></i><i></i></span>
+      <div><strong id="uiTransitionTitle">Loading…</strong><small id="uiTransitionMessage">Preparing the next workspace.</small></div>
+    </div>
+  </div>
 
   <dialog id="aiGenerationLock" class="ai-generation-lock" aria-labelledby="aiGenerationLockTitle">
     <div class="ai-generation-lock-card" role="status" aria-live="assertive">
@@ -149,10 +157,10 @@
             <button id="deleteCurrentFolderBtn" class="btn ghost danger-text" type="button">Delete Folder</button>
           </div>
         </div>
-        <div id="projectDirectoryGrid" class="project-directory-grid"></div>
+        <div id="projectDirectoryGrid" class="project-directory-grid project-drawer-cabinet"></div>
       </section>
-      <div class="dashboard-hint">Drag your own project cards to reorder them. Order is saved automatically.</div>
-      <div id="projectsGrid" class="projects-grid"></div>
+      <div class="dashboard-hint">Open a drawer to browse its projects. Each cover uses the latest generated storyboard frame.</div>
+      <div id="projectsGrid" class="projects-grid" hidden></div>
       <div id="projectsEmpty" class="empty-state" hidden>
         <div class="s-logo empty-logo">F</div>
         <h2 id="projectsEmptyTitle">No projects yet</h2>
@@ -1423,7 +1431,7 @@
     </div>
   </dialog>
 
-  <script src="filmboard-i18n-v513.js"></script>
-  <script src="filmboard-app-v513.js"></script>
+  <script src="filmboard-i18n-v514.js"></script>
+  <script src="filmboard-app-v514.js"></script>
 </body>
 </html>

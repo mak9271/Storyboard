@@ -4,14 +4,17 @@
 /index.html
   Cache-Control: no-store, max-age=0, must-revalidate
 
-/filmboard-app-v513.js
+/filmboard-app-v514.js
   Cache-Control: public, max-age=31536000, immutable
 
-/filmboard-styles-v513.css
+/filmboard-styles-v514.css
   Cache-Control: public, max-age=31536000, immutable
 
-/filmboard-i18n-v513.js
+/filmboard-i18n-v514.js
   Cache-Control: public, max-age=31536000, immutable
 
-/filmboard-config-v513.js
+/filmboard-config-v514.js
+  Cache-Control: public, max-age=31536000, immutable
+
+/filmboard-neo-v514.css
   Cache-Control: public, max-age=31536000, immutable

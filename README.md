@@ -1,6 +1,15 @@
-# FilmBoard v5.13.0 — Structured Screenplay Format
+# FilmBoard v5.14.0 — Neo-Skeuo Cinema
 
-## v5.13.0 changes
+## v5.14.0 changes
+
+- Rebuilds the application surfaces with the Neo-Skeuo Cinema design system: tactile raised and inset surfaces, physical button states, layered borders and cinematic paper/graphite colors.
+- Replaces the Projects folder grid with expandable file-cabinet drawers. Each folder opens in place and reveals the projects inside it.
+- Uses the latest generated storyboard shot as each project cover in Cloud and Offline modes, with a FilmBoard placeholder when no frame exists.
+- Keeps drawer open/closed state between browser sessions and preserves folder rename, delete, move and project management controls.
+- Adds a consistent film-reel Loading overlay for navigation buttons and every newly opened dialog while retaining the database-aware project-opening status.
+- Adds responsive one-column project drawers for phones and two-column layouts for tablets.
+
+## Structured screenplay retained from v5.13
 
 - Adds separate screenplay title and character-list fields before the main script.
 - Adds standard scene-heading insertion for Interior, Exterior or Interior/Exterior with Day, Night, Dawn, Sunset and Twilight.
@@ -10,7 +19,7 @@
 - Counts Unicode code points consistently in the browser and Worker, preventing surrogate-pair characters from being counted twice.
 - Removes invisible zero-width characters from imported and pasted screenplay text, preventing short documents from being rejected because of hidden copy/paste data.
 - Adds `supabase-v5.13-screenplay-format.sql` for the screenplay title and structured character list.
-- Uses unique v5.13 asset filenames: `filmboard-app-v513.js`, `filmboard-styles-v513.css`, `filmboard-i18n-v513.js` and `filmboard-config-v513.js`.
+- Uses unique v5.13 asset filenames: `filmboard-app-v514.js`, `filmboard-styles-v514.css`, `filmboard-i18n-v514.js` and `filmboard-config-v514.js`.
 
 ## Previous v5.12.0 changes
 
