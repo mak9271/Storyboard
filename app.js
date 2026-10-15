@@ -1,5 +1,5 @@
-// FilmBoard v5.14.1 — Neo-Skeuo Cinema + Project Drawers
-const FILMBOARD_BUILD = "v5.14.1-dark-neo-controls";
+// FilmBoard v5.16.0 — AR Handheld Camera Takes
+const FILMBOARD_BUILD = "v5.16.0-handheld-ar";
 document.documentElement.dataset.filmboardBuild=FILMBOARD_BUILD;
 const OPTIONS = {
   shotSize:["ECU · Extreme Close Up","CU · Close Up","MCU · Medium Close Up","MS · Medium Shot","MLS · Medium Long Shot","WS · Wide Shot","EWS · Extreme Wide Shot","OTS · Over The Shoulder","POV · Point of View","Insert","Top Shot"],
@@ -172,7 +172,7 @@ let app = {
     inspectorOpen: true,
     dragging: null,
     pointers: {},
-    playback: {playing:false,elapsed:0,duration:4,baseCamera:null,baseSubjects:null,movement:"Static",selectedKeyframeId:null,selectedCharacterKeyframeId:null,activeCharacterId:null,selectedTrack:"camera",exporting:false,exportResolve:null},
+    playback: {playing:false,elapsed:0,duration:4,baseCamera:null,baseSubjects:null,movement:"Static",selectedKeyframeId:null,selectedCharacterKeyframeId:null,activeCharacterId:null,selectedTrack:"camera",exporting:false,exportResolve:null,raf:0,lastFrame:0},
     godToastTimer: null,
     channel: null,
     dirty: false,
@@ -206,6 +206,17 @@ let app = {
       motionStart: null,
       motionQuaternion: null,
       motionListener: null
+    },
+    handheld: {
+      enabled: false,
+      recording: false,
+      raf: 0,
+      startedAt: 0,
+      lastSampleAt: -Infinity,
+      lastUiAt: 0,
+      samples: [],
+      camera: null,
+      poseSource: "virtual"
     }
   },
   projectSearch: "",
@@ -3598,7 +3609,7 @@ function shotLightPreset(s=currentShot()){
 }
 function defaultLightingTimeline(){
   const duration=Math.max(.25,Math.min(120,parseDurationSeconds(currentShot()?.duration||"4")));
-  return {duration,keyframes:[],characterKeyframes:[]}
+  return {duration,keyframes:[],characterKeyframes:[],handheldTakes:[]}
 }
 function normalizeCameraKeyframe(frame,duration){
   const finite=(value,fallback)=>Number.isFinite(Number(value))?Number(value):fallback;
@@ -3624,12 +3635,28 @@ function normalizeCharacterKeyframe(frame,duration){
     easing:frame?.easing||"smooth"
   }
 }
+function normalizeHandheldTake(take,duration){
+  const finite=(value,fallback)=>Number.isFinite(Number(value))?Number(value):fallback,limit=(value,min,max)=>Math.max(min,Math.min(max,value));
+  const camera={
+    lens:take?.camera?.lens||"50mm",cameraModel:CINEMA_CAMERAS[take?.camera?.cameraModel]?take.camera.cameraModel:"ARRI ALEXA Mini",
+    shotSize:take?.camera?.shotSize||"CU · Close Up",angle:take?.camera?.angle||"Custom",movement:"Handheld",
+    focus:take?.camera?.focus||"Shallow Focus",cameraHeight:"Custom"
+  };
+  const samples=(Array.isArray(take?.samples)?take.samples:[]).slice(0,3601).map(sample=>({
+    time:limit(finite(sample?.time,0),0,duration),x:limit(finite(sample?.x,600),-100000,100000),y:limit(finite(sample?.y,400),-100000,100000),
+    height3d:limit(finite(sample?.height3d,1.65),.1,30),rotation:finite(sample?.rotation,0),tilt:limit(finite(sample?.tilt,0),-89,89),roll:finite(sample?.roll,0)
+  })).sort((a,b)=>a.time-b.time).filter((sample,index,list)=>!index||sample.time-list[index-1].time>=.001);
+  const recordedDuration=limit(finite(take?.duration,samples.at(-1)?.time||0),0,duration);
+  const source=["native-ar","device-orientation","virtual"].includes(take?.source)?take.source:"virtual";
+  return {id:take?.id||uid(),objectId:String(take?.objectId||take?.cameraId||""),label:String(take?.label||"Handheld Take"),source,startTime:0,duration:recordedDuration,sampleRate:limit(finite(take?.sampleRate,20),1,60),createdAt:take?.createdAt||new Date().toISOString(),camera,samples}
+}
 function normalizeLightingTimeline(value){
   const fallback=defaultLightingTimeline(),duration=Math.max(.25,Math.min(120,Number(value?.duration)||fallback.duration));
   const uniqueIds=frames=>{const seen=new Set();return frames.map(frame=>{if(seen.has(frame.id))frame.id=uid();seen.add(frame.id);return frame})};
   const keyframes=uniqueIds((Array.isArray(value?.keyframes)?value.keyframes:[]).map(frame=>normalizeCameraKeyframe(frame,duration))).sort((a,b)=>a.time-b.time);
   const characterKeyframes=uniqueIds((Array.isArray(value?.characterKeyframes)?value.characterKeyframes:[]).map(frame=>normalizeCharacterKeyframe(frame,duration)).filter(frame=>frame.objectId)).sort((a,b)=>a.time-b.time);
-  return {duration,keyframes,characterKeyframes}
+  const handheldTakes=uniqueIds((Array.isArray(value?.handheldTakes)?value.handheldTakes:[]).map(take=>normalizeHandheldTake(take,duration)).filter(take=>take.objectId&&take.samples.length>1));
+  return {duration,keyframes,characterKeyframes,handheldTakes}
 }
 function newLightingDiagramObject(){
   const link=lightingCurrentShotLink(),sn=link?.scene?.number||1,sh=link?.shot?.shotNo||1;
@@ -3842,8 +3869,9 @@ async function openLightingWorkspace(options={}){
 }
 function closeLightingWorkspace(){
   if(app.lighting.upload){setVirtualLocationNotice("Wait for the 3D scan upload to finish before closing Lighting Diagram.","warning");return}
+  if(app.lighting.handheld.recording)finishHandheldRecording({message:"Handheld take saved before closing."});
   if(app.lighting.dirty&&!uiConfirm("Close Lighting Diagram without saving the latest changes?"))return;
-  cancelLightingAnimatic();stopVirtualExplore();stopLightingPlayback(true);stopLighting3D();stopLightingVideoPolling();unsubscribeLightingRealtime();$("lightingDiagramModal").close();document.documentElement.classList.remove("lighting-workspace-open")
+  cancelLightingAnimatic();stopVirtualExplore();app.lighting.handheld.enabled=false;stopLightingPlayback(true);stopLighting3D();stopLightingVideoPolling();unsubscribeLightingRealtime();$("lightingDiagramModal").close();document.documentElement.classList.remove("lighting-workspace-open")
 }
 function toggleLightingDrawer(force){
   app.lighting.drawerCollapsed=typeof force==="boolean"?force:!app.lighting.drawerCollapsed;
@@ -3859,6 +3887,7 @@ function selectLightingObject(id,openDrawer=false,toggleInspector=false){
   if(o?.type==="camera"){
     const changedCamera=app.lighting.activeCameraId!==o.id;
     if(changedCamera){
+      if(app.lighting.handheld.recording)finishHandheldRecording({message:"Handheld take saved on the previous camera."});
       const previous=activeLightingCameraObject();
       if(previous&&app.lighting.playback.baseCamera)Object.assign(previous,deepClone(app.lighting.playback.baseCamera));
       app.lighting.playback.playing=false;app.lighting.playback.baseCamera=null
@@ -3876,6 +3905,7 @@ function clearLightingDirty(){app.lighting.dirty=false;$("saveLightingDiagramBtn
 function persistLocalLightingList(){localStorage.setItem(lightingLocalKey(),JSON.stringify(app.lighting.diagrams))}
 async function saveLightingDiagram(){
   const d=app.lighting.current;if(!d||!lightingCanEdit())return;
+  if(app.lighting.handheld.recording)finishHandheldRecording({message:"Handheld take completed before saving."});
   if(app.lighting.playback.baseCamera||app.lighting.playback.baseSubjects)stopLightingPlayback(true);
   d.name=$("lightingDiagramName").value.trim()||"Lighting Diagram";
   d.data.notes=$("lightingDiagramNotes").value||"";
@@ -3901,6 +3931,7 @@ async function saveLightingDiagram(){
   setMsg("lightingDiagramNotice","Saved.");setTimeout(()=>setMsg("lightingDiagramNotice",""),1200)
 }
 async function createNewLightingDiagram(){
+  if(app.lighting.handheld.recording)finishHandheldRecording({message:"Handheld take saved before leaving this diagram."});
   if(app.lighting.dirty&&!uiConfirm("Create a new diagram without saving the latest changes?"))return;
   setLightingCurrent(newLightingDiagramObject());applyLightingPermissions()
 }
@@ -3934,7 +3965,7 @@ function applyLightingPermissions(){
     "importVirtualLocationBtn","detachVirtualLocationBtn","deleteVirtualLocationBtn",
     "virtualLocationScale","virtualLocationRotation","virtualLocationOffsetX","virtualLocationOffsetY","virtualLocationOffsetZ",
     "resetVirtualLocationTransformBtn","placeCameraFromExplorerBtn","drawerAddLightingCameraBtn","drawerAddLightingFixtureBtn","drawerAddLightingCharacterBtn","linkVirtualLocationBibleBtn","captureVirtualLocationBibleBtn",
-    "lightingTimelineDuration","lightingTimelineTime","lightingTimelineCharacter","lightingAddKeyframeBtn","lightingDeleteKeyframeBtn","lightingAddCharacterKeyframeBtn","lightingDeleteCharacterKeyframeBtn","lightingDeleteSelectedKeyframeBtn"
+    "lightingTimelineDuration","lightingTimelineTime","lightingTimelineCharacter","lightingAddKeyframeBtn","lightingDeleteKeyframeBtn","lightingAddCharacterKeyframeBtn","lightingDeleteCharacterKeyframeBtn","lightingDeleteSelectedKeyframeBtn","handheldCameraBtn","recordHandheldTakeBtn","clearHandheldTakeBtn"
   ].forEach(id=>{if($(id))$(id).disabled=!edit})
   if($("scanVirtualLocationBtn"))$("scanVirtualLocationBtn").disabled=true;
   renderVirtualLocationControls()
@@ -4125,8 +4156,12 @@ function renderLightingInspector(updateInputs=true){
 }
 function deleteSelectedLightingObject(){
   const d=app.lighting.current,o=lightingSelected();if(!d||!o||!lightingCanEdit())return;
+  if(o.type==="camera"&&app.lighting.handheld.recording)finishHandheldRecording({message:"Handheld take stopped before removing the camera."});
   d.data.objects=d.data.objects.filter(x=>x.id!==o.id);
   if(app.lighting.activeCameraId===o.id)app.lighting.activeCameraId=d.data.objects.find(x=>x.type==="camera")?.id||null;
+  if(o.type==="camera"){
+    d.data.timeline=normalizeLightingTimeline(d.data.timeline);d.data.timeline.keyframes=d.data.timeline.keyframes.filter(frame=>frame.objectId!==o.id);d.data.timeline.handheldTakes=d.data.timeline.handheldTakes.filter(take=>take.objectId!==o.id);app.lighting.playback.selectedKeyframeId=null
+  }
   if(o.type==="subject"){
     d.data.timeline=normalizeLightingTimeline(d.data.timeline);
     d.data.timeline.characterKeyframes=d.data.timeline.characterKeyframes.filter(frame=>frame.objectId!==o.id);
@@ -4273,10 +4308,14 @@ function lightingElevationObjectSvg(o,selected){
   return `<g><path class="lighting-elevation-ray" d="M${x} ${y}L${x+210} ${rayY}" stroke="${color}" stroke-width="10" opacity=".12"/><g data-lighting-elevation-id="${o.id}"><rect x="${x-20}" y="${y-13}" width="40" height="26" rx="5" fill="#0b1013" stroke="${stroke}" stroke-width="${selected?3:1.6}"/><circle cx="${x+20}" cy="${y}" r="7" fill="${color}"/><line x1="${x}" y1="${y+14}" x2="${x}" y2="${floor}" stroke="#59666c"/><text x="${x+33}" y="${y+4}" fill="#dce8ec" font-size="14">${label} · ${height.toFixed(2)} m</text></g></g>`
 }
 function lightingCameraPathPlanSvg(){
-  const frames=activeCameraTimelineFrames();if(!frames.length)return "";const points=frames.map(frame=>`${frame.x},${frame.y}`).join(" ");return `<g class="lighting-camera-path" pointer-events="none">${frames.length>1?`<polyline points="${points}" fill="none" stroke="#ffbd59" stroke-width="3" stroke-dasharray="9 7" vector-effect="non-scaling-stroke"/>`:""}${frames.map((frame,index)=>`<circle cx="${frame.x}" cy="${frame.y}" r="12" fill="#19130a" stroke="#ffbd59" stroke-width="3" vector-effect="non-scaling-stroke"/><text x="${frame.x}" y="${frame.y+4}" text-anchor="middle" fill="#ffe0a5" font-size="11" font-weight="900">${index+1}</text>`).join("")}</g>`
+  const take=activeHandheldTake(),source=take?.samples||activeCameraTimelineFrames();if(!source.length)return "";const step=Math.max(1,Math.ceil(source.length/180)),frames=take?source.filter((_,index)=>index%step===0||index===source.length-1):source,points=frames.map(frame=>`${frame.x},${frame.y}`).join(" "),stroke=take?"#ff5f68":"#ffbd59";
+  if(take){const ends=[frames[0],frames.at(-1)];return `<g class="lighting-camera-path handheld-path" pointer-events="none"><polyline points="${points}" fill="none" stroke="${stroke}" stroke-width="3" stroke-dasharray="4 5" vector-effect="non-scaling-stroke"/>${ends.map((frame,index)=>`<circle cx="${frame.x}" cy="${frame.y}" r="10" fill="#190c0e" stroke="${stroke}" stroke-width="3" vector-effect="non-scaling-stroke"/><text x="${frame.x}" y="${frame.y+4}" text-anchor="middle" fill="#ffd4d7" font-size="9" font-weight="900">${index?"OUT":"IN"}</text>`).join("")}</g>`}
+  return `<g class="lighting-camera-path" pointer-events="none">${frames.length>1?`<polyline points="${points}" fill="none" stroke="${stroke}" stroke-width="3" stroke-dasharray="9 7" vector-effect="non-scaling-stroke"/>`:""}${frames.map((frame,index)=>`<circle cx="${frame.x}" cy="${frame.y}" r="12" fill="#19130a" stroke="${stroke}" stroke-width="3" vector-effect="non-scaling-stroke"/><text x="${frame.x}" y="${frame.y+4}" text-anchor="middle" fill="#ffe0a5" font-size="11" font-weight="900">${index+1}</text>`).join("")}</g>`
 }
 function lightingCameraPathElevationSvg(){
-  const frames=activeCameraTimelineFrames();if(!frames.length)return "";const points=frames.map(frame=>`${55+Number(frame.x||0)*.9},${440-Number(frame.height3d||1.65)*62}`).join(" ");return `<g class="lighting-camera-path" pointer-events="none">${frames.length>1?`<polyline points="${points}" fill="none" stroke="#ffbd59" stroke-width="3" stroke-dasharray="9 7"/>`:""}${frames.map((frame,index)=>{const x=55+Number(frame.x||0)*.9,y=440-Number(frame.height3d||1.65)*62;return `<circle cx="${x}" cy="${y}" r="11" fill="#19130a" stroke="#ffbd59" stroke-width="3"/><text x="${x}" y="${y+4}" text-anchor="middle" fill="#ffe0a5" font-size="10" font-weight="900">${index+1}</text>`}).join("")}</g>`
+  const take=activeHandheldTake(),source=take?.samples||activeCameraTimelineFrames();if(!source.length)return "";const step=Math.max(1,Math.ceil(source.length/180)),frames=take?source.filter((_,index)=>index%step===0||index===source.length-1):source,points=frames.map(frame=>`${55+Number(frame.x||0)*.9},${440-Number(frame.height3d||1.65)*62}`).join(" "),stroke=take?"#ff5f68":"#ffbd59";
+  if(take)return `<g class="lighting-camera-path handheld-path" pointer-events="none"><polyline points="${points}" fill="none" stroke="${stroke}" stroke-width="3" stroke-dasharray="4 5"/></g>`;
+  return `<g class="lighting-camera-path" pointer-events="none">${frames.length>1?`<polyline points="${points}" fill="none" stroke="${stroke}" stroke-width="3" stroke-dasharray="9 7"/>`:""}${frames.map((frame,index)=>{const x=55+Number(frame.x||0)*.9,y=440-Number(frame.height3d||1.65)*62;return `<circle cx="${x}" cy="${y}" r="11" fill="#19130a" stroke="${stroke}" stroke-width="3"/><text x="${x}" y="${y+4}" text-anchor="middle" fill="#ffe0a5" font-size="10" font-weight="900">${index+1}</text>`}).join("")}</g>`
 }
 function lightingCharacterPathPlanSvg(){
   const timeline=app.lighting.current?.data?.timeline,frames=timeline?.characterKeyframes||[];if(!frames.length)return "";
@@ -4435,13 +4474,16 @@ function parseDurationSeconds(v){
 }
 function currentLightingTimeline(){
   const data=app.lighting.current?.data;if(!data)return defaultLightingTimeline();
-  if(!data.timeline||typeof data.timeline!=="object"||!Array.isArray(data.timeline.keyframes)||!Array.isArray(data.timeline.characterKeyframes))data.timeline=normalizeLightingTimeline(data.timeline);
+  if(!data.timeline||typeof data.timeline!=="object"||!Array.isArray(data.timeline.keyframes)||!Array.isArray(data.timeline.characterKeyframes)||!Array.isArray(data.timeline.handheldTakes))data.timeline=normalizeLightingTimeline(data.timeline);
   return data.timeline
 }
 function lightingTimelineCharacters(){return (app.lighting.current?.data?.objects||[]).filter(object=>object.type==="subject")}
 function activeCameraTimelineFrames(timeline=currentLightingTimeline(),camera=activeLightingCameraObject()){
   const cameraId=camera?.id||"";
   return timeline.keyframes.filter(frame=>!frame.objectId||frame.objectId===cameraId).sort((a,b)=>a.time-b.time)
+}
+function activeHandheldTake(timeline=currentLightingTimeline(),camera=activeLightingCameraObject()){
+  const cameraId=camera?.id||"";return (timeline.handheldTakes||[]).find(take=>take.objectId===cameraId&&take.samples?.length>1)||null
 }
 function lightingPlayheadTime(timeline=currentLightingTimeline()){
   const input=Number($("lightingTimelineTime")?.value),elapsed=Number(app.lighting.playback.elapsed),value=Number.isFinite(input)?input:Number.isFinite(elapsed)?elapsed:0;
@@ -4467,12 +4509,12 @@ function characterPoseFromCurrentSubject(subject=activeLightingTimelineCharacter
   if(!subject)return null;return normalizeCharacterKeyframe({...subject,id:uid(),objectId:subject.id},duration)
 }
 function lightingTimelineHasMotion(){
-  const timeline=currentLightingTimeline();if(activeCameraTimelineFrames(timeline).length>=2)return true;
+  const timeline=currentLightingTimeline();if(activeHandheldTake(timeline)?.samples.length>=2||activeCameraTimelineFrames(timeline).length>=2)return true;
   const counts=new Map();for(const frame of timeline.characterKeyframes)counts.set(frame.objectId,(counts.get(frame.objectId)||0)+1);
   return [...counts.values()].some(count=>count>=2)
 }
 function lightingTimelinePlayable(){
-  const timeline=currentLightingTimeline();return activeCameraTimelineFrames(timeline).length>0||timeline.characterKeyframes.length>0
+  const timeline=currentLightingTimeline();return !!activeHandheldTake(timeline)||activeCameraTimelineFrames(timeline).length>0||timeline.characterKeyframes.length>0
 }
 function formatTimelineShotDuration(duration){return `${Number(Number(duration).toFixed(2))} s`}
 async function syncTimelineDurationToShot(duration){
@@ -4563,13 +4605,22 @@ function deleteSelectedLightingKeyframe(){
   app.lighting.playback.selectedTrack=null;updateLightingPlaybackStatus(`${label} keyframe deleted.`);return true
 }
 async function updateLightingTimelineDuration(){
-  if(!lightingCanEdit())return;const timeline=currentLightingTimeline(),duration=Math.max(.25,Math.min(120,Number($("lightingTimelineDuration").value)||timeline.duration||4));timeline.duration=duration;timeline.keyframes.forEach(frame=>frame.time=Math.min(frame.time,duration));timeline.characterKeyframes.forEach(frame=>frame.time=Math.min(frame.time,duration));timeline.keyframes.sort((a,b)=>a.time-b.time);timeline.characterKeyframes.sort((a,b)=>a.time-b.time);app.lighting.playback.duration=duration;app.lighting.playback.elapsed=Math.min(app.lighting.playback.elapsed,duration);markLightingDirty();renderLightingTimeline();updateLightingPlaybackStatus();await syncTimelineDurationToShot(duration)
+  if(!lightingCanEdit())return;const timeline=currentLightingTimeline(),duration=Math.max(.25,Math.min(120,Number($("lightingTimelineDuration").value)||timeline.duration||4));timeline.duration=duration;timeline.keyframes.forEach(frame=>frame.time=Math.min(frame.time,duration));timeline.characterKeyframes.forEach(frame=>frame.time=Math.min(frame.time,duration));timeline.handheldTakes=(timeline.handheldTakes||[]).map(take=>normalizeHandheldTake({...take,duration:Math.min(Number(take.duration)||duration,duration),samples:(take.samples||[]).filter(sample=>Number(sample.time)<=duration)},duration)).filter(take=>take.samples.length>1);timeline.keyframes.sort((a,b)=>a.time-b.time);timeline.characterKeyframes.sort((a,b)=>a.time-b.time);app.lighting.playback.duration=duration;app.lighting.playback.elapsed=Math.min(app.lighting.playback.elapsed,duration);markLightingDirty();renderLightingTimeline();renderHandheldCameraUi();updateLightingPlaybackStatus();await syncTimelineDurationToShot(duration)
 }
 function shortestAngleDelta(a,b){return ((Number(b||0)-Number(a||0)+540)%360)-180}
 function easeTimelineValue(t,mode="smooth"){
   const value=Math.max(0,Math.min(1,t));if(mode==="linear")return value;if(mode==="hold")return 0;return value*value*(3-2*value)
 }
+function handheldTakeSample(time,take=activeHandheldTake()){
+  const samples=take?.samples||[];if(!samples.length)return null;const metadata=take.camera||{};
+  if(samples.length===1||time<=samples[0].time)return {...deepClone(metadata),...deepClone(samples[0]),time};
+  if(time>=samples[samples.length-1].time)return {...deepClone(metadata),...deepClone(samples[samples.length-1]),time};
+  let left=samples[0],right=samples[samples.length-1];for(let index=1;index<samples.length;index++){if(time<=samples[index].time){left=samples[index-1];right=samples[index];break}}
+  const t=Math.max(0,Math.min(1,(time-left.time)/Math.max(.001,right.time-left.time))),mix=(a,b)=>Number(a||0)+(Number(b||0)-Number(a||0))*t;
+  return {...deepClone(metadata),time,x:mix(left.x,right.x),y:mix(left.y,right.y),height3d:mix(left.height3d,right.height3d),rotation:Number(left.rotation||0)+shortestAngleDelta(left.rotation,right.rotation)*t,tilt:mix(left.tilt,right.tilt),roll:Number(left.roll||0)+shortestAngleDelta(left.roll,right.roll)*t}
+}
 function cameraTimelineSample(time){
+  const handheld=handheldTakeSample(time);if(handheld)return handheld;
   const frames=activeCameraTimelineFrames();if(!frames.length)return null;if(frames.length===1||time<=frames[0].time)return deepClone(frames[0]);if(time>=frames[frames.length-1].time)return deepClone(frames[frames.length-1]);
   let left=frames[0],right=frames[frames.length-1];for(let i=1;i<frames.length;i++){if(time<=frames[i].time){left=frames[i-1];right=frames[i];break}}
   const raw=(time-left.time)/Math.max(.001,right.time-left.time),t=easeTimelineValue(raw,right.easing||"smooth"),mix=(a,b)=>Number(a||0)+(Number(b||0)-Number(a||0))*t;
@@ -4597,7 +4648,7 @@ function applyCharacterTimelineTime(time){
 }
 function applyLightingTimelineTime(time,{preview=true}={}){
   const timeline=currentLightingTimeline(),pb=app.lighting.playback,cam=activeLightingCameraObject(),next=Math.max(0,Math.min(timeline.duration,Number(time)||0));pb.elapsed=next;
-  if(preview&&cam&&activeCameraTimelineFrames(timeline,cam).length){if(!pb.baseCamera)pb.baseCamera=deepClone(cam);applyCameraTimelineSample(cam,cameraTimelineSample(next))}
+  if(preview&&cam&&(activeHandheldTake(timeline,cam)||activeCameraTimelineFrames(timeline,cam).length)){if(!pb.baseCamera)pb.baseCamera=deepClone(cam);applyCameraTimelineSample(cam,cameraTimelineSample(next))}
   if(preview)applyCharacterTimelineTime(next);
   if($("lightingTimelineScrubber"))$("lightingTimelineScrubber").value=String(next);if($("lightingTimelineTime"))$("lightingTimelineTime").value=next.toFixed(2);updateThreeCameraFromObject();updateThreeSubjectsFromObjects();renderLightingCanvas();renderLightingInspector(false);renderLightingObjectList();updateCameraViewfinder()
 }
@@ -4619,15 +4670,22 @@ function lightingTimelinePoseText(frame,type){
   return type==="camera"?`${base} · Tilt ${Math.round(Number(frame?.tilt||0))}° · ${frame?.lens||"50mm"}`:`${base} · Scale ${Math.round(Number(frame?.scale||100))}%`
 }
 function renderLightingTimeline(){
-  const timeline=currentLightingTimeline(),pb=app.lighting.playback,scrubber=$("lightingTimelineScrubber"),timeInput=$("lightingTimelineTime"),durationInput=$("lightingTimelineDuration"),markers=$("lightingTimelineMarkers"),characterMarkers=$("lightingCharacterTimelineMarkers"),characterSelect=$("lightingTimelineCharacter");if(!scrubber||!markers||!characterMarkers||!characterSelect)return;
+  const timeline=currentLightingTimeline(),pb=app.lighting.playback,scrubber=$("lightingTimelineScrubber"),timeInput=$("lightingTimelineTime"),durationInput=$("lightingTimelineDuration"),markers=$("lightingTimelineMarkers"),takeTrack=$("lightingHandheldTakeTrack"),characterMarkers=$("lightingCharacterTimelineMarkers"),characterSelect=$("lightingTimelineCharacter");if(!scrubber||!markers||!characterMarkers||!characterSelect)return;
+  const scrollInner=$("lightingTimelineScrollInner");if(scrollInner)scrollInner.style.setProperty("--lighting-timeline-content-width",`${Math.max(680,Math.min(7200,Math.round(420+timeline.duration*56)))}px`);
   scrubber.max=String(timeline.duration);scrubber.value=String(Math.min(timeline.duration,pb.elapsed||0));timeInput.max=String(timeline.duration);timeInput.value=Number(pb.elapsed||0).toFixed(2);durationInput.value=String(Number(timeline.duration.toFixed(2)));
-  const cameraFrames=activeCameraTimelineFrames(timeline),characters=lightingTimelineCharacters(),activeCharacter=activeLightingTimelineCharacter();
+  const cameraFrames=activeCameraTimelineFrames(timeline),handheldTake=activeHandheldTake(timeline),characters=lightingTimelineCharacters(),activeCharacter=activeLightingTimelineCharacter();
   characterSelect.innerHTML=characters.length?characters.map(character=>`<option value="${escapeHtml(character.id)}">${escapeHtml(character.label||"Character")}</option>`).join(""):`<option value="">No characters</option>`;
   characterSelect.value=activeCharacter?.id||"";characterSelect.disabled=!lightingCanEdit()||!characters.length;
   characterSelect.onchange=()=>{pb.activeCharacterId=characterSelect.value||null;pb.selectedCharacterKeyframeId=timeline.characterKeyframes.find(frame=>frame.objectId===pb.activeCharacterId)?.id||null;renderLightingTimeline();renderLightingCanvas()};
   const tickHost=$("lightingTimelineTicks");if(tickHost){const steps=timeline.duration<=5?5:timeline.duration<=20?10:12;tickHost.innerHTML=Array.from({length:steps+1},(_,index)=>{const value=timeline.duration*index/steps;return `<span style="left:${index/steps*100}%">${Number(value.toFixed(1))}</span>`}).join("")}
   const playheadPercent=Math.max(0,Math.min(100,Number(pb.elapsed||0)/timeline.duration*100));
+  const recording=app.lighting.handheld.recording;scrubber.disabled=recording;timeInput.disabled=recording;durationInput.disabled=recording;
   document.querySelectorAll(".lighting-keyframe-rail").forEach(rail=>rail.style.setProperty("--timeline-playhead",`${playheadPercent}%`));
+  if(takeTrack){
+    const recording=app.lighting.handheld.recording,visibleTake=recording?{duration:pb.elapsed,samples:app.lighting.handheld.samples,label:"Recording…"}:handheldTake;
+    const width=visibleTake?Math.max(.8,Math.min(100,(Number(visibleTake.duration)||0)/timeline.duration*100)):0;
+    const source=recording?app.lighting.handheld.poseSource:visibleTake?.source;takeTrack.innerHTML=visibleTake?`<div class="lighting-handheld-take-segment ${recording?"recording":""}" style="width:${width}%" title="${recording?"Recording handheld camera":`Handheld take · ${Number(visibleTake.duration||0).toFixed(2)} s · ${visibleTake.samples.length} motion samples`}"><span>${recording?"REC":source==="native-ar"?"AR HANDHELD TAKE":"HANDHELD TAKE"}</span><small>${Number(visibleTake.duration||0).toFixed(1)}s · ${visibleTake.samples.length}</small></div>`:""
+  }
   markers.innerHTML=cameraFrames.map((frame,index)=>`<button type="button" class="lighting-timeline-marker ${frame.id===pb.selectedKeyframeId?"active":""}" style="left:${Math.max(0,Math.min(100,frame.time/timeline.duration*100))}%" data-keyframe-id="${escapeHtml(frame.id)}" data-keyframe-time="${frame.time.toFixed(2)}" data-pose-x="${Number(frame.x).toFixed(2)}" data-pose-y="${Number(frame.y).toFixed(2)}" data-pose-height="${Number(frame.height3d).toFixed(2)}" data-pose-rotation="${Number(frame.rotation).toFixed(2)}" title="Camera keyframe ${index+1} · ${frame.time.toFixed(2)} s · ${escapeHtml(lightingTimelinePoseText(frame,"camera"))}" aria-label="Camera keyframe ${index+1} at ${frame.time.toFixed(2)} seconds"><span>${index+1}</span><small>${frame.time.toFixed(1)}s</small></button>`).join("");
   const activeCharacterFrames=timeline.characterKeyframes.filter(frame=>frame.objectId===activeCharacter?.id);
   characterMarkers.innerHTML=activeCharacterFrames.map((frame,index)=>`<button type="button" class="lighting-timeline-marker ${frame.id===pb.selectedCharacterKeyframeId?"active":""}" style="left:${Math.max(0,Math.min(100,frame.time/timeline.duration*100))}%" data-character-keyframe-id="${escapeHtml(frame.id)}" data-keyframe-time="${frame.time.toFixed(2)}" data-pose-x="${Number(frame.x).toFixed(2)}" data-pose-y="${Number(frame.y).toFixed(2)}" data-pose-height="${Number(frame.height3d).toFixed(2)}" data-pose-rotation="${Number(frame.rotation).toFixed(2)}" title="${escapeHtml(activeCharacter?.label||"Character")} keyframe ${index+1} · ${frame.time.toFixed(2)} s · ${escapeHtml(lightingTimelinePoseText(frame,"character"))}" aria-label="${escapeHtml(activeCharacter?.label||"Character")} keyframe ${index+1} at ${frame.time.toFixed(2)} seconds"><span>${index+1}</span><small>${frame.time.toFixed(1)}s</small></button>`).join("");
@@ -4636,28 +4694,40 @@ function renderLightingTimeline(){
   const time=lightingPlayheadTime(timeline),cameraAtPlayhead=timelineFrameAt(cameraFrames,time),characterAtPlayhead=timelineFrameAt(activeCharacterFrames,time);
   const snapshot=$("lightingKeyframeSnapshot");if(snapshot){
     const cards=[];
+    if(handheldTake){const sample=handheldTakeSample(time,handheldTake);cards.push(`<div class="lighting-keyframe-pose handheld"><strong>CAMERA · HANDHELD TAKE</strong><span>${time.toFixed(2)} s</span><small>${escapeHtml(lightingTimelinePoseText(sample,"camera"))} · ${handheldTake.samples.length} samples</small></div>`)}
     if(cameraAtPlayhead)cards.push(`<div class="lighting-keyframe-pose camera"><strong>CAMERA · KF ${cameraFrames.indexOf(cameraAtPlayhead)+1}</strong><span>${cameraAtPlayhead.time.toFixed(2)} s</span><small>${escapeHtml(lightingTimelinePoseText(cameraAtPlayhead,"camera"))}</small></div>`);
     if(characterAtPlayhead)cards.push(`<div class="lighting-keyframe-pose character"><strong>${escapeHtml(activeCharacter?.label||"CHARACTER")} · KF ${activeCharacterFrames.indexOf(characterAtPlayhead)+1}</strong><span>${characterAtPlayhead.time.toFixed(2)} s</span><small>${escapeHtml(lightingTimelinePoseText(characterAtPlayhead,"character"))}</small></div>`);
     snapshot.innerHTML=cards.join("")||`<span class="lighting-keyframe-pose-empty">No saved pose at ${time.toFixed(2)} s · move the camera or character, then add a keyframe.</span>`
   }
   if($("lightingCameraKeyframeCount"))$("lightingCameraKeyframeCount").textContent=String(cameraFrames.length);if($("lightingCharacterKeyframeCount"))$("lightingCharacterKeyframeCount").textContent=String(activeCharacterFrames.length);
   $("lightingAddKeyframeBtn").textContent=cameraAtPlayhead?"Update Keyframe":"Add Keyframe";$("lightingAddCharacterKeyframeBtn").textContent=characterAtPlayhead?"Update Keyframe":"Add Keyframe";
-  $("lightingDeleteKeyframeBtn").disabled=!cameraFrames.some(frame=>frame.id===pb.selectedKeyframeId)||!lightingCanEdit();$("lightingAddKeyframeBtn").disabled=!activeLightingCameraObject()||!lightingCanEdit();
-  $("lightingDeleteCharacterKeyframeBtn").disabled=!activeCharacterFrames.some(frame=>frame.id===pb.selectedCharacterKeyframeId)||!lightingCanEdit();$("lightingAddCharacterKeyframeBtn").disabled=!activeCharacter||!lightingCanEdit();
-  if($("lightingDeleteSelectedKeyframeBtn"))$("lightingDeleteSelectedKeyframeBtn").disabled=!selectedLightingKeyframeRecord()||!lightingCanEdit();
-  $("lightingPlaybackPlayBtn").disabled=!lightingTimelinePlayable();
-  $("exportLightingVideoBtn").disabled=!lightingTimelinePlayable()||pb.exporting
+  $("lightingDeleteKeyframeBtn").disabled=recording||!cameraFrames.some(frame=>frame.id===pb.selectedKeyframeId)||!lightingCanEdit();$("lightingAddKeyframeBtn").disabled=recording||!activeLightingCameraObject()||!lightingCanEdit();
+  $("lightingDeleteCharacterKeyframeBtn").disabled=recording||!activeCharacterFrames.some(frame=>frame.id===pb.selectedCharacterKeyframeId)||!lightingCanEdit();$("lightingAddCharacterKeyframeBtn").disabled=recording||!activeCharacter||!lightingCanEdit();
+  if($("lightingDeleteSelectedKeyframeBtn"))$("lightingDeleteSelectedKeyframeBtn").disabled=recording||!selectedLightingKeyframeRecord()||!lightingCanEdit();
+  $("lightingPlaybackPlayBtn").disabled=recording||!lightingTimelinePlayable();
+  $("lightingPlaybackPauseBtn").disabled=recording;$("lightingPlaybackStopBtn").disabled=recording;
+  $("exportLightingVideoBtn").disabled=recording||!lightingTimelinePlayable()||pb.exporting;
+  renderHandheldCameraUi();
+  keepMobileTimelinePlayheadVisible()
+}
+function keepMobileTimelinePlayheadVisible(){
+  const pb=app.lighting.playback,scroller=$("lightingTimelineScroll"),inner=$("lightingTimelineScrollInner"),rail=document.querySelector(".lighting-keyframe-rail");
+  if((!pb.playing&&!app.lighting.handheld.recording)||!lightingCompanionIsMobile()||!scroller||!inner||!rail)return;
+  const duration=Math.max(.001,currentLightingTimeline().duration),innerRect=inner.getBoundingClientRect(),railRect=rail.getBoundingClientRect(),x=railRect.left-innerRect.left+railRect.width*Math.max(0,Math.min(1,pb.elapsed/duration)),left=scroller.scrollLeft,right=left+scroller.clientWidth,pad=48;
+  if(x<left+pad||x>right-pad)scroller.scrollLeft=Math.max(0,Math.min(scroller.scrollWidth-scroller.clientWidth,x-scroller.clientWidth*.5))
 }
 function updateLightingPlaybackStatus(msg=""){
   const el=$("lightingPlaybackStatus");if(!el)return;
   const pb=app.lighting.playback,cam=activeLightingCameraObject(),cfg=lightingPlaybackConfig(cam);
   if(msg){el.textContent=msg;return}
-  const duration=pb.duration||cfg.duration||4,timeline=currentLightingTimeline(),cameraCount=activeCameraTimelineFrames(timeline).length,characterCount=timeline.characterKeyframes.length;
+  const duration=pb.duration||cfg.duration||4,timeline=currentLightingTimeline(),cameraCount=activeCameraTimelineFrames(timeline).length,handheld=activeHandheldTake(timeline),characterCount=timeline.characterKeyframes.length;
+  if(app.lighting.handheld.recording){el.textContent=`Recording handheld take · ${Math.min(pb.elapsed,duration).toFixed(1)} / ${duration.toFixed(1)}s · ${app.lighting.handheld.samples.length} samples`;return}
   if(pb.exporting)el.textContent=`Recording Camera View · ${Math.min(pb.elapsed,duration).toFixed(1)} / ${duration.toFixed(1)}s`;
   else if(pb.playing)el.textContent=`Playing ${lightingTimelineHasMotion()?"shot motion":"saved pose"} · ${Math.min(pb.elapsed,duration).toFixed(1)} / ${duration.toFixed(1)}s`;
   else if((pb.baseCamera||pb.baseSubjects)&&pb.elapsed>0)el.textContent=`Paused · ${Math.min(pb.elapsed,duration).toFixed(1)} / ${duration.toFixed(1)}s`;
   else if(!lightingTimelinePlayable())el.textContent="Add a camera or character keyframe to start.";
   else if(!lightingTimelineHasMotion())el.textContent=`${cameraCount+characterCount} keyframe saved · add one more on the same track for movement.`;
+  else if(handheld)el.textContent=`Handheld take · ${handheld.samples.length} samples · ${handheld.duration.toFixed(1)} / ${duration.toFixed(1)}s`;
   else el.textContent=`${cameraCount} camera · ${characterCount} character keyframes · ${duration.toFixed(1)}s`
 }
 function showLightingGodToast(){
@@ -4666,12 +4736,26 @@ function showLightingGodToast(){
   el.hidden=false;
   app.lighting.godToastTimer=setTimeout(()=>{el.hidden=true;app.lighting.godToastTimer=null},3000)
 }
+function stopLightingPlaybackLoop(){
+  const pb=app.lighting.playback;if(pb.raf)cancelAnimationFrame(pb.raf);pb.raf=0;pb.lastFrame=0
+}
+function startLightingPlaybackLoop(){
+  const pb=app.lighting.playback;stopLightingPlaybackLoop();pb.lastFrame=performance.now();
+  const frame=now=>{
+    pb.raf=0;
+    if(!pb.playing||!$("lightingDiagramModal")?.open){pb.lastFrame=0;return}
+    const dt=Math.min(.05,Math.max(0,(now-pb.lastFrame)/1000));pb.lastFrame=now;updateLightingPlayback(dt);
+    if(pb.playing)pb.raf=requestAnimationFrame(frame);else pb.lastFrame=0
+  };
+  pb.raf=requestAnimationFrame(frame)
+}
 function pauseLightingPlayback(){
-  app.lighting.playback.playing=false;
+  app.lighting.playback.playing=false;stopLightingPlaybackLoop();
   updateLightingPlaybackStatus()
 }
 function stopLightingPlayback(resetCamera=true){
   const pb=app.lighting.playback,cam=activeLightingCameraObject();
+  stopLightingPlaybackLoop();
   if(resetCamera&&cam&&pb.baseCamera){
     Object.assign(cam,deepClone(pb.baseCamera))
   }
@@ -4681,10 +4765,11 @@ function stopLightingPlayback(resetCamera=true){
   renderLightingTimeline();updateLightingPlaybackStatus();updateCameraViewfinder()
 }
 function playLightingPlayback(fromStart=false){
+  if(app.lighting.handheld.recording)finishHandheldRecording({message:"Handheld take saved and ready to play."});
   const cam=activeLightingCameraObject(),timeline=currentLightingTimeline();if(!cam)return;if(!lightingTimelinePlayable()){updateLightingPlaybackStatus("Add a camera or character keyframe before playing.");return false}
   stopVirtualExplore();const cfg=lightingPlaybackConfig(cam),pb=app.lighting.playback;
-  if(activeCameraTimelineFrames(timeline,cam).length&&!pb.baseCamera)pb.baseCamera=deepClone(cam);if(timeline.characterKeyframes.length&&!pb.baseSubjects)pb.baseSubjects=captureLightingTimelineSubjects();pb.duration=timeline.duration||cfg.duration;pb.movement="Keyframes";
-  if(fromStart||pb.elapsed>=pb.duration)pb.elapsed=0;pb.playing=true;applyLightingTimelineTime(pb.elapsed);renderLightingTimeline();updateLightingPlaybackStatus();return true
+  if((activeHandheldTake(timeline,cam)||activeCameraTimelineFrames(timeline,cam).length)&&!pb.baseCamera)pb.baseCamera=deepClone(cam);if(timeline.characterKeyframes.length&&!pb.baseSubjects)pb.baseSubjects=captureLightingTimelineSubjects();pb.duration=timeline.duration||cfg.duration;pb.movement=activeHandheldTake(timeline,cam)?"Handheld Take":"Keyframes";
+  if(fromStart||pb.elapsed>=pb.duration)pb.elapsed=0;pb.playing=true;applyLightingTimelineTime(pb.elapsed);renderLightingTimeline();updateLightingPlaybackStatus();startLightingPlaybackLoop();return true
 }
 function movementPreviewSample(base,movement,t,duration,subject){
   const cam=deepClone(base),rot=Number(base.rotation||0)*Math.PI/180;
@@ -4737,7 +4822,7 @@ function updateLightingPlayback(dt){
   applyCharacterTimelineTime(pb.elapsed);
   updateLightingPlaybackStatus();
   renderLightingTimeline();renderLightingCanvas();renderLightingInspector(false);renderLightingObjectList();updateThreeCameraFromObject();updateThreeSubjectsFromObjects();updateCameraViewfinder();
-  if(t>=1){pb.playing=false;updateLightingPlaybackStatus(`Complete · ${lightingTimelineHasMotion()?"shot motion":"saved pose"} · ${pb.duration.toFixed(1)}s`);if(pb.exportResolve){const resolve=pb.exportResolve;pb.exportResolve=null;resolve()}}
+  if(t>=1){pb.playing=false;pb.raf=0;pb.lastFrame=0;updateLightingPlaybackStatus(`Complete · ${lightingTimelineHasMotion()?"shot motion":"saved pose"} · ${pb.duration.toFixed(1)}s`);if(pb.exportResolve){const resolve=pb.exportResolve;pb.exportResolve=null;resolve()}}
 }
 
 async function exportLightingVideo(){
@@ -4775,7 +4860,7 @@ async function renderLightingAnimatic(){
   }catch(error){updateAnimaticJob(a.cancel?"Render canceled":"Render failed",0,error.message||"Could not render the animatic.")}
   finally{a.rendering=false;pb.exporting=false;button.disabled=false;button.textContent="Render Free 3D Animatic";try{audio?.source.stop()}catch{}audio?.context.close?.();state.renderer.setPixelRatio(oldPixelRatio);state.renderer.setSize(oldSize.x,oldSize.y,false);state.camera.aspect=oldAspect;state.camera.updateProjectionMatrix();stopLightingPlayback(true);resizeThreeRenderer();renderLightingTimeline()}
 }
-function cancelLightingAnimatic(){const a=app.lighting.animatic;if(!a.rendering)return;a.cancel=true;app.lighting.playback.playing=false;if(app.lighting.playback.exportResolve){const done=app.lighting.playback.exportResolve;app.lighting.playback.exportResolve=null;done()}updateAnimaticJob("Canceling…",0,"Stopping the local render.")}
+function cancelLightingAnimatic(){const a=app.lighting.animatic;if(!a.rendering)return;a.cancel=true;app.lighting.playback.playing=false;stopLightingPlaybackLoop();if(app.lighting.playback.exportResolve){const done=app.lighting.playback.exportResolve;app.lighting.playback.exportResolve=null;done()}updateAnimaticJob("Canceling…",0,"Stopping the local render.")}
 async function saveLightingAnimaticToShot(){const a=app.lighting.animatic,shot=currentShot();if(!a.resultBlob||!shot)return;if(app.mode!=="cloud"||!sb){shot.animaticLocalName=$("downloadLightingAnimaticBtn").download;rememberWorkspace();return updateAnimaticJob("Saved locally",100,"The current browser remembers this result; download it to keep the video file.")}try{const ext=a.resultBlob.type.includes("mp4")?"mp4":"webm",path=`${app.current.id}/ai-video/${app.lighting.current.id}/${Date.now()}-3d-animatic.${ext}`;updateAnimaticJob("Saving to Shot…",100,"Uploading the finished local render to private project storage.");const {error}=await sb.storage.from("storyboards").upload(path,a.resultBlob,{upsert:false,contentType:a.resultBlob.type,cacheControl:"31536000"});if(error)throw error;shot.animaticPath=path;shot.animaticSettings={...a.settings};queueSave("shot");rememberWorkspace();updateAnimaticJob("Saved to Shot",100,`Free 3D animatic attached to Shot ${shot.shotNo||""}.`)}catch(error){updateAnimaticJob("Save failed",100,error.message||"Could not save the animatic.")}}
 
 const LIGHTING_VIDEO_MODELS={
@@ -4793,20 +4878,21 @@ function lightingVideoReferenceManifest(){
 }
 function buildLightingVideoSnapshot(){
   const linked=lightingCurrentShotLink(),diagram=app.lighting.current,data=deepClone(diagram?.data||{}),camera=activeLightingCameraObject();
-  return {schema_version:"filmboard-lighting-video-v1",captured_at:new Date().toISOString(),project_id:app.current?.id||null,scene_id:diagram?.scene_id||linked?.scene?.id||null,shot_id:diagram?.shot_id||linked?.shot?.id||null,lighting_diagram_id:diagram?.id||null,diagram_name:diagram?.name||"Lighting Diagram",camera:camera?deepClone(camera):null,lights:(data.objects||[]).filter(x=>x.type==="light"),characters:(data.objects||[]).filter(x=>x.type==="subject"),timeline:deepClone(data.timeline||{duration:4,keyframes:[],characterKeyframes:[]}),virtual_location:deepClone(data.virtualLocation||null),notes:data.notes||"",shot:linked?.shot?Object.fromEntries(["shotNo","summary","description","performance","movement","lens","shotSize","angle","focus","lighting","timeOfDay","location","props"].map(k=>[k,linked.shot[k]||""])):null,references:lightingVideoReferenceManifest()}
+  return {schema_version:"filmboard-lighting-video-v1",captured_at:new Date().toISOString(),project_id:app.current?.id||null,scene_id:diagram?.scene_id||linked?.scene?.id||null,shot_id:diagram?.shot_id||linked?.shot?.id||null,lighting_diagram_id:diagram?.id||null,diagram_name:diagram?.name||"Lighting Diagram",camera:camera?deepClone(camera):null,lights:(data.objects||[]).filter(x=>x.type==="light"),characters:(data.objects||[]).filter(x=>x.type==="subject"),timeline:deepClone(data.timeline||{duration:4,keyframes:[],characterKeyframes:[],handheldTakes:[]}),virtual_location:deepClone(data.virtualLocation||null),notes:data.notes||"",shot:linked?.shot?Object.fromEntries(["shotNo","summary","description","performance","movement","lens","shotSize","angle","focus","lighting","timeOfDay","location","props"].map(k=>[k,linked.shot[k]||""])):null,references:lightingVideoReferenceManifest()}
 }
 function compileLightingVideoPrompt(snapshot=buildLightingVideoSnapshot()){
   const camera=snapshot.camera||{},lights=snapshot.lights||[],characters=snapshot.characters||[],timeline=snapshot.timeline||{},shot=snapshot.shot||{};
+  const handheld=(timeline.handheldTakes||[]).find(take=>!camera.id||take.objectId===camera.id),handheldMotion=handheld?`${handheld.samples?.length||0} captured phone/AR poses over ${Number(handheld.duration||0).toFixed(2)}s; the attached control render is the authoritative handheld path`:"none";
   const cameraFrames=(timeline.keyframes||[]).filter(x=>!camera.id||!x.objectId||x.objectId===camera.id).sort((a,b)=>a.time-b.time).map(x=>`${Number(x.time).toFixed(2)}s: camera at plan (${Number(x.x).toFixed(0)}, ${Number(x.y).toFixed(0)}), ${Number(x.height3d||1.65).toFixed(2)}m high, heading ${Number(x.rotation||0).toFixed(1)}°, tilt ${Number(x.tilt||0).toFixed(1)}°`).join("; ");
   const characterFrames=(timeline.characterKeyframes||[]).sort((a,b)=>a.time-b.time).map(x=>`${Number(x.time).toFixed(2)}s: ${x.objectId} at (${Number(x.x).toFixed(0)}, ${Number(x.y).toFixed(0)}), heading ${Number(x.rotation||0).toFixed(1)}°`).join("; ");
   const lightPlan=lights.map(x=>`${x.label||x.fixture||"Light"}: ${x.fixture||"fixture"}, ${x.modifier||"bare"}, ${x.kelvin||5600}K, ${x.intensity??70}% intensity, ${x.beam||45}° beam, position (${Number(x.x).toFixed(0)}, ${Number(x.y).toFixed(0)}, ${Number(x.height3d||2.4).toFixed(2)}m), heading ${Number(x.rotation||0).toFixed(1)}°, tilt ${Number(x.tilt||0).toFixed(1)}°`).join(" | ");
-  return [`Create one photoreal cinematic shot that follows the attached 3D control render and reference frames. Preserve the exact blocking, screen direction, camera path, character positions and timing; improve only realism, materials, faces and natural motion.`,`Duration: ${Number(timeline.duration||4).toFixed(2)} seconds. Camera: ${camera.cameraModel||camera.model||"ARRI Alexa Mini"}, ${camera.lens||shot.lens||"50mm"}, ${camera.shotSize||shot.shotSize||"shot-defined framing"}, ${camera.angle||shot.angle||"eye level"}, ${camera.focus||shot.focus||"natural focus"}.`,`Story action: ${shot.summary||shot.description||"Follow the diagram blocking."} Performance: ${shot.performance||"natural restrained performance"}. Time and location: ${shot.timeOfDay||"unspecified"}; ${shot.location||"use the linked location reference"}.`,`Camera keyframes: ${cameraFrames||"hold the saved camera pose"}. Character keyframes: ${characterFrames||"hold the saved character poses"}.`,`Lighting is authoritative: ${lightPlan||"use the diagram lighting"}.`,`Characters present: ${characters.map(x=>x.label||"Character").join(", ")||"none"}. Keep linked Bible faces and the linked location consistent. No subtitles, text, watermark, extra people, extra lights, camera jumps, reframing, or changes to the set geometry.`].join("\n")
+  return [`Create one photoreal cinematic shot that follows the attached 3D control render and reference frames. Preserve the exact blocking, screen direction, camera path, character positions and timing; improve only realism, materials, faces and natural motion.`,`Duration: ${Number(timeline.duration||4).toFixed(2)} seconds. Camera: ${camera.cameraModel||camera.model||"ARRI Alexa Mini"}, ${camera.lens||shot.lens||"50mm"}, ${camera.shotSize||shot.shotSize||"shot-defined framing"}, ${camera.angle||shot.angle||"eye level"}, ${camera.focus||shot.focus||"natural focus"}.`,`Story action: ${shot.summary||shot.description||"Follow the diagram blocking."} Performance: ${shot.performance||"natural restrained performance"}. Time and location: ${shot.timeOfDay||"unspecified"}; ${shot.location||"use the linked location reference"}.`,`Handheld camera take: ${handheldMotion}. Camera keyframes: ${cameraFrames||"hold the saved camera pose"}. Character keyframes: ${characterFrames||"hold the saved character poses"}.`,`Lighting is authoritative: ${lightPlan||"use the diagram lighting"}.`,`Characters present: ${characters.map(x=>x.label||"Character").join(", ")||"none"}. Keep linked Bible faces and the linked location consistent. No subtitles, text, watermark, extra people, extra lights, camera jumps, reframing, or changes to the set geometry.`].join("\n")
 }
 function renderLightingVideoControls(){
   const provider=app.lighting.video.provider,models=LIGHTING_VIDEO_MODELS[provider],select=$("lightingVideoModel"),snapshot=buildLightingVideoSnapshot();
   $("lightingVideoRunwayBtn").classList.toggle("active",provider==="runway");$("lightingVideoVeoBtn").classList.toggle("active",provider==="veo");$("lightingVideoRunwayBtn").setAttribute("aria-checked",String(provider==="runway"));$("lightingVideoVeoBtn").setAttribute("aria-checked",String(provider==="veo"));
   select.innerHTML=models.map(x=>`<option value="${x.id}">${x.label}</option>`).join("");$("lightingVideoPrompt").value=compileLightingVideoPrompt(snapshot);
-  $("lightingVideoInputSummary").textContent=`${snapshot.lights.length} lights · ${snapshot.characters.length} characters · ${(snapshot.timeline.keyframes||[]).length} camera keyframes · ${(snapshot.timeline.characterKeyframes||[]).length} character keyframes · ${lightingVideoDuration(provider)}s output${provider==="veo"&&Number(snapshot.timeline.duration)>8?" (first 8s segment)":""}`
+  const handheld=(snapshot.timeline.handheldTakes||[]).find(take=>!snapshot.camera?.id||take.objectId===snapshot.camera.id);$("lightingVideoInputSummary").textContent=`${snapshot.lights.length} lights · ${snapshot.characters.length} characters · ${(snapshot.timeline.keyframes||[]).length} camera keyframes${handheld?` · handheld ${handheld.samples.length} samples`:""} · ${(snapshot.timeline.characterKeyframes||[]).length} character keyframes · ${lightingVideoDuration(provider)}s output${provider==="veo"&&Number(snapshot.timeline.duration)>8?" (first 8s segment)":""}`
 }
 function setLightingVideoProvider(provider){if(!LIGHTING_VIDEO_MODELS[provider]||app.lighting.video.status==="processing")return;app.lighting.video.provider=provider;renderLightingVideoControls()}
 function updateLightingVideoJob(stage,progress,message=""){
@@ -5076,19 +5162,22 @@ function renderVirtualExploreUi(){
   controls.hidden=!(cameraMode&&activeLightingCameraObject());$("lightingCameraView")?.classList.toggle("exploring",!!explorer.active);
   $("toggleVirtualExploreBtn").textContent=uiText(explorer.active?"Exit Explore":"Explore Location");$("toggleVirtualExploreBtn").classList.toggle("active",explorer.active);
   $("enablePhoneLookBtn").textContent=uiText(explorer.motionEnabled?"Stop Phone Look":"Phone Look");$("enablePhoneLookBtn").classList.toggle("active",explorer.motionEnabled);
-  $("enablePhoneLookBtn").disabled=!cameraMode;$("resetVirtualExploreBtn").disabled=!explorer.active;$("placeCameraFromExplorerBtn").disabled=!explorer.active||!lightingCanEdit();
+  $("enablePhoneLookBtn").disabled=!cameraMode;$("resetVirtualExploreBtn").disabled=!explorer.active||app.lighting.handheld.recording;$("placeCameraFromExplorerBtn").disabled=!explorer.active||!lightingCanEdit()||app.lighting.handheld.recording;
   const mobile=window.matchMedia?.("(max-width: 760px)")?.matches;$("virtualWalkPad").hidden=!(explorer.active&&mobile);
   if($("lightingCameraControlsHint"))$("lightingCameraControlsHint").textContent=explorer.active?uiText("W A S D move · Q / E rotate · R / F height · drag to look"):uiText("Press Explore to enable keyboard movement")
+  renderHandheldCameraUi()
 }
 function startVirtualExplore(){
   const cam=activeLightingCameraObject();if(!cam)return setVirtualLocationNotice("Add a camera before exploring the location.","warning");
   const playhead=lightingPlayheadTime();pauseLightingPlayback();app.lighting.playback.elapsed=playhead;const pose=explorerPoseFromCamera(cam);app.lighting.explorer.active=true;app.lighting.explorer.pose={...pose};app.lighting.explorer.startPose={...pose};renderVirtualExploreUi();renderLightingTimeline();updateThreeCameraFromObject();requestAnimationFrame(()=>app.lighting.three?.renderer?.domElement?.focus())
 }
 function stopVirtualExplore(){
+  if(app.lighting.handheld.recording)finishHandheldRecording({message:"Handheld take stopped and saved."});
   disablePhoneLook(false);const explorer=app.lighting.explorer;explorer.active=false;explorer.pose=null;explorer.startPose=null;if(app.lighting.three?.keys)app.lighting.three.keys.clear();renderVirtualExploreUi();if(app.lighting.three?.camera)updateThreeCameraFromObject()
 }
 function toggleVirtualExplore(){app.lighting.explorer.active?stopVirtualExplore():startVirtualExplore()}
 function syncExplorerPoseToTimelineKeyframe(){
+  if(app.lighting.handheld.recording)return false;
   if(!lightingCanEdit()||!syncCurrentObjectToTimelineKeyframe(activeLightingCameraObject()))return false;markLightingDirty();
   if(!app.lighting.timelinePoseRenderQueued){app.lighting.timelinePoseRenderQueued=true;requestAnimationFrame(()=>{app.lighting.timelinePoseRenderQueued=false;renderLightingCanvas()})}
   return true
@@ -5105,17 +5194,70 @@ function onVirtualDeviceOrientation(event){
   if(!explorer.motionBase){explorer.motionBase=raw.clone().invert();explorer.motionStart=state.camera?.quaternion?.clone()||new state.THREE.Quaternion()}
   const delta=explorer.motionBase.clone().multiply(raw);explorer.motionQuaternion=explorer.motionStart.clone().multiply(delta);updateThreeCameraFromObject()
 }
-async function enablePhoneLook(){
-  const explorer=app.lighting.explorer;if(explorer.motionEnabled){disablePhoneLook();return}if(!explorer.active)startVirtualExplore();if(!app.lighting.explorer.active)return;
+async function enablePhoneLook(options={}){
+  const forceOn=options===true||options?.forceOn===true,explorer=app.lighting.explorer;if(explorer.motionEnabled){if(forceOn)return true;disablePhoneLook();return false}if(!explorer.active)startVirtualExplore();if(!app.lighting.explorer.active)return false;
   try{
     if(typeof DeviceOrientationEvent==="undefined")throw new Error("Phone motion is not available in this browser.");
     if(typeof DeviceOrientationEvent.requestPermission==="function"){const permission=await DeviceOrientationEvent.requestPermission();if(permission!=="granted")throw new Error("Motion permission was not granted.")}
-    explorer.motionEnabled=true;explorer.motionBase=null;explorer.motionStart=null;explorer.motionQuaternion=null;explorer.motionListener=onVirtualDeviceOrientation;window.addEventListener("deviceorientation",explorer.motionListener,true);renderVirtualExploreUi();setVirtualLocationNotice("Phone Look is active. Turn the phone to look around; use the arrows to move through the remote location.")
-  }catch(error){setVirtualLocationNotice(error.message||"Could not enable phone motion.","warning");disablePhoneLook(false)}
+    explorer.motionEnabled=true;explorer.motionBase=null;explorer.motionStart=null;explorer.motionQuaternion=null;explorer.motionListener=onVirtualDeviceOrientation;app.lighting.handheld.poseSource="device-orientation";window.addEventListener("deviceorientation",explorer.motionListener,true);renderVirtualExploreUi();setVirtualLocationNotice("Phone Look is active. Turn the phone to look around; use the arrows to move through the remote location.");return true
+  }catch(error){setVirtualLocationNotice(error.message||"Could not enable phone motion.","warning");disablePhoneLook(false);return false}
 }
 function disablePhoneLook(update=true){
   const explorer=app.lighting.explorer,state=app.lighting.three;if(explorer.motionEnabled&&state?.camera&&explorer.pose){const dir=new state.THREE.Vector3(0,0,-1).applyQuaternion(state.camera.quaternion).normalize();explorer.pose.rotation=Math.atan2(dir.z,dir.x)*180/Math.PI;explorer.pose.tilt=Math.asin(Math.max(-1,Math.min(1,dir.y)))*180/Math.PI;explorer.pose.roll=0}
   if(explorer.motionListener)window.removeEventListener("deviceorientation",explorer.motionListener,true);explorer.motionEnabled=false;explorer.motionBase=null;explorer.motionStart=null;explorer.motionQuaternion=null;explorer.motionListener=null;if(update){renderVirtualExploreUi();updateThreeCameraFromObject()}
+}
+function renderHandheldCameraUi(){
+  const h=app.lighting.handheld,cameraMode=app.lighting.viewMode==="camera",take=app.lighting.current?activeHandheldTake():null,button=$("handheldCameraBtn"),record=$("recordHandheldTakeBtn"),clear=$("clearHandheldTakeBtn"),hud=$("handheldRecordingHud"),view=$("lightingCameraView");if(!button||!record||!clear||!hud)return;
+  button.hidden=!cameraMode;button.disabled=!cameraMode||!activeLightingCameraObject()||!lightingCanEdit();button.textContent=uiText("Handheld Camera");button.classList.toggle("active",h.enabled);button.setAttribute("aria-pressed",String(h.enabled));
+  record.hidden=!cameraMode||!h.enabled;record.disabled=!lightingCanEdit()||!activeLightingCameraObject();record.textContent=uiText(h.recording?"Stop Recording":"Record Take");record.classList.toggle("recording",h.recording);
+  clear.hidden=!cameraMode||h.recording||!take;clear.disabled=!lightingCanEdit();clear.textContent=uiText("Clear Take");
+  hud.hidden=!h.recording;if($("handheldRecordingSource"))$("handheldRecordingSource").textContent=h.poseSource==="native-ar"?"AR · REC":"REC";if($("handheldRecordingTime"))$("handheldRecordingTime").textContent=formatTimelineTimecode(app.lighting.playback.elapsed);
+  view?.classList.toggle("handheld-enabled",h.enabled);view?.classList.toggle("handheld-recording",h.recording)
+}
+async function toggleHandheldCameraMode(){
+  const h=app.lighting.handheld;if(!lightingCanEdit()||!activeLightingCameraObject())return;
+  if(h.enabled){if(h.recording)finishHandheldRecording({message:"Handheld take stopped and saved."});h.enabled=false;if(app.lighting.explorer.motionEnabled)disablePhoneLook(false);renderVirtualExploreUi();setVirtualLocationNotice("Handheld Camera is off.");return}
+  h.enabled=true;h.poseSource="virtual";if(!app.lighting.explorer.active)startVirtualExplore();renderVirtualExploreUi();
+  if(typeof DeviceOrientationEvent!=="undefined")await enablePhoneLook({forceOn:true});
+  if(!app.lighting.explorer.motionEnabled)setVirtualLocationNotice("Handheld Camera is ready. Move with Explore controls; phone rotation becomes available when motion permission is supported.");
+  renderVirtualExploreUi()
+}
+function captureHandheldCameraPose(time=app.lighting.playback.elapsed){
+  const state=app.lighting.three,cam=activeLightingCameraObject(),round=(value,places=3)=>Number(Number(value||0).toFixed(places));if(!cam)return null;
+  if(!state?.camera||!state.THREE){const pose=timelinePoseFromCurrentCamera();return pose?{time:round(time,4),x:round(pose.x),y:round(pose.y),height3d:round(pose.height3d),rotation:round(pose.rotation),tilt:round(pose.tilt),roll:round(pose.roll)}:null}
+  const THREE=state.THREE,camera=state.camera,forward=new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion).normalize(),actualUp=new THREE.Vector3(0,1,0).applyQuaternion(camera.quaternion).normalize(),worldUp=new THREE.Vector3(0,1,0),right=new THREE.Vector3().crossVectors(forward,worldUp);
+  let roll=0;if(right.lengthSq()>.000001){right.normalize();const baseUp=new THREE.Vector3().crossVectors(right,forward).normalize();roll=Math.atan2(actualUp.dot(right),actualUp.dot(baseUp))*180/Math.PI}
+  return {time:round(time,4),x:round(600+camera.position.x*100),y:round(400+camera.position.z*100),height3d:round(camera.position.y),rotation:round(Math.atan2(forward.z,forward.x)*180/Math.PI),tilt:round(Math.asin(Math.max(-1,Math.min(1,forward.y)))*180/Math.PI),roll:round(roll)}
+}
+function captureHandheldRecordingSample(time){
+  const h=app.lighting.handheld,sample=captureHandheldCameraPose(time);if(!sample)return null;const previous=h.samples.at(-1);if(previous&&Math.abs(previous.time-sample.time)<.001)Object.assign(previous,sample);else h.samples.push(sample);h.lastSampleAt=sample.time;return sample
+}
+function handheldRecordingFrame(now){
+  const h=app.lighting.handheld,pb=app.lighting.playback;if(!h.recording)return;h.raf=0;const duration=currentLightingTimeline().duration,elapsed=Math.min(duration,Math.max(0,(now-h.startedAt)/1000));pb.elapsed=elapsed;pb.duration=duration;
+  if(elapsed-h.lastSampleAt>=.05||elapsed>=duration)captureHandheldRecordingSample(elapsed);
+  if(!h.lastUiAt||now-h.lastUiAt>=80){h.lastUiAt=now;renderLightingTimeline();updateLightingPlaybackStatus();updateCameraViewfinder()}
+  if(elapsed>=duration){finishHandheldRecording({message:`Handheld take recorded for the full ${duration.toFixed(2)} second shot.`});return}
+  h.raf=requestAnimationFrame(handheldRecordingFrame)
+}
+async function startHandheldRecording(){
+  const h=app.lighting.handheld,cam=activeLightingCameraObject(),timeline=currentLightingTimeline();if(!h.enabled||h.recording||!cam||!lightingCanEdit())return false;
+  const existing=activeHandheldTake(timeline,cam);if(existing&&!uiConfirm("Replace the existing handheld take for this camera?"))return false;
+  if(app.lighting.playback.playing||app.lighting.playback.baseCamera||app.lighting.playback.baseSubjects)stopLightingPlayback(true);else pauseLightingPlayback();
+  if(!app.lighting.explorer.active)startVirtualExplore();if(!app.lighting.explorer.active)return false;
+  if(typeof DeviceOrientationEvent!=="undefined"&&!app.lighting.explorer.motionEnabled)await enablePhoneLook({forceOn:true});
+  h.recording=true;h.samples=[];h.camera={lens:cam.lens,cameraModel:cam.cameraModel,shotSize:cam.shotSize,angle:"Custom",movement:"Handheld",focus:cam.focus,cameraHeight:"Custom"};h.startedAt=performance.now();h.lastSampleAt=-Infinity;h.lastUiAt=0;
+  app.lighting.playback.elapsed=0;app.lighting.playback.duration=timeline.duration;captureHandheldRecordingSample(0);renderLightingTimeline();renderVirtualExploreUi();updateLightingPlaybackStatus();setVirtualLocationNotice(`Recording Handheld Take for ${timeline.duration.toFixed(2)} seconds. Move the phone and camera until the shot ends.`);h.raf=requestAnimationFrame(handheldRecordingFrame);return true
+}
+function finishHandheldRecording({message="Handheld take recorded and added to the Camera track."}={}){
+  const h=app.lighting.handheld;if(!h.recording)return null;if(h.raf)cancelAnimationFrame(h.raf);h.raf=0;
+  const timeline=currentLightingTimeline(),cam=activeLightingCameraObject(),elapsed=Math.max(0,Math.min(timeline.duration,app.lighting.playback.elapsed));captureHandheldRecordingSample(elapsed);h.recording=false;
+  let take=null;if(cam&&h.samples.length>1&&elapsed>=.01){take=normalizeHandheldTake({id:uid(),objectId:cam.id,label:"Handheld Take",source:h.poseSource,duration:elapsed,sampleRate:20,createdAt:new Date().toISOString(),camera:h.camera,samples:h.samples},timeline.duration);timeline.handheldTakes=(timeline.handheldTakes||[]).filter(item=>item.objectId!==cam.id);timeline.handheldTakes.push(take);cam.movement="Handheld";markLightingDirty();void syncTimelineDurationToShot(timeline.duration)}
+  h.samples=[];h.camera=null;h.lastSampleAt=-Infinity;h.lastUiAt=0;app.lighting.playback.elapsed=0;app.lighting.playback.baseCamera=null;renderLightingTimeline();renderLightingCanvas();renderLightingInspector(false);renderVirtualExploreUi();updateCameraViewfinder();updateLightingPlaybackStatus(take?`${message} ${take.samples.length} samples saved.`:"Recording was too short to save.");setVirtualLocationNotice(take?message:"Recording was too short to save.",take?"":"warning");return take
+}
+async function toggleHandheldRecording(){return app.lighting.handheld.recording?finishHandheldRecording({message:"Handheld take stopped and saved."}):startHandheldRecording()}
+function clearHandheldTake(){
+  const timeline=currentLightingTimeline(),cam=activeLightingCameraObject(),take=activeHandheldTake(timeline,cam);if(!take||!cam||!lightingCanEdit()||!uiConfirm("Delete the recorded handheld take for this camera?"))return false;
+  stopLightingPlayback(true);timeline.handheldTakes=timeline.handheldTakes.filter(item=>item.id!==take.id);markLightingDirty();renderLightingTimeline();renderLightingCanvas();renderVirtualExploreUi();updateLightingPlaybackStatus("Handheld take deleted. Manual camera keyframes are active again.");setVirtualLocationNotice("Handheld take deleted.");return true
 }
 function formatTimelineTimecode(seconds){
   const fps=24,total=Math.max(0,Math.round(Number(seconds||0)*fps)),frames=total%fps,whole=Math.floor(total/fps),s=whole%60,m=Math.floor(whole/60)%60,h=Math.floor(whole/3600);return [h,m,s,frames].map(value=>String(value).padStart(2,"0")).join(":")
@@ -5140,7 +5282,7 @@ function placeShotCameraFromExplorer(){
 }
 window.storyboardVirtualLocationPose=payload=>{
   const explorer=app.lighting.explorer;if(!explorer.active||!explorer.startPose||!payload)return;const position=payload.position||payload;explorer.pose.x=explorer.startPose.x+(Number(position.x)||0);explorer.pose.y=explorer.startPose.y+(Number(position.y)||0);explorer.pose.z=explorer.startPose.z+(Number(position.z)||0);
-  if(payload.quaternion&&app.lighting.three?.THREE){const q=payload.quaternion,THREE=app.lighting.three.THREE;explorer.motionEnabled=true;explorer.motionQuaternion=new THREE.Quaternion(Number(q.x)||0,Number(q.y)||0,Number(q.z)||0,Number(q.w)||1)}syncExplorerPoseToTimelineKeyframe();updateThreeCameraFromObject()
+  app.lighting.handheld.poseSource="native-ar";if(payload.quaternion&&app.lighting.three?.THREE){const q=payload.quaternion,THREE=app.lighting.three.THREE;explorer.motionEnabled=true;explorer.motionQuaternion=new THREE.Quaternion(Number(q.x)||0,Number(q.y)||0,Number(q.z)||0,Number(q.w)||1)}syncExplorerPoseToTimelineKeyframe();updateThreeCameraFromObject()
 };
 
 function updateThreeCameraFromObject(){
@@ -5206,7 +5348,6 @@ async function startLighting3D(){
   const frame=t=>{
     if(app.lighting.viewMode!=="camera"||!$("lightingDiagramModal").open)return;
     const dt=Math.min(.05,(t-state.last)/1000);state.last=t;
-    updateLightingPlayback(dt);
     moveThreeCameraByKeys(dt);
     if(state.renderer&&state.scene&&state.camera){state.renderer.render(state.scene,state.camera);drawAnimaticComposite()}
     state.raf=requestAnimationFrame(frame)
@@ -5630,7 +5771,10 @@ function bind(){
   $("lightingVideoResultTab").onclick=()=>showLightingVideoResult(true);
   $("saveLightingAiVideoBtn").onclick=saveLightingAiVideoToShot;
   $("toggleVirtualExploreBtn").onclick=toggleVirtualExplore;
-  $("enablePhoneLookBtn").onclick=enablePhoneLook;
+  $("enablePhoneLookBtn").onclick=()=>enablePhoneLook();
+  $("handheldCameraBtn").onclick=toggleHandheldCameraMode;
+  $("recordHandheldTakeBtn").onclick=toggleHandheldRecording;
+  $("clearHandheldTakeBtn").onclick=clearHandheldTake;
   $("resetVirtualExploreBtn").onclick=resetVirtualExplore;
   $("placeCameraFromExplorerBtn").onclick=placeShotCameraFromExplorer;
   document.querySelectorAll("[data-virtual-move]").forEach(button=>{
@@ -5655,7 +5799,7 @@ function bind(){
   document.querySelectorAll(".accordion details").forEach(d=>d.addEventListener("toggle",()=>rememberWorkspace()));
   window.addEventListener("scroll",queueWorkspaceScrollSave,{passive:true});
   document.addEventListener("visibilitychange",()=>{
-    if(document.hidden)rememberWorkspace();
+    if(document.hidden){if(app.lighting.handheld.recording)finishHandheldRecording({message:"Handheld take stopped when FilmBoard moved to the background."});rememberWorkspace()}
     else if(app.mode==="cloud"&&app.current){
       loadAiUsage();
       if(chatActivelyVisible())renderChatMessages();

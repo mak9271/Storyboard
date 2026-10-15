@@ -15,11 +15,11 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="filmboard-styles-v5141.css" />
-  <link rel="stylesheet" href="filmboard-neo-v5141.css" />
+  <link rel="stylesheet" href="filmboard-styles-v516.css" />
+  <link rel="stylesheet" href="filmboard-neo-v516.css" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0"></script>
-  <script src="filmboard-config-v5141.js"></script>
-  <meta name="storyboard-build" content="v5.14.1-dark-neo-controls" />
+  <script src="filmboard-config-v516.js"></script>
+  <meta name="storyboard-build" content="v5.16.0-handheld-ar" />
 </head>
 <body>
 
@@ -930,8 +930,14 @@
           <div id="virtualExploreControls" class="virtual-explore-controls" hidden>
             <button id="toggleVirtualExploreBtn" type="button">Explore Location</button>
             <button id="enablePhoneLookBtn" type="button">Phone Look</button>
+            <button id="handheldCameraBtn" type="button" aria-pressed="false">Handheld Camera</button>
+            <button id="recordHandheldTakeBtn" type="button" class="handheld-record-btn" hidden>Record Take</button>
+            <button id="clearHandheldTakeBtn" type="button" hidden>Clear Take</button>
             <button id="resetVirtualExploreBtn" type="button">Reset View</button>
             <button id="placeCameraFromExplorerBtn" type="button" class="primary">Place Shot Camera Here</button>
+          </div>
+          <div id="handheldRecordingHud" class="handheld-recording-hud" hidden aria-live="polite">
+            <i aria-hidden="true"></i><strong id="handheldRecordingSource">REC</strong><span id="handheldRecordingTime">00:00:00:00</span>
           </div>
           <div id="virtualWalkPad" class="virtual-walk-pad" hidden aria-label="Virtual location movement controls">
             <button type="button" data-virtual-move="w" aria-label="Move forward">▲</button>
@@ -946,46 +952,50 @@
 
         <section id="lightingCameraTimeline" class="lighting-camera-timeline" aria-label="Shot movement timeline">
           <header>
-            <div><strong>SHOT TIMELINE <span class="lighting-engine-version">KF 5.13</span></strong><small>Camera and character keyframes share one playhead and shot duration.</small></div>
+            <div><strong>SHOT TIMELINE <span class="lighting-engine-version">MOTION 5.16</span></strong><small>Camera keyframes, handheld takes and character motion share one playhead.</small></div>
             <label>Duration <input id="lightingTimelineDuration" type="number" min="0.25" max="120" step="0.25" value="4" /> s</label>
           </header>
-          <div class="lighting-timeline-timebar">
-            <label class="lighting-timeline-time">Time <input id="lightingTimelineTime" type="number" min="0" max="4" step="0.01" value="0" /> s</label>
-            <div class="lighting-timeline-track-wrap">
-              <input id="lightingTimelineScrubber" type="range" min="0" max="4" step="0.01" value="0" aria-label="Timeline playhead" />
-              <div id="lightingTimelineTicks" class="lighting-timeline-ticks" aria-hidden="true"></div>
-            </div>
-          </div>
-          <div class="lighting-keyframe-lanes" aria-label="Keyframe tracks">
-            <div class="lighting-keyframe-lane camera-lane">
-              <div class="lighting-keyframe-lane-head">
-                <span><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="7" width="12" height="10" rx="2"></rect><path d="m15 10 6-3v10l-6-3z"></path></svg> Camera <b id="lightingCameraKeyframeCount" class="lighting-keyframe-count">0</b></span>
-                <button id="lightingAddKeyframeBtn" type="button">Add Keyframe</button>
-                <button id="lightingDeleteKeyframeBtn" type="button">Delete</button>
+          <div id="lightingTimelineScroll" class="lighting-timeline-scroll" tabindex="0" aria-label="Scrollable shot timeline">
+            <div id="lightingTimelineScrollInner" class="lighting-timeline-scroll-inner">
+              <div class="lighting-timeline-timebar">
+                <label class="lighting-timeline-time">Time <input id="lightingTimelineTime" type="number" min="0" max="4" step="0.01" value="0" /> s</label>
+                <div class="lighting-timeline-track-wrap">
+                  <input id="lightingTimelineScrubber" type="range" min="0" max="4" step="0.01" value="0" aria-label="Timeline playhead" />
+                  <div id="lightingTimelineTicks" class="lighting-timeline-ticks" aria-hidden="true"></div>
+                </div>
               </div>
-              <div class="lighting-keyframe-rail"><div id="lightingTimelineMarkers" class="lighting-timeline-markers"></div></div>
-            </div>
-            <div class="lighting-keyframe-lane character-lane">
-              <div class="lighting-keyframe-lane-head">
-                <label><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="6" r="3"></circle><path d="M7 21v-5l2-5h6l2 5v5M9 14l-4 3M15 14l4 3"></path></svg><select id="lightingTimelineCharacter" aria-label="Character timeline"></select><b id="lightingCharacterKeyframeCount" class="lighting-keyframe-count">0</b></label>
-                <button id="lightingAddCharacterKeyframeBtn" type="button">Add Keyframe</button>
-                <button id="lightingDeleteCharacterKeyframeBtn" type="button">Delete</button>
+              <div class="lighting-keyframe-lanes" aria-label="Keyframe tracks">
+                <div class="lighting-keyframe-lane camera-lane">
+                  <div class="lighting-keyframe-lane-head">
+                    <span><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="7" width="12" height="10" rx="2"></rect><path d="m15 10 6-3v10l-6-3z"></path></svg> Camera <b id="lightingCameraKeyframeCount" class="lighting-keyframe-count">0</b></span>
+                    <button id="lightingAddKeyframeBtn" type="button">Add Keyframe</button>
+                    <button id="lightingDeleteKeyframeBtn" type="button">Delete</button>
+                  </div>
+                  <div class="lighting-keyframe-rail"><div id="lightingHandheldTakeTrack" class="lighting-handheld-take-track"></div><div id="lightingTimelineMarkers" class="lighting-timeline-markers"></div></div>
+                </div>
+                <div class="lighting-keyframe-lane character-lane">
+                  <div class="lighting-keyframe-lane-head">
+                    <label><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="6" r="3"></circle><path d="M7 21v-5l2-5h6l2 5v5M9 14l-4 3M15 14l4 3"></path></svg><select id="lightingTimelineCharacter" aria-label="Character timeline"></select><b id="lightingCharacterKeyframeCount" class="lighting-keyframe-count">0</b></label>
+                    <button id="lightingAddCharacterKeyframeBtn" type="button">Add Keyframe</button>
+                    <button id="lightingDeleteCharacterKeyframeBtn" type="button">Delete</button>
+                  </div>
+                  <div class="lighting-keyframe-rail"><div id="lightingCharacterTimelineMarkers" class="lighting-timeline-markers character-markers"></div></div>
+                </div>
               </div>
-              <div class="lighting-keyframe-rail"><div id="lightingCharacterTimelineMarkers" class="lighting-timeline-markers character-markers"></div></div>
+              <div id="lightingKeyframeSnapshot" class="lighting-keyframe-snapshot" aria-live="polite">
+                <span class="lighting-keyframe-pose-empty">Move the camera or character, then add a keyframe.</span>
+              </div>
+              <div class="lighting-timeline-actions">
+                <button id="lightingPlaybackPlayBtn" type="button" class="lighting-playback-btn primary" disabled>▶ Play</button>
+                <button id="lightingPlaybackPauseBtn" type="button" class="lighting-playback-btn">Pause</button>
+                <button id="lightingPlaybackStopBtn" type="button" class="lighting-playback-btn">Stop</button>
+                <button id="lightingDeleteSelectedKeyframeBtn" type="button" class="lighting-playback-btn danger" disabled aria-label="Delete selected keyframe" title="Delete selected keyframe">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"></path></svg><span>Delete Keyframe</span>
+                </button>
+                <button id="exportLightingVideoBtn" type="button" class="lighting-playback-btn export">3D Animatic</button>
+                <span id="lightingPlaybackStatus" class="lighting-playback-status" aria-live="polite">Add a camera or character keyframe to start.</span>
+              </div>
             </div>
-          </div>
-          <div id="lightingKeyframeSnapshot" class="lighting-keyframe-snapshot" aria-live="polite">
-            <span class="lighting-keyframe-pose-empty">Move the camera or character, then add a keyframe.</span>
-          </div>
-          <div class="lighting-timeline-actions">
-            <button id="lightingPlaybackPlayBtn" type="button" class="lighting-playback-btn primary" disabled>▶ Play</button>
-            <button id="lightingPlaybackPauseBtn" type="button" class="lighting-playback-btn">Pause</button>
-            <button id="lightingPlaybackStopBtn" type="button" class="lighting-playback-btn">Stop</button>
-            <button id="lightingDeleteSelectedKeyframeBtn" type="button" class="lighting-playback-btn danger" disabled aria-label="Delete selected keyframe" title="Delete selected keyframe">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"></path></svg><span>Delete Keyframe</span>
-            </button>
-            <button id="exportLightingVideoBtn" type="button" class="lighting-playback-btn export">3D Animatic</button>
-            <span id="lightingPlaybackStatus" class="lighting-playback-status" aria-live="polite">Add a camera or character keyframe to start.</span>
           </div>
         </section>
       </main>
@@ -1431,7 +1441,7 @@
     </div>
   </dialog>
 
-  <script src="filmboard-i18n-v5141.js"></script>
-  <script src="filmboard-app-v5141.js"></script>
+  <script src="filmboard-i18n-v516.js"></script>
+  <script src="filmboard-app-v516.js"></script>
 </body>
 </html>

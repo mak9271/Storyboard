@@ -1,4 +1,4 @@
-// FilmBoard v5.10.0 — English / Persian interface
+// FilmBoard v5.16.0 — English / Persian interface
 (() => {
   "use strict";
 
@@ -560,6 +560,11 @@
     "Exit Explore":"خروج از کاوش",
     "Phone Look":"نگاه با گوشی",
     "Stop Phone Look":"توقف نگاه با گوشی",
+    "Handheld Camera":"دوربین روی دست",
+    "Record Take":"ضبط برداشت",
+    "Stop Recording":"توقف ضبط",
+    "Clear Take":"حذف برداشت",
+    "Handheld Take":"برداشت روی دست",
     "Reset View":"بازنشانی نما",
     "Place Shot Camera Here":"قرار دادن دوربین شات در اینجا",
     "Move the phone to look · use the arrows or W A S D to walk":"گوشی را برای نگاه‌کردن حرکت دهید · برای راه‌رفتن از پیکان‌ها یا W A S D استفاده کنید",

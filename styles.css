@@ -1147,6 +1147,110 @@ html[data-layout-mode="mobile"] .account-modal-card{width:100%;max-width:none}
   html,body{height:auto!important;overflow:visible!important}
 }
 
+/* v5.15 — stable portrait Camera View, phone-width timeline scroller and 2D playback. */
+.lighting-timeline-scroll{min-width:0}
+.lighting-timeline-scroll-inner{min-width:0}
+
+@media(max-width:760px){
+  :root{--lighting-mobile-timeline-height:clamp(228px,29dvh,250px)}
+  html.lighting-workspace-open,
+  html.lighting-workspace-open body{width:100%;height:100%;max-width:100%;overflow:hidden!important}
+  .lighting-studio-modal{
+    position:fixed!important;inset:0!important;width:100vw!important;height:100dvh!important;
+    max-width:none!important;max-height:none!important;margin:0!important;overflow:hidden!important;
+    transform:none!important;contain:layout paint
+  }
+  .lighting-studio-shell{width:100%!important;height:100%!important;min-height:0;overflow:hidden!important}
+  .lighting-studio-stage{
+    position:absolute!important;inset:0!important;width:100%!important;height:100%!important;
+    min-width:0;min-height:0;overflow:hidden!important;box-sizing:border-box
+  }
+  .lighting-camera-timeline{
+    position:absolute!important;left:max(6px,env(safe-area-inset-left))!important;
+    right:max(6px,env(safe-area-inset-right))!important;bottom:max(6px,env(safe-area-inset-bottom))!important;
+    width:auto!important;height:var(--lighting-mobile-timeline-height)!important;min-height:0!important;max-height:none!important;
+    box-sizing:border-box;padding:7px 8px!important;overflow:hidden!important;
+    display:flex;flex-direction:column;contain:layout paint;overscroll-behavior:contain
+  }
+  .lighting-camera-timeline>header{
+    position:relative!important;left:auto!important;flex:0 0 auto;width:100%!important;min-width:0!important;
+    align-items:center;gap:7px;margin-bottom:5px
+  }
+  .lighting-camera-timeline>header>div{min-width:0}
+  .lighting-camera-timeline>header strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:8px}
+  .lighting-camera-timeline>header small{display:none}
+  .lighting-camera-timeline>header label{flex:0 0 auto;white-space:nowrap}
+  .lighting-camera-timeline>header input[type=number]{width:52px}
+  .lighting-timeline-scroll{
+    flex:1 1 auto;width:100%;min-width:0;min-height:0;overflow-x:auto;overflow-y:hidden;
+    -webkit-overflow-scrolling:touch;touch-action:pan-x;overscroll-behavior-x:contain;
+    scrollbar-width:thin;scrollbar-color:#3b7e90 #11191d
+  }
+  .lighting-timeline-scroll::-webkit-scrollbar{height:5px}
+  .lighting-timeline-scroll::-webkit-scrollbar-track{background:#11191d;border-radius:99px}
+  .lighting-timeline-scroll::-webkit-scrollbar-thumb{background:#3b7e90;border-radius:99px}
+  .lighting-timeline-scroll-inner{
+    width:var(--lighting-timeline-content-width,680px);min-width:var(--lighting-timeline-content-width,680px);
+    height:100%;box-sizing:border-box;padding-right:8px
+  }
+  .lighting-timeline-scroll-inner .lighting-timeline-timebar,
+  .lighting-timeline-scroll-inner .lighting-keyframe-lanes,
+  .lighting-timeline-scroll-inner .lighting-keyframe-snapshot,
+  .lighting-timeline-scroll-inner .lighting-timeline-actions{width:100%;min-width:0!important;box-sizing:border-box}
+  .lighting-keyframe-lane{grid-template-columns:210px minmax(260px,1fr)}
+  .lighting-playback-status{max-width:190px}
+  .lighting-plan-view,.lighting-camera-view{
+    bottom:calc(var(--lighting-mobile-timeline-height) + max(12px,env(safe-area-inset-bottom)))!important;
+    min-width:0;min-height:0;overflow:hidden
+  }
+  .lighting-studio-stage.camera-companion{
+    position:absolute!important;inset:0!important;width:100%!important;height:100%!important;min-width:0;min-height:0;
+    box-sizing:border-box;padding:0 0 calc(var(--lighting-mobile-timeline-height) + max(12px,env(safe-area-inset-bottom)))!important;
+    display:grid!important;grid-template-columns:minmax(0,1fr)!important;
+    grid-template-rows:minmax(0,var(--lighting-mobile-camera,55%)) 13px minmax(0,1fr)!important;
+    overflow:hidden!important
+  }
+  .lighting-studio-stage.camera-companion .lighting-camera-view{
+    position:relative!important;inset:auto!important;bottom:auto!important;grid-row:1;
+    width:100%!important;height:100%!important;min-width:0;min-height:0;overflow:hidden!important
+  }
+  .lighting-studio-stage.camera-companion .lighting-split-handle{
+    position:relative!important;inset:auto!important;grid-row:2;width:100%;height:13px;min-width:0
+  }
+  .lighting-studio-stage.camera-companion .lighting-plan-view{
+    position:relative!important;inset:auto!important;bottom:auto!important;grid-row:3;
+    width:100%!important;height:100%!important;min-width:0!important;min-height:0!important;
+    max-width:none!important;max-height:none!important;aspect-ratio:auto!important;overflow:hidden!important
+  }
+  .lighting-studio-stage.camera-companion .lighting-plan-view .lighting-plan-canvas-wrap{inset:40px 0 0!important}
+  .lighting-studio-stage.camera-companion .lighting-3d-viewport,
+  .lighting-studio-stage.camera-companion .lighting-3d-viewport canvas{width:100%!important;height:100%!important;max-width:100%;max-height:100%}
+  .lighting-save-float{bottom:calc(var(--lighting-mobile-timeline-height) + max(16px,env(safe-area-inset-bottom)))!important}
+}
+
+/* v5.16 — phone-driven handheld camera recording on the Camera timeline. */
+.virtual-explore-controls .handheld-record-btn{position:relative;padding-left:24px;border-color:#8f3138;background:#3a1115;color:#ffd9dc}
+.virtual-explore-controls .handheld-record-btn:before{content:"";position:absolute;left:9px;top:50%;width:8px;height:8px;border-radius:50%;background:#ff4e59;box-shadow:0 0 10px rgba(255,78,89,.72);transform:translateY(-50%)}
+.virtual-explore-controls .handheld-record-btn:hover{border-color:#d54a54;color:#fff}
+.virtual-explore-controls .handheld-record-btn.recording{border-color:#ff5d66;background:#5a151b;color:#fff;animation:handheldRecordButtonPulse 1.15s ease-in-out infinite}
+@keyframes handheldRecordButtonPulse{50%{box-shadow:0 0 0 4px rgba(255,75,87,.12),0 0 18px rgba(255,75,87,.24)}}
+.handheld-recording-hud{position:absolute;z-index:10;right:18px;top:78px;display:flex;align-items:center;gap:7px;padding:8px 11px;border:1px solid rgba(255,88,98,.56);border-radius:9px;background:rgba(45,8,12,.84);box-shadow:0 0 24px rgba(255,55,69,.18);backdrop-filter:blur(10px);color:#fff;font:850 9px/1 ui-monospace,SFMono-Regular,Menlo,monospace;pointer-events:none}
+.handheld-recording-hud[hidden]{display:none!important}.handheld-recording-hud i{width:9px;height:9px;border-radius:50%;background:#ff4c58;box-shadow:0 0 12px #ff4c58;animation:handheldRecDot .8s steps(2,end) infinite}.handheld-recording-hud strong{color:#ff8790;letter-spacing:.12em}.handheld-recording-hud span{min-width:76px;font-variant-numeric:tabular-nums}
+@keyframes handheldRecDot{50%{opacity:.2}}
+.lighting-camera-view.handheld-enabled .viewfinder-rec{color:#ff7d86}.lighting-camera-view.handheld-recording .viewfinder-gate{border-color:#ff8f96;box-shadow:inset 0 0 0 1px rgba(255,93,103,.24)}
+.lighting-handheld-take-track{position:absolute;z-index:2;inset:2px 18px;overflow:visible;pointer-events:none}
+.lighting-handheld-take-segment{position:absolute;left:0;top:1px;height:24px;min-width:8px;overflow:hidden;border:1px solid #b3424b;border-radius:6px;background:repeating-linear-gradient(135deg,rgba(255,91,102,.34) 0 5px,rgba(94,22,29,.65) 5px 10px);box-shadow:inset 0 0 12px rgba(255,68,83,.16);color:#ffd9dc;white-space:nowrap}
+.lighting-handheld-take-segment span{position:absolute;left:7px;top:4px;font:900 6px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.08em}.lighting-handheld-take-segment small{position:absolute;right:6px;bottom:3px;color:#ffadb3;font:800 6px/1 ui-monospace,SFMono-Regular,Menlo,monospace}
+.lighting-handheld-take-segment.recording{border-color:#ff6a73;background:repeating-linear-gradient(135deg,rgba(255,89,100,.55) 0 5px,rgba(118,20,29,.82) 5px 10px);animation:handheldTakeBand 1s linear infinite}
+@keyframes handheldTakeBand{50%{filter:brightness(1.24)}}
+.lighting-keyframe-pose.handheld{border-color:#8d3941;background:#201014}.lighting-keyframe-pose.handheld strong{color:#ff8f97}
+
+@media(max-width:760px){
+  .handheld-recording-hud{left:50%;right:auto;top:auto;bottom:58px;transform:translateX(-50%);padding:7px 9px}
+  .lighting-handheld-take-track{left:18px;right:18px}
+  .virtual-explore-controls .handheld-record-btn{padding-left:26px}
+}
+
 /* v5.1 — live diagram companion, spatial Bible and physical light library */
 .lighting-plan-canvas-wrap{position:absolute;inset:0;overflow:hidden;background:#080a0c}
 .lighting-plan-pip-header{display:flex;align-items:center;justify-content:space-between;gap:10px;height:38px;padding:0 8px 0 11px;border-bottom:1px solid rgba(255,255,255,.1);background:linear-gradient(180deg,#172026,#0e1418);cursor:grab;touch-action:none;user-select:none}

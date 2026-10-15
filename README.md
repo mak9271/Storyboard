@@ -1,6 +1,27 @@
-# FilmBoard v5.14.1 — Neo-Skeuo Cinema
+# FilmBoard v5.16.0 — AR Handheld Camera Takes
 
-## v5.14.1 changes
+## v5.16.0 changes
+
+- Adds a **Handheld Camera** mode to Lighting Diagram → Camera View. Enabling it enters Explore and requests iPhone motion access when the browser supports it.
+- Reveals a dedicated red **Record Take** control only while Handheld Camera mode is active.
+- Records the rendered camera position, height, pan, tilt and roll at 20 motion samples per second for the full Shot Timeline duration, with an on-screen REC timecode and automatic stop at the end of the shot.
+- Stores one replaceable handheld take per camera in `lighting_diagrams.data.timeline.handheldTakes`, displays it as a red motion band on the existing Camera keyframe lane and provides **Clear Take**.
+- Makes Play, 2D top/elevation preview, Camera View playback and the free 3D Animatic renderer consume the same recorded handheld motion.
+- Supports physical XYZ + quaternion tracking from the existing `storyboardVirtualLocationPose(...)` native AR bridge. In a web browser, device orientation records phone rotation while the Explore pad / keyboard supplies position.
+- Uses cache-safe v5.16 assets: `filmboard-app-v516.js`, `filmboard-styles-v516.css`, `filmboard-i18n-v516.js`, `filmboard-config-v516.js` and `filmboard-neo-v516.css`.
+- No new SQL migration is required for v5.16.0; handheld takes are saved inside the existing Lighting Diagram timeline JSON.
+
+## v5.15.0 changes
+
+- Fixes the portrait-phone Camera View layout so opening the split Camera/Diagram workspace no longer changes the page height, shifts the interface upward or distorts the viewfinder area.
+- Reserves one stable viewport region for the phone timeline and one for Camera/Diagram content, including iPhone safe-area insets and the draggable split divider.
+- Keeps the timeline panel at the phone width while giving its tracks a duration-aware horizontal canvas that can be swiped all the way to the last keyframe.
+- Keeps the timeline header and Duration field visible while the time ruler, Camera/Character tracks, saved-pose readout and controls scroll horizontally.
+- Runs shot playback independently of the Three.js Camera View, so pressing **Play** in Diagram mode now animates the camera and character markers directly on the 2D top and side views.
+- Automatically follows the playhead inside the phone timeline during playback without moving the whole page.
+- No new SQL migration is required for v5.15.0; all changes are responsive layout and client-side playback updates.
+
+## v5.14.1 changes (visual system retained)
 
 - Keeps the tactile Neo-Skeuo button shapes, hover states, pressed states and layered borders while restoring FilmBoard's original dark graphite and cyan color palette.
 - Replaces the Projects folder grid with expandable file-cabinet drawers. Each folder opens in place and reveals the projects inside it.
@@ -19,7 +40,6 @@
 - Counts Unicode code points consistently in the browser and Worker, preventing surrogate-pair characters from being counted twice.
 - Removes invisible zero-width characters from imported and pasted screenplay text, preventing short documents from being rejected because of hidden copy/paste data.
 - Adds `supabase-v5.13-screenplay-format.sql` for the screenplay title and structured character list.
-- Uses unique v5.13 asset filenames: `filmboard-app-v5141.js`, `filmboard-styles-v5141.css`, `filmboard-i18n-v5141.js` and `filmboard-config-v5141.js`.
 
 ## Previous v5.12.0 changes
 
