@@ -1,7 +1,7 @@
 {
   "name": "FilmBoard",
-  "version": "5.16.0",
-  "build": "v5.16.0-handheld-ar",
+  "version": "5.18.0",
+  "build": "v5.18.0-script-production-responsive",
   "keyframeEngine": "5.16",
   "screenplayFormat": "1.0",
   "animaticEngine": "1.0",

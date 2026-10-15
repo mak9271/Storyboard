@@ -1,4 +1,23 @@
-# FilmBoard v5.16.0 — AR Handheld Camera Takes
+# FilmBoard v5.18.0 — Responsive Camera, Multilingual Script & Production PDF
+
+## v5.18.0 changes
+
+- Makes Camera View use the full phone screen in landscape while the 2D diagram and timeline remain movable overlay workspaces.
+- Adds independent minimize/restore bars to Side / Elevation and Shot Timeline on portrait phones, landscape phones and desktop.
+- Keeps Persian AI screenplay breakdowns in Persian—from the Characters field through Bible character/location descriptions—and keeps English breakdowns in English.
+- Adds structured dialogue line ranges to the Worker response, automatic centered dialogue formatting and a manual Center button in the Script toolbar.
+- Replaces the line-by-line Script Reference Map with scene groups containing separate shot references and exact linked excerpts.
+- Makes Screenplay Title and Characters equally sized, enlarges their field text and gives long character lists a fixed scrollable area.
+- Adds circular Interior, Exterior, Story Day and Story Night percentages to the Production Dashboard.
+- Adds project-wide resource creation and removal in every Production Manager category, while detected items can also be removed.
+- Adds browser PDF export for the full Production Dashboard and for each visible section.
+- Uses cache-safe v5.18 assets: `filmboard-app-v518.js`, `filmboard-styles-v518.css`, `filmboard-i18n-v518.js`, `filmboard-config-v518.js` and `filmboard-neo-v518.css`.
+- No new SQL migration is required for v5.18.0; the new resource list is stored inside the existing script analysis JSON.
+
+## v5.17.0 changes
+
+- Corrects the Side / Elevation projection so its horizontal axis represents plan depth and preserves Top View `x` while dragging.
+- Projects camera/light direction rays from real plan rotation and tilt and adds Front/Back axis labels.
 
 ## v5.16.0 changes
 
@@ -238,7 +257,7 @@ This build adds the requested selected-keyframe deletion, adaptive app themes, s
 - Tries the configured multilingual GLM model first, then automatically tries Cloudflare's multilingual Gemma 4 fallback through an independent request path.
 - Adds a deterministic local scene parser as the final safety layer. Even if both Cloudflare text models are unavailable, valid saved scripts receive scene boundaries, INT/EXT, day/night, locations, dialogue-cue characters, line ranges and explicit high-level production flags instead of a failed request.
 - Clearly labels local recovery as incomplete production analysis and shows a support code. The result remains reviewable and can be applied, or re-analyzed later for full AI production details.
-- Extends `/api/ai/health` with the active Script model, fallback model and `prompt-json-v2` pipeline identifier so deployments can be verified without signing in.
+- Extends `/api/ai/health` with the active Script model, fallback model and current `prompt-json-v3` pipeline identifier so deployments can be verified without signing in.
 
 ## Production features retained from v4.9.1
 

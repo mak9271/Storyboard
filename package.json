@@ -1,11 +1,11 @@
 {
-  "name": "filmboard-v5-16-0-handheld-ar",
+  "name": "filmboard-v5-18-0-script-production-responsive",
   "private": true,
-  "version": "5.16.0",
+  "version": "5.18.0",
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
-    "check": "node --check app.js && node --check filmboard-app-v516.js && node --check worker.js && npm test",
+    "check": "node --check app.js && node --check filmboard-app-v518.js && node --check worker.js && npm test",
     "deploy": "wrangler deploy"
   },
   "devDependencies": {

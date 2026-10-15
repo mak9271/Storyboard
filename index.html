@@ -15,11 +15,11 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="filmboard-styles-v516.css" />
-  <link rel="stylesheet" href="filmboard-neo-v516.css" />
+  <link rel="stylesheet" href="filmboard-styles-v518.css" />
+  <link rel="stylesheet" href="filmboard-neo-v518.css" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0"></script>
-  <script src="filmboard-config-v516.js"></script>
-  <meta name="storyboard-build" content="v5.16.0-handheld-ar" />
+  <script src="filmboard-config-v518.js"></script>
+  <meta name="storyboard-build" content="v5.18.0-script-production-responsive" />
 </head>
 <body>
 
@@ -616,6 +616,7 @@
           <div class="script-format-actions" aria-label="Selected text formatting">
             <button id="scriptBoldBtn" class="btn ghost script-format-btn" type="button" aria-label="Bold selected text" title="Bold" aria-pressed="false"><strong>B</strong></button>
             <button id="scriptUnderlineBtn" class="btn ghost script-format-btn" type="button" aria-label="Underline selected text" title="Underline" aria-pressed="false"><u>U</u></button>
+            <button id="scriptCenterBtn" class="btn ghost script-format-btn" type="button" aria-label="Center selected dialogue" title="Center selected dialogue" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 10h10M4 14h16M7 18h10"></path></svg></button>
             <button id="scriptFontDecreaseBtn" class="btn ghost script-format-btn" type="button" aria-label="Decrease selected text size" title="Decrease text size">−</button>
             <output id="scriptFontSizeValue" class="script-font-size-value" aria-live="polite" aria-label="Selected text size">14</output>
             <button id="scriptFontIncreaseBtn" class="btn ghost script-format-btn" type="button" aria-label="Increase selected text size" title="Increase text size">＋</button>
@@ -637,7 +638,7 @@
         </div>
         <div id="scriptAnalysisResults" class="script-analysis-results" hidden></div>
         <div id="scriptLinkList" class="script-link-list"></div>
-        <div class="script-map-head"><div><strong>Script Reference Map</strong><small>Each line shows the shot references that overlap it.</small></div><span id="scriptCoverageBadge" class="script-coverage-badge">0% linked</span></div>
+        <div class="script-map-head"><div><strong>Script Reference Map</strong><small>References are grouped by scene, with each linked text section listed under its shot.</small></div><span id="scriptCoverageBadge" class="script-coverage-badge">0% linked</span></div>
         <div id="scriptLineMap" class="script-line-map"></div>
        </div>
       </section>
@@ -833,6 +834,7 @@
               <option value="sfx_vfx">SFX / VFX</option>
             </select>
           </label>
+          <button id="exportProductionDashboardBtn" type="button" class="btn ghost production-export-all">Export Full PDF</button>
         </div>
         <div id="productionDashboard" class="production-dashboard"></div>
       </section>
@@ -893,7 +895,9 @@
                 <svg id="lightingCanvas" viewBox="0 0 1200 800" role="img" aria-label="Lighting diagram top view"></svg>
               </section>
               <section class="lighting-plan-pane lighting-plan-elevation-pane">
-                <div class="lighting-view-label">SIDE / ELEVATION</div>
+                <button id="lightingElevationToggle" type="button" class="lighting-pane-minimize-bar" aria-expanded="true" title="Minimize Side / Elevation">
+                  <span>SIDE / ELEVATION</span><i aria-hidden="true">−</i>
+                </button>
                 <svg id="lightingElevationCanvas" viewBox="0 0 1200 500" role="img" aria-label="Lighting diagram side elevation"></svg>
               </section>
             </div>
@@ -951,9 +955,10 @@
         </div>
 
         <section id="lightingCameraTimeline" class="lighting-camera-timeline" aria-label="Shot movement timeline">
-          <header>
+          <header id="lightingTimelineHeader" class="lighting-timeline-minimize-bar" tabindex="0" role="button" aria-expanded="true" aria-label="Minimize shot timeline">
             <div><strong>SHOT TIMELINE <span class="lighting-engine-version">MOTION 5.16</span></strong><small>Camera keyframes, handheld takes and character motion share one playhead.</small></div>
             <label>Duration <input id="lightingTimelineDuration" type="number" min="0.25" max="120" step="0.25" value="4" /> s</label>
+            <button id="lightingTimelineMinimizeBtn" type="button" class="lighting-window-minimize" aria-label="Minimize shot timeline" title="Minimize shot timeline">−</button>
           </header>
           <div id="lightingTimelineScroll" class="lighting-timeline-scroll" tabindex="0" aria-label="Scrollable shot timeline">
             <div id="lightingTimelineScrollInner" class="lighting-timeline-scroll-inner">
@@ -1441,7 +1446,7 @@
     </div>
   </dialog>
 
-  <script src="filmboard-i18n-v516.js"></script>
-  <script src="filmboard-app-v516.js"></script>
+  <script src="filmboard-i18n-v518.js"></script>
+  <script src="filmboard-app-v518.js"></script>
 </body>
 </html>

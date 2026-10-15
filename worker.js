@@ -1,4 +1,4 @@
-// FilmBoard v5.16.0 AI gateway: AR handheld takes + structured screenplay + FLUX + Runway/Veo.
+// FilmBoard v5.18.0 AI gateway: multilingual screenplay dialogue + production dashboard + FLUX + Runway/Veo.
 const DEFAULT_MODEL = "@cf/black-forest-labs/flux-2-klein-4b";
 const ALLOWED_MODEL = new Set([DEFAULT_MODEL]);
 const DEFAULT_SCRIPT_MODEL = "@cf/zai-org/glm-4.7-flash";
@@ -7,7 +7,7 @@ const ALLOWED_SCRIPT_MODELS = new Set([DEFAULT_SCRIPT_MODEL,SCRIPT_FALLBACK_MODE
 const MAX_JSON_BYTES = 96 * 1024;
 const MAX_SCRIPT_JSON_BYTES = 920 * 1024;
 const MAX_SCRIPT_CHARS = 180000;
-const SCRIPT_PIPELINE_VERSION = "prompt-json-v2";
+const SCRIPT_PIPELINE_VERSION = "prompt-json-v3";
 const MAX_REFERENCE_BYTES = 12 * 1024 * 1024;
 const MAX_CHARACTER_REFERENCES = 3;
 const VIDEO_PROVIDERS = new Set(["runway","veo"]);
@@ -191,27 +191,30 @@ const SCRIPT_JSON_SHAPE=`{
     "shoot_time":"Unspecified|Dawn|Morning|Day|Sunset|Twilight|Night",
     "time_strategy":"natural|day_for_night|night_for_day", "script_day":"value or Unspecified",
     "unit":"value or Unspecified", "special_location":false, "characters":["name"],
+    "dialogues":[{"character":"speaker name","start_line":1,"end_line":2}],
     "production_elements":[{"category":"extras|props|set_dressing|wardrobe|makeup_hair|vehicles|animals|stunts|special_effects|visual_effects|sound_music|special_equipment|location_requirements|safety_security|production_notes|risk_flags","name":"concise explicit requirement"}],
     "start_line":1, "end_line":1
   }]
 }`;
 function scriptSlug(value,index){const slug=clean(value,100).toLowerCase().replace(/[^a-z0-9_-]+/g,"-").replace(/^-+|-+$/g,"");return slug||`scene-${String(index+1).padStart(3,"0")}`}
 function scriptTime(value){const text=clean(value,30);return ["Unspecified","Dawn","Morning","Day","Sunset","Twilight","Night"].includes(text)?text:"Unspecified"}
-function normalizeScriptBreakdown(raw,totalLines){
-  const source=raw&&typeof raw==="object"?raw:{},characters=new Map(),locations=new Map(),sceneKeys=new Set();
+function detectScriptLanguage(value){const text=String(value||""),persian=(text.match(/[\u0600-\u06ff]/g)||[]).length,latin=(text.match(/[A-Za-z]/g)||[]).length;if(persian>=12&&latin>=12&&Math.min(persian,latin)/Math.max(persian,latin)>=.28)return "mixed";if(persian>latin)return "fa";if(latin)return "en";return persian?"fa":"en"}
+function normalizeScriptBreakdown(raw,totalLines,preferredLanguage=""){
+  const source=raw&&typeof raw==="object"?raw:{},language=["fa","en","mixed"].includes(preferredLanguage)?preferredLanguage:clean(source.language,20)||"Unknown",fa=language==="fa",characters=new Map(),locations=new Map(),sceneKeys=new Set(),fallbacks={character:fa?"شخصیت تکرارشونده در فیلمنامه شناسایی شد؛ پیش از تولید، هویت بصری و لباس ثابت او را کامل کنید.":"Recurring character detected in the screenplay; add stable visual identity and costume details before generation.",location:fa?"لوکیشن تکرارشونده در فیلمنامه شناسایی شد؛ پیش از تولید، معماری، چیدمان و پالت رنگی ثابت آن را کامل کنید.":"Recurring location detected in the screenplay; add stable architecture, layout and palette details before generation.",scene:fa?"صحنهٔ فیلمنامه":"Script scene"};
   const addAsset=(map,item,fallback)=>{const value=typeof item==="string"?{name:item}:item||{},name=clean(value.name,100);if(!name)return;const key=name.toLocaleLowerCase();if(!map.has(key))map.set(key,{name,description:clean(value.description,900)||fallback})};
   const cleanList=(items,max=80)=>[...new Set((Array.isArray(items)?items:[]).map(value=>clean(value,240)).filter(Boolean))].slice(0,max);
-  for(const item of Array.isArray(source.characters)?source.characters:[])addAsset(characters,item,"Recurring character detected in the screenplay; add stable visual identity and costume details before generation.");
-  for(const item of Array.isArray(source.locations)?source.locations:[])addAsset(locations,item,"Recurring location detected in the screenplay; add stable architecture, layout and palette details before generation.");
+  for(const item of Array.isArray(source.characters)?source.characters:[])addAsset(characters,item,fallbacks.character);
+  for(const item of Array.isArray(source.locations)?source.locations:[])addAsset(locations,item,fallbacks.location);
   const scenes=(Array.isArray(source.scenes)?source.scenes:[]).slice(0,500).map((item,index)=>{
     const row=item&&typeof item==="object"?item:{},characterNames=[...new Set((Array.isArray(row.characters)?row.characters:[]).map(value=>clean(value,100)).filter(Boolean))].slice(0,40),location=clean(row.location,100),story=scriptTime(row.story_time),shoot=scriptTime(row.shoot_time),strategy=["natural","day_for_night","night_for_day"].includes(row.time_strategy)?row.time_strategy:"natural",start=Math.max(1,Math.min(totalLines,Number(row.start_line)||1)),end=Math.max(start,Math.min(totalLines,Number(row.end_line)||start)),baseKey=scriptSlug(row.key,index);
-    let key=baseKey,suffix=2;while(sceneKeys.has(key)){key=`${baseKey}-${suffix}`;suffix++}sceneKeys.add(key);for(const name of characterNames)addAsset(characters,{name},"Recurring character detected in the screenplay; add stable visual identity and costume details before generation.");if(location)addAsset(locations,{name:location},"Recurring location detected in the screenplay; add stable architecture, layout and palette details before generation.");
-    const normalized={key,title:clean(row.title,160)||`Scene ${index+1}`,description:clean(row.description,900)||"Script scene",location,interior_exterior:["INT","EXT","INT/EXT","Unspecified"].includes(row.interior_exterior)?row.interior_exterior:"Unspecified",story_time:story,shoot_time:shoot==="Unspecified"?story:shoot,time_strategy:strategy,script_day:clean(row.script_day,80)||"Unspecified",unit:clean(row.unit,80)||"Unspecified",special_location:!!row.special_location,characters:characterNames,start_line:start,end_line:end};
+    let key=baseKey,suffix=2;while(sceneKeys.has(key)){key=`${baseKey}-${suffix}`;suffix++}sceneKeys.add(key);for(const name of characterNames)addAsset(characters,{name},fallbacks.character);if(location)addAsset(locations,{name:location},fallbacks.location);
+    const dialogues=(Array.isArray(row.dialogues)?row.dialogues:[]).map(item=>{const dialogue=item&&typeof item==="object"?item:{},dialogueStart=Math.max(start,Math.min(end,Number(dialogue.start_line)||start)),dialogueEnd=Math.max(dialogueStart,Math.min(end,Number(dialogue.end_line)||dialogueStart));return {character:clean(dialogue.character,100),start_line:dialogueStart,end_line:dialogueEnd}}).slice(0,160);
+    const normalized={key,title:clean(row.title,160)||(fa?`صحنه ${index+1}`:`Scene ${index+1}`),description:clean(row.description,900)||fallbacks.scene,location,interior_exterior:["INT","EXT","INT/EXT","Unspecified"].includes(row.interior_exterior)?row.interior_exterior:"Unspecified",story_time:story,shoot_time:shoot==="Unspecified"?story:shoot,time_strategy:strategy,script_day:clean(row.script_day,80)||"Unspecified",unit:clean(row.unit,80)||"Unspecified",special_location:!!row.special_location,characters:characterNames,dialogues,start_line:start,end_line:end};
     for(const field of SCRIPT_PRODUCTION_FIELDS)normalized[field]=cleanList(row[field]);
     for(const element of Array.isArray(row.production_elements)?row.production_elements:[]){const field=SCRIPT_PRODUCTION_CATEGORIES[clean(element?.category,40)],name=clean(element?.name,240);if(field&&name&&!normalized[field].includes(name)&&normalized[field].length<80)normalized[field].push(name)}
     return normalized
   });
-  return {title:clean(source.title,160)||"Imported Script",language:clean(source.language,80)||"Unknown",characters:[...characters.values()],locations:[...locations.values()],scenes}
+  return {title:clean(source.title,160)||(fa?"فیلمنامهٔ واردشده":"Imported Script"),language,characters:[...characters.values()],locations:[...locations.values()],scenes}
 }
 function numberedScript(text){return String(text).split("\n").map((line,index)=>`L${String(index+1).padStart(5,"0")}: ${line}`).join("\n")}
 function parseScriptModelResult(result){
@@ -239,35 +242,40 @@ function localCharacterCue(line){
   if(/^[A-Z][A-Z0-9 .'-]{1,35}(?:\s*\([^)]*\))?$/.test(value)){const name=clean(value.replace(/\s*\([^)]*\)\s*$/,"").replace(/\s+/g," "),80);if(!/^(?:CUT TO|FADE IN|FADE OUT|DISSOLVE TO|CONTINUED|THE END|DAY|NIGHT)$/.test(name))return name}
   return ""
 }
-function localProductionElements(text){
+function localProductionElements(text,language="en"){
+  const fa=language==="fa";
   const rules=[
-    ["vehicles",/\b(?:car|truck|bus|motorcycle|vehicle)\b|خودرو|ماشین|کامیون|اتوبوس|موتورسیکلت/iu,"Vehicle mentioned in script"],
-    ["animals",/\b(?:dog|cat|horse|animal)\b|سگ|گربه|اسب|حیوان/iu,"Animal mentioned in script"],
-    ["stunts",/\b(?:fight|fall|chase|stunt)\b|درگیری|سقوط|تعقیب|بدلکاری/iu,"Stunt or physical action mentioned in script"],
-    ["special_effects",/\b(?:fire|smoke|explosion|rain machine)\b|آتش|دود|انفجار|باران مصنوعی/iu,"Practical effect mentioned in script"],
-    ["safety_security",/\b(?:gun|weapon|knife|fire|explosion)\b|اسلحه|تفنگ|چاقو|آتش|انفجار/iu,"Safety-sensitive action or item mentioned in script"]
+    ["vehicles",/\b(?:car|truck|bus|motorcycle|vehicle)\b|خودرو|ماشین|کامیون|اتوبوس|موتورسیکلت/iu,fa?"وسیلهٔ نقلیهٔ ذکرشده در فیلمنامه":"Vehicle mentioned in script"],
+    ["animals",/\b(?:dog|cat|horse|animal)\b|سگ|گربه|اسب|حیوان/iu,fa?"حیوان ذکرشده در فیلمنامه":"Animal mentioned in script"],
+    ["stunts",/\b(?:fight|fall|chase|stunt)\b|درگیری|سقوط|تعقیب|بدلکاری/iu,fa?"بدلکاری یا کنش فیزیکی ذکرشده در فیلمنامه":"Stunt or physical action mentioned in script"],
+    ["special_effects",/\b(?:fire|smoke|explosion|rain machine)\b|آتش|دود|انفجار|باران مصنوعی/iu,fa?"جلوهٔ عملی ذکرشده در فیلمنامه":"Practical effect mentioned in script"],
+    ["safety_security",/\b(?:gun|weapon|knife|fire|explosion)\b|اسلحه|تفنگ|چاقو|آتش|انفجار/iu,fa?"کنش یا وسیلهٔ نیازمند تمهیدات ایمنی":"Safety-sensitive action or item mentioned in script"]
   ];return rules.filter(([,pattern])=>pattern.test(text)).map(([category,,name])=>({category,name}))
 }
+function localDialogueRanges(lines,start,end){
+  const ranges=[];for(let index=start;index<=end;index++){const line=String(lines[index]||""),character=localCharacterCue(line);if(!character)continue;const inline=/[:：]\s*\S/u.test(line);if(inline){ranges.push({character,start_line:index+1,end_line:index+1});continue}let last=index;for(let cursor=index+1;cursor<=end;cursor++){const value=String(lines[cursor]||"").trim();if(!value||localSceneHeading(value)||localCharacterCue(value))break;last=cursor}if(last>index)ranges.push({character,start_line:index+2,end_line:last+1})}return ranges
+}
 function localScriptBreakdown(scriptText){
-  const lines=String(scriptText||"").replace(/\r\n?/g,"\n").split("\n"),headers=[];for(let index=0;index<lines.length;index++)if(localSceneHeading(lines[index]))headers.push(index);if(!headers.length)headers.push(0);
+  const language=detectScriptLanguage(scriptText),fa=language==="fa",lines=String(scriptText||"").replace(/\r\n?/g,"\n").split("\n"),headers=[];for(let index=0;index<lines.length;index++)if(localSceneHeading(lines[index]))headers.push(index);if(!headers.length)headers.push(0);
   const characters=new Map(),locations=new Map(),scenes=headers.map((start,index)=>{const end=index+1<headers.length?headers[index+1]-1:lines.length-1,heading=localHeadingParts(lines[start],index),body=lines.slice(start+(localSceneHeading(lines[start])?1:0),end+1),sceneCharacters=[];
-    for(const line of body){const name=localCharacterCue(line);if(name&&!sceneCharacters.includes(name)){sceneCharacters.push(name);if(!characters.has(name.toLocaleLowerCase()))characters.set(name.toLocaleLowerCase(),{name,description:"Character cue detected in the screenplay; add stable identity and costume details before generation."})}}
-    if(!locations.has(heading.location.toLocaleLowerCase()))locations.set(heading.location.toLocaleLowerCase(),{name:heading.location,description:"Location detected from the screenplay scene heading; add stable architecture, layout and palette details before generation."});
-    const description=clean(body.map(line=>clean(line,240)).filter(line=>line&&!localCharacterCue(line)&&!/^\s*\([^)]*\)\s*$/.test(line)).slice(0,4).join(" "),900)||"Script scene";
-    return {key:scriptSlug(heading.title,index),title:heading.title,description,location:heading.location,interior_exterior:heading.interior_exterior,story_time:heading.story_time,shoot_time:heading.story_time,time_strategy:"natural",script_day:"Unspecified",unit:"Unspecified",special_location:false,characters:sceneCharacters,production_elements:localProductionElements(body.join("\n")),start_line:start+1,end_line:Math.max(start+1,end+1)}
+    for(const line of body){const name=localCharacterCue(line);if(name&&!sceneCharacters.includes(name)){sceneCharacters.push(name);if(!characters.has(name.toLocaleLowerCase()))characters.set(name.toLocaleLowerCase(),{name,description:fa?"نام این شخصیت از نشانهٔ دیالوگ در فیلمنامه تشخیص داده شد؛ هویت بصری و لباس ثابت او را کامل کنید.":"Character cue detected in the screenplay; add stable identity and costume details before generation."})}}
+    if(!locations.has(heading.location.toLocaleLowerCase()))locations.set(heading.location.toLocaleLowerCase(),{name:heading.location,description:fa?"این لوکیشن از سرتیتر صحنه تشخیص داده شد؛ معماری، چیدمان و پالت رنگی ثابت آن را کامل کنید.":"Location detected from the screenplay scene heading; add stable architecture, layout and palette details before generation."});
+    const description=clean(body.map(line=>clean(line,240)).filter(line=>line&&!localCharacterCue(line)&&!/^\s*\([^)]*\)\s*$/.test(line)).slice(0,4).join(" "),900)||(fa?"صحنهٔ فیلمنامه":"Script scene");
+    return {key:scriptSlug(heading.title,index),title:heading.title,description,location:heading.location,interior_exterior:heading.interior_exterior,story_time:heading.story_time,shoot_time:heading.story_time,time_strategy:"natural",script_day:"Unspecified",unit:"Unspecified",special_location:false,characters:sceneCharacters,dialogues:localDialogueRanges(lines,start,end),production_elements:localProductionElements(body.join("\n"),language),start_line:start+1,end_line:Math.max(start+1,end+1)}
   });
-  const persian=(scriptText.match(/[\u0600-\u06ff]/g)||[]).length,latin=(scriptText.match(/[A-Za-z]/g)||[]).length,language=persian&&latin?"mixed":persian?"fa":"en";return {title:scenes[0]?.title||"Imported Script",language,characters:[...characters.values()],locations:[...locations.values()],scenes}
+  return {title:scenes[0]?.title||(fa?"فیلمنامهٔ واردشده":"Imported Script"),language,characters:[...characters.values()],locations:[...locations.values()],scenes}
 }
 function scriptPrompt(scriptText,totalLines,metadata={}){
-  const system="You are a meticulous multilingual screenplay breakdown assistant for an Assistant Director and Production Manager. Read Persian, English or mixed-language screenplays. Use only evidence in the supplied text; never invent people, places, props, effects, permits or logistics. Identify every scene in order and normalize recurring names. Story time is the finished-film time. Shooting time changes only when the script explicitly says Day for Night or Night for Day. Keep production elements concise and evidence-based. Return ONLY one valid JSON object: no markdown, preface, commentary or code fence.";
+  const language=detectScriptLanguage(scriptText),system="You are a meticulous multilingual screenplay breakdown assistant for an Assistant Director and Production Manager. Read Persian, English or mixed-language screenplays. Use only evidence in the supplied text; never invent people, places, props, effects, permits or logistics. Identify every scene in order and normalize recurring names. Detect every dialogue block and return its exact numbered line range. Story time is the finished-film time. Shooting time changes only when the script explicitly says Day for Night or Night for Day. Keep production elements concise and evidence-based. Return ONLY one valid JSON object: no markdown, preface, commentary or code fence.";
   const cast=(Array.isArray(metadata.character_list)?metadata.character_list:[]).slice(0,120).map(row=>typeof row==="string"?row:`${row?.name||""}${row?.description?` — ${row.description}`:""}`).filter(Boolean).join("; "),identity=[metadata.screenplay_title?`Declared title: ${clean(metadata.screenplay_title,240)}.`:"",cast?`Declared character list: ${clean(cast,12000)}.`:""].filter(Boolean).join("\n");
-  const user=`Analyze this screenplay. It contains ${totalLines} numbered lines. start_line and end_line must use those exact L-numbers. Classify each scene as INT, EXT or INT/EXT and identify its story time (Day, Night, Dawn, Morning, Sunset or Twilight). Treat character-name cue lines followed by speech as dialogue evidence. Keep descriptions concise so the complete JSON is returned.${identity?`\n${identity}`:""}\nUse this exact shape and keys:\n${SCRIPT_JSON_SHAPE}\n\nSCREENPLAY:\n${numberedScript(scriptText)}`;return [{role:"system",content:system},{role:"user",content:user}]
+  const languageRule=language==="fa"?"The screenplay language is Persian. Write every character name, character description, location name, location description, scene title, scene summary and production element in Persian. Do not translate those free-text fields into English.":language==="en"?"The screenplay language is English. Write every free-text output field in English.":"The screenplay is mixed-language. Preserve each name in the form used by the screenplay and write descriptions in the dominant surrounding language.";
+  const user=`Analyze this screenplay. It contains ${totalLines} numbered lines. ${languageRule} start_line, end_line and every dialogues line range must use those exact L-numbers. Classify each scene as INT, EXT or INT/EXT and identify its story time (Day, Night, Dawn, Morning, Sunset or Twilight). A dialogue entry starts on the first spoken-text line and ends on the final spoken-text line; keep its character cue in character. Also detect inline forms such as NAME: speech or نام: دیالوگ. Keep descriptions concise so the complete JSON is returned.${identity?`\n${identity}`:""}\nUse this exact shape and keys:\n${SCRIPT_JSON_SHAPE}\n\nSCREENPLAY:\n${numberedScript(scriptText)}`;return [{role:"system",content:system},{role:"user",content:user}]
 }
 function shortAiError(error){const value=[error?.name,error?.message,error?.cause?.message,error?.error?.message].filter(Boolean).join(": ");return clean(value,500)||"Unknown model error"}
 async function analyzeScriptWithModel(env,scriptText,metadata={}){
-  const primary=ALLOWED_SCRIPT_MODELS.has(env.SCRIPT_AI_MODEL)?env.SCRIPT_AI_MODEL:DEFAULT_SCRIPT_MODEL,secondary=primary===SCRIPT_FALLBACK_MODEL?DEFAULT_SCRIPT_MODEL:SCRIPT_FALLBACK_MODEL,totalLines=scriptText.split("\n").length,messages=scriptPrompt(scriptText,totalLines,metadata),failures=[];
-  if(env.AI)for(const [index,model] of [primary,secondary].entries())try{const result=await env.AI.run(model,{messages}),raw=parseScriptModelResult(result);if(!Array.isArray(raw?.scenes)||!raw.scenes.length)throw new Error("The script model returned no scenes.");return {analysis:normalizeScriptBreakdown(raw,totalLines),model,analysisMode:index?"ai_model_fallback":"ai_prompt"}}catch(error){failures.push({model,error:shortAiError(error)});console.warn("Script analysis model attempt failed",{model,error:shortAiError(error)})}
-  const requestId=crypto.randomUUID(),analysis=normalizeScriptBreakdown(localScriptBreakdown(scriptText),totalLines);console.error("Script analysis used local fallback",{requestId,failures});return {analysis,model:"local-scene-parser",analysisMode:"local_fallback",requestId,warning:"Cloudflare AI did not answer, so Storyboard created a local scene breakdown. Review the scenes, characters and locations; production details may be incomplete."}
+  const primary=ALLOWED_SCRIPT_MODELS.has(env.SCRIPT_AI_MODEL)?env.SCRIPT_AI_MODEL:DEFAULT_SCRIPT_MODEL,secondary=primary===SCRIPT_FALLBACK_MODEL?DEFAULT_SCRIPT_MODEL:SCRIPT_FALLBACK_MODEL,totalLines=scriptText.split("\n").length,language=detectScriptLanguage(scriptText),messages=scriptPrompt(scriptText,totalLines,metadata),failures=[];
+  if(env.AI)for(const [index,model] of [primary,secondary].entries())try{const result=await env.AI.run(model,{messages}),raw=parseScriptModelResult(result);if(!Array.isArray(raw?.scenes)||!raw.scenes.length)throw new Error("The script model returned no scenes.");return {analysis:normalizeScriptBreakdown(raw,totalLines,language),model,analysisMode:index?"ai_model_fallback":"ai_prompt"}}catch(error){failures.push({model,error:shortAiError(error)});console.warn("Script analysis model attempt failed",{model,error:shortAiError(error)})}
+  const requestId=crypto.randomUUID(),analysis=normalizeScriptBreakdown(localScriptBreakdown(scriptText),totalLines,language);console.error("Script analysis used local fallback",{requestId,failures});return {analysis,model:"local-scene-parser",analysisMode:"local_fallback",requestId,warning:language==="fa"?"هوش مصنوعی Cloudflare پاسخ نداد؛ بنابراین FilmBoard یک تحلیل محلی ساخت. صحنه‌ها، شخصیت‌ها و لوکیشن‌ها را بررسی کنید؛ جزئیات تولید ممکن است کامل نباشد.":"Cloudflare AI did not answer, so FilmBoard created a local scene breakdown. Review the scenes, characters and locations; production details may be incomplete."}
 }
 function scriptAnalysisFailureMessage(error){
   const detail=[error?.message,error?.primary?.message,error?.cause?.message].filter(Boolean).join(" ").toLowerCase();

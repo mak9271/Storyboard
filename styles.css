@@ -1251,6 +1251,56 @@ html[data-layout-mode="mobile"] .account-modal-card{width:100%;max-width:none}
   .virtual-explore-controls .handheld-record-btn{padding-left:26px}
 }
 
+/* v5.18 — responsive Camera View, collapsible lighting windows, screenplay language and production exports. */
+.lighting-pane-minimize-bar{
+  position:absolute;z-index:7;left:8px;right:8px;top:8px;display:flex;align-items:center;justify-content:space-between;
+  min-height:30px;padding:0 9px;border:1px solid rgba(116,221,245,.2);border-radius:7px;
+  background:rgba(10,17,20,.88);color:#86a8b3;font:900 8px/1 inherit;letter-spacing:.13em;cursor:pointer
+}
+.lighting-pane-minimize-bar:hover{border-color:#388aa0;color:#8ce9ff}.lighting-pane-minimize-bar i{font-size:14px;font-style:normal;letter-spacing:0}
+.lighting-plan-elevation-pane.is-minimized{min-width:38px!important;min-height:38px!important}.lighting-plan-elevation-pane.is-minimized svg{display:none!important}
+.lighting-plan-elevation-pane.is-minimized .lighting-pane-minimize-bar{inset:4px;min-height:30px;padding:0;justify-content:center;writing-mode:vertical-rl}
+.lighting-plan-elevation-pane.is-minimized .lighting-pane-minimize-bar span{display:none}.lighting-plan-elevation-pane.is-minimized .lighting-pane-minimize-bar i{writing-mode:horizontal-tb}
+.lighting-plan-views:has(.lighting-plan-elevation-pane.is-minimized){grid-template-columns:minmax(0,1fr) 40px}
+.lighting-studio-stage.camera-companion .lighting-plan-views:has(.lighting-plan-elevation-pane.is-minimized){grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) 38px}
+.lighting-timeline-minimize-bar{cursor:pointer;user-select:none}.lighting-window-minimize{display:grid;place-items:center;flex:0 0 28px;width:28px;height:28px;padding:0;border:1px solid #31505a;border-radius:7px;background:#101a1e;color:#91e8fb;font:900 16px/1 inherit;cursor:pointer}
+.lighting-camera-timeline.is-minimized{height:44px!important;min-height:44px!important;max-height:44px!important;padding:6px 8px!important;overflow:hidden!important}
+.lighting-camera-timeline.is-minimized>header{height:30px!important;margin:0!important;align-items:center!important}.lighting-camera-timeline.is-minimized>header label,.lighting-camera-timeline.is-minimized>header small{display:none!important}.lighting-camera-timeline.is-minimized>.lighting-timeline-scroll{display:none!important}
+.lighting-studio-stage.timeline-minimized:not(.camera-companion) .lighting-plan-view,.lighting-studio-stage.timeline-minimized:not(.camera-companion) .lighting-camera-view{bottom:62px!important}
+
+.script-format-actions{grid-template-columns:repeat(6,34px)}.script-format-btn svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round}
+.script-rich-editor [data-script-align="center"]{display:block;width:min(68%,620px);margin:0 auto;text-align:center}
+.screenplay-front-matter{grid-template-columns:repeat(2,minmax(0,1fr));align-items:stretch}.screenplay-front-matter label{min-width:0;font-size:12px}.screenplay-front-matter input,.screenplay-front-matter textarea{height:148px;min-height:148px;max-height:148px;padding:15px;font-size:35px;line-height:1.18}.screenplay-front-matter input{white-space:nowrap;text-overflow:ellipsis}.screenplay-front-matter textarea{overflow-y:auto;resize:none}
+.script-line-map{display:grid;gap:9px;padding:9px;background:#080a0c}.script-reference-scene{overflow:hidden;border:1px solid #293940;border-radius:11px;background:#0b1114}.script-reference-scene-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 10px;border-bottom:1px solid #223139;background:#101a1f}.script-reference-scene-head>div{display:grid;gap:2px;min-width:0}.script-reference-scene-head span{color:#62d9f4;font-size:7px;font-weight:900;letter-spacing:.14em}.script-reference-scene-head strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}.script-reference-scene-head small{flex:none;color:#74858d;font-size:8px}.script-reference-shots{display:grid;gap:7px;padding:8px}.script-reference-shot{display:grid;grid-template-columns:minmax(120px,.32fr) minmax(0,1fr);gap:8px;align-items:start;padding:8px;border:1px solid #223139;border-radius:8px;background:#080d10}.script-reference-shot>.script-shot-ref{width:100%;min-height:31px;border-radius:7px}.script-reference-excerpts{display:grid;gap:5px}.script-reference-excerpts blockquote{margin:0;padding:7px 8px;border-left:2px solid #2b7082;border-radius:4px;background:#10191d;color:#bccbd0;font-size:10px;line-height:1.45}.script-reference-excerpts blockquote span{display:block;margin-bottom:2px;color:#68818a;font-size:7px;font-weight:850;letter-spacing:.06em}.script-reference-empty{padding:9px;color:#64767d;font-size:9px}
+
+.production-dashboard-head{flex-wrap:wrap}.production-export-all{min-height:38px;white-space:nowrap}.production-overview{min-width:0;max-width:100%;overflow:hidden;border:1px solid #26363d;border-radius:15px;padding:13px;background:#0a0e11}.production-donut-grid{display:grid;grid-template-columns:repeat(4,minmax(110px,1fr));gap:9px;margin-bottom:10px}.production-donut-card{display:grid;justify-items:center;gap:8px;padding:11px;border:1px solid #293b43;border-radius:12px;background:#090f12;text-align:center}.production-donut-card>b{font-size:10px}.production-donut{position:relative;display:grid;place-items:center;width:94px;height:94px;border-radius:50%;background:conic-gradient(var(--production-color) calc(var(--production-percent)*1%),#1c282e 0);box-shadow:inset 0 0 0 1px rgba(255,255,255,.04)}.production-donut:before{content:"";position:absolute;inset:10px;border-radius:50%;background:#0a1013;box-shadow:inset 0 0 0 1px #273840}.production-donut span{position:relative;z-index:1;display:grid;gap:2px;text-align:center}.production-donut strong{color:var(--production-color);font-size:18px}.production-donut small{color:#798b93;font-size:8px}.production-section-pdf{flex:0 0 auto;min-height:32px;padding:6px 9px;font-size:9px}.production-element-card header>div{display:flex;align-items:center;gap:6px}.production-resource-add,.production-resource-delete{display:grid;place-items:center;border:1px solid #315360;border-radius:6px;background:#102128;color:#8ce7fa;cursor:pointer}.production-resource-add{width:25px;height:25px;font-size:14px}.production-resource-delete{width:24px;height:24px;color:#ff9ca4;border-color:#5a343a;background:#251417;font-size:14px}.production-element-list>div{grid-template-columns:minmax(0,1fr) minmax(70px,.55fr) 24px;align-items:center}.production-resource-add:hover{background:#183540}.production-resource-delete:hover{background:#3a171c}
+
+@media(max-width:760px){
+  .lighting-studio-stage.timeline-minimized{--lighting-mobile-timeline-height:46px}
+  .lighting-plan-views:has(.lighting-plan-elevation-pane.is-minimized),.lighting-studio-stage.camera-companion .lighting-plan-views:has(.lighting-plan-elevation-pane.is-minimized){grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) 38px}
+  .lighting-plan-elevation-pane.is-minimized .lighting-pane-minimize-bar{writing-mode:horizontal-tb;justify-content:space-between;padding:0 9px}.lighting-plan-elevation-pane.is-minimized .lighting-pane-minimize-bar span{display:inline}
+  .lighting-window-minimize{width:31px;height:31px;flex-basis:31px}
+  .screenplay-front-matter{grid-template-columns:1fr}.screenplay-front-matter>small{grid-column:auto}.screenplay-front-matter input,.screenplay-front-matter textarea{height:126px;min-height:126px;max-height:126px;font-size:24px}
+  .script-format-actions{grid-template-columns:repeat(6,34px)}.script-reference-shot{grid-template-columns:1fr}.production-donut-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.production-section-head{align-items:flex-start}.production-section-pdf{min-height:34px}.production-export-all{width:100%}
+}
+
+@media(max-width:1024px) and (max-height:600px) and (orientation:landscape) and (pointer:coarse){
+  :root{--lighting-mobile-timeline-height:clamp(126px,34dvh,168px)}
+  .lighting-studio-stage.camera-companion{position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;padding:0!important;overflow:hidden!important;background:#030506}
+  .lighting-studio-stage.camera-companion .lighting-camera-view{position:absolute!important;z-index:1;inset:0!important;display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;overflow:hidden!important}
+  .lighting-studio-stage.camera-companion .lighting-3d-viewport,.lighting-studio-stage.camera-companion .lighting-3d-viewport canvas{width:100%!important;height:100%!important;max-width:none!important;max-height:none!important}
+  .lighting-studio-stage.camera-companion .lighting-split-handle{display:none!important}
+  .lighting-studio-stage.camera-companion .lighting-plan-view{position:absolute!important;z-index:12;left:max(6px,env(safe-area-inset-left))!important;right:auto!important;top:auto!important;bottom:max(6px,env(safe-area-inset-bottom))!important;width:34vw!important;height:min(48dvh,250px)!important;min-width:230px!important;min-height:118px!important;max-width:380px!important;max-height:52dvh!important;aspect-ratio:auto!important;border:1px solid rgba(106,224,249,.35)!important;border-radius:11px!important;box-shadow:0 14px 35px rgba(0,0,0,.48)!important;resize:none!important;overflow:hidden!important}
+  .lighting-studio-stage.camera-companion .lighting-plan-pip-header{display:flex!important;inset:0 0 auto!important;height:38px!important}.lighting-studio-stage.camera-companion .lighting-plan-view .lighting-plan-canvas-wrap{inset:38px 0 0!important}
+  .lighting-camera-timeline{position:absolute!important;z-index:24;left:calc(34vw + max(14px,env(safe-area-inset-left)))!important;right:max(6px,env(safe-area-inset-right))!important;bottom:max(6px,env(safe-area-inset-bottom))!important;width:auto!important;height:var(--lighting-mobile-timeline-height)!important;min-height:0!important;padding:6px 8px!important;overflow:hidden!important;display:flex;flex-direction:column}
+  .lighting-camera-timeline>header{position:relative!important;min-width:0!important;width:100%!important;align-items:center;margin-bottom:4px}.lighting-camera-timeline>header small{display:none}.lighting-timeline-scroll{flex:1 1 auto;min-height:0;overflow-x:auto;overflow-y:hidden}.lighting-timeline-scroll-inner{min-width:680px}
+  .lighting-studio-stage.timeline-minimized{--lighting-mobile-timeline-height:44px}.lighting-studio-stage.timeline-minimized .lighting-camera-timeline{left:calc(34vw + max(14px,env(safe-area-inset-left)))!important}
+  .lighting-save-float{z-index:40;right:max(8px,env(safe-area-inset-right));bottom:auto!important;top:max(58px,env(safe-area-inset-top))}
+  .virtual-explore-controls{top:max(56px,env(safe-area-inset-top));bottom:auto;max-width:72vw;overflow-x:auto}.lighting-camera-controls-hint{display:none}.lighting-camera-hud{bottom:8px}.viewfinder-topline,.viewfinder-bottomline{font-size:7px}
+}
+
+html[data-theme="light"] .production-overview,html[data-theme="light"] .production-donut-card,html[data-theme="light"] .script-reference-scene,html[data-theme="light"] .script-reference-shot{background:#f5f7f9;border-color:#d7dde3}html[data-theme="light"] .production-donut:before{background:#fff}html[data-theme="light"] .script-reference-excerpts blockquote{background:#edf2f5;color:#24313a}
+
 /* v5.1 — live diagram companion, spatial Bible and physical light library */
 .lighting-plan-canvas-wrap{position:absolute;inset:0;overflow:hidden;background:#080a0c}
 .lighting-plan-pip-header{display:flex;align-items:center;justify-content:space-between;gap:10px;height:38px;padding:0 8px 0 11px;border-bottom:1px solid rgba(255,255,255,.1);background:linear-gradient(180deg,#172026,#0e1418);cursor:grab;touch-action:none;user-select:none}
@@ -1532,3 +1582,11 @@ html[data-theme="light"] .lighting-studio-modal textarea{background:#0c0e10;colo
   .lighting-studio-toolbar>*{flex:0 0 auto}
   .lighting-studio-toolbar .lighting-save-float{position:static!important;right:auto!important;bottom:auto!important;margin-left:0}
 }
+
+/* v5.18 final cascade guards. */
+.script-format-actions{grid-template-columns:repeat(6,34px)!important}
+.lighting-plan-elevation-pane.is-minimized,.lighting-studio-stage.camera-companion .lighting-plan-elevation-pane.is-minimized{min-width:38px!important;min-height:38px!important}
+.lighting-plan-elevation-pane.is-minimized svg{display:none!important}
+.lighting-plan-views:has(.lighting-plan-elevation-pane.is-minimized){grid-template-columns:minmax(0,1fr) 40px!important}
+.lighting-studio-stage.camera-companion .lighting-plan-views:has(.lighting-plan-elevation-pane.is-minimized){grid-template-columns:1fr!important;grid-template-rows:minmax(0,1fr) 38px!important}
+@media(max-width:760px){.lighting-studio-stage.timeline-minimized{--lighting-mobile-timeline-height:46px}.lighting-plan-views:has(.lighting-plan-elevation-pane.is-minimized),.lighting-studio-stage.camera-companion .lighting-plan-views:has(.lighting-plan-elevation-pane.is-minimized){grid-template-columns:1fr!important;grid-template-rows:minmax(0,1fr) 38px!important}}
